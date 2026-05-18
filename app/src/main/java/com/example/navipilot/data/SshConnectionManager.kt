@@ -388,12 +388,13 @@ class SshConnectionManager(private val context: Context) {
         }
 
     /**
-     * 执行上传后的清理和重新编译操作
+     * 执行上传后的清理和重启操作
      *
      * 在上传模型文件后执行以下操作：
      * 1. 切换到 /data/openpilot 目录
-     * 2. 删除旧的元数据和模型编译文件
-     * 3. 尝试禁用缓存强制重新编译 modeld（如果 scons 可用）
+     * 2. 删除所有 pkl 相关文件（*.pkl*）
+     * 3. 执行 scons -c 清理编译（如果 scons 可用）
+     * 4. 执行 sudo reboot 重启设备
      *
      * 注意：部分 comma3 设备可能没有安装 scons，此时跳过编译步骤，
      * 重启后 openpilot 会自动检测并加载新模型。
@@ -402,114 +403,44 @@ class SshConnectionManager(private val context: Context) {
         try {
             appendUserLog("开始清理旧模型文件...")
 
-            // 1. 删除旧的元数据文件
-            val cleanMetadata = execCommand(
-                "cd /data/openpilot && rm -f selfdrive/modeld/models/*_metadata.pkl",
+            // 1. 删除所有 pkl 相关文件
+            val cleanPklFiles = execCommand(
+                "cd /data/openpilot && rm -f selfdrive/modeld/models/*.pkl*",
                 timeoutSec = 30L
             )
-            if (cleanMetadata.isFailure) {
-                val error = cleanMetadata.exceptionOrNull()
-                appendUserLog("清理元数据文件失败: ${error?.message}")
+            if (cleanPklFiles.isFailure) {
+                val error = cleanPklFiles.exceptionOrNull()
+                appendUserLog("清理 pkl 文件失败: ${error?.message}")
                 // 继续执行，不中断流程（文件可能不存在）
             } else {
-                appendUserLog("元数据文件清理完成")
+                appendUserLog("pkl 文件清理完成")
             }
 
-            // 2. 删除旧的 tinygrad 编译文件
-            val cleanTinygrad = execCommand(
-                "cd /data/openpilot && rm -f selfdrive/modeld/models/*_tinygrad.pkl*",
-                timeoutSec = 30L
-            )
-            if (cleanTinygrad.isFailure) {
-                val error = cleanTinygrad.exceptionOrNull()
-                appendUserLog("清理 tinygrad 文件失败: ${error?.message}")
-                // 继续执行，不中断流程（文件可能不存在）
-            } else {
-                appendUserLog("Tinygrad 文件清理完成")
-            }
-
-            // 3. 尝试重建 modeld（可选）
-            // 说明：
-            // - openpilot 在启动时会自动检测并加载新模型；本步骤仅用于“预热”/加速首次加载。
-            // - 非交互式 SSH 会话的 PATH 可能不完整；优先 source launch_env.sh 再执行 scons。
-            // - 若设备无编译环境（常见于量产/精简系统），则跳过该步骤，不影响模型生效。
-            appendUserLog("尝试重建 modeld（可选，可能需要 1-3 分钟）...")
+            // 2. 执行清理编译（scons -c）
+            appendUserLog("执行清理编译（scons -c）...")
             val rebuildResult = execCommand(
-                """
-                bash -lc 'cd /data/openpilot || exit 1;
-                  if [ -f ./launch_env.sh ]; then source ./launch_env.sh >/dev/null 2>&1 || true; fi;
-                  if ! command -v scons >/dev/null 2>&1; then echo "__NAVIPILOT_NO_SCONS__"; exit 0; fi;
-                  rm -f /tmp/navipilot_modeld_rebuild.log;
-                  scons -j4 --cache-disable selfdrive/modeld/ >/tmp/navipilot_modeld_rebuild.log 2>&1;
-                  scons_ec=${'$'}?;
-                  echo "__NAVIPILOT_SCONS_EXIT__${'$'}{scons_ec}";
-                  tail -n 120 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true;
-                  if grep -q "Traceback (most recent call last)" /tmp/navipilot_modeld_rebuild.log 2>/dev/null; then
-                    echo "__NAVIPILOT_TRACEBACK__";
-                    awk "/Traceback \\(most recent call last\\)/{p=1} p{print}" /tmp/navipilot_modeld_rebuild.log | tail -n 160 2>/dev/null || true;
-                  fi;
-                  exit 0'
-                """.trimIndent(),
+                "cd /data/openpilot && scons -c",
                 timeoutSec = 300L
             )
 
             if (rebuildResult.isFailure) {
                 val errorMsg = rebuildResult.exceptionOrNull()?.message ?: ""
-                appendUserLog("modeld 重建失败: $errorMsg")
+                appendUserLog("清理编译失败: $errorMsg")
                 appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
                 // 不返回失败，继续后续流程
             } else {
-                val output = rebuildResult.getOrNull().orEmpty()
-                val lines = output.lineSequence().toList()
-                val hasNoScons = lines.any { it == "__NAVIPILOT_NO_SCONS__" }
-                val sconsExitCode = lines.firstOrNull { it.startsWith("__NAVIPILOT_SCONS_EXIT__") }
-                    ?.removePrefix("__NAVIPILOT_SCONS_EXIT__")
-                    ?.trim()
-                    ?.toIntOrNull()
+                appendUserLog("清理编译完成")
+            }
 
-                val (tailLines, tracebackLines) = run {
-                    val tail = mutableListOf<String>()
-                    val traceback = mutableListOf<String>()
-                    var inTraceback = false
-                    for (line in lines) {
-                        when {
-                            line == "__NAVIPILOT_TRACEBACK__" -> inTraceback = true
-                            line.startsWith("__NAVIPILOT_") -> Unit
-                            inTraceback -> traceback.add(line)
-                            else -> tail.add(line)
-                        }
-                    }
-                    tail to traceback
-                }
-
-                if (hasNoScons) {
-                    appendUserLog("未检测到 scons，跳过 modeld 重建")
-                    appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
-                } else if (sconsExitCode == null) {
-                    appendUserLog("modeld 预热结果未知（未返回 scons exit code），已跳过预热")
-                    val tailText = tailLines.joinToString("\n").trim()
-                    if (tailText.isNotBlank()) {
-                        appendUserLogChunked("scons 输出（尾部）", tailText)
-                    }
-                    val tracebackText = tracebackLines.joinToString("\n").trim()
-                    if (tracebackText.isNotBlank()) {
-                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
-                    }
-                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
-                } else if (sconsExitCode != null && sconsExitCode != 0) {
-                    appendUserLog("modeld 预热失败（scons exit=$sconsExitCode），已跳过预热")
-                    val tailText = tailLines.joinToString("\n").trim()
-                    if (tailText.isNotBlank()) {
-                        appendUserLogChunked("scons 输出（尾部）", tailText)
-                    }
-                    val tracebackText = tracebackLines.joinToString("\n").trim()
-                    if (tracebackText.isNotBlank()) {
-                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
-                    }
-                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
-                } else {
-                    appendUserLog("modeld 重建完成")
-                }
+            // 3. 执行重启
+            appendUserLog("清理完成，准备重启设备...")
+            val rebootResult = rebootDevice()
+            if (rebootResult.isFailure) {
+                val error = rebootResult.exceptionOrNull()
+                appendUserLog("重启设备失败: ${error?.message}")
+                return@withContext Result.failure(Exception("清理完成但重启失败: ${error?.message}"))
+            } else {
+                appendUserLog("重启命令已发送")
             }
 
             Result.success(Unit)
