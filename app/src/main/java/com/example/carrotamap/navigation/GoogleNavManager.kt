@@ -13,6 +13,7 @@ import com.google.android.libraries.navigation.NavigationApi.NavigatorListener
 import com.google.android.libraries.navigation.Waypoint
 import com.google.android.libraries.navigation.SimulationOptions
 import com.google.android.libraries.navigation.Navigator.RouteStatus
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Google 导航管理器
@@ -290,6 +291,8 @@ class GoogleNavManager(
         destLon: Double,
         destName: String,
         simulate: Boolean = true,
+        routeTimeoutMs: Long = 15_000,
+        onNavigationStarted: (() -> Unit)? = null,
         onRouteError: ((String) -> Unit)? = null,
         networkClient: com.example.carrotamap.CarrotManNetworkClient? = null
     ) {
@@ -309,6 +312,7 @@ class GoogleNavManager(
         Log.i(TAG, "  起点: ($startLat, $startLon)")
         Log.i(TAG, "  终点: ($destLat, $destLon)")
         Log.i(TAG, "  模拟: $simulate")
+        Log.i(TAG, "  路线超时: ${routeTimeoutMs}ms")
 
         try {
             // 构建路线请求
@@ -327,8 +331,38 @@ class GoogleNavManager(
             }
 
             Log.i(TAG, "等待路线计算结果...")
-            
-            pendingRoute?.setOnResultListener { code ->
+
+            if (pendingRoute == null) {
+                val msg = "无法创建路线请求（pendingRoute 为 null）"
+                Log.e(TAG, "❌ $msg")
+                onRouteError?.invoke(msg)
+                return
+            }
+
+            val finished = AtomicBoolean(false)
+            val timeoutRunnable = Runnable {
+                if (!finished.compareAndSet(false, true)) return@Runnable
+                val msg = "路线规划超时（>${routeTimeoutMs}ms）。通常是网络/Google 服务不可用导致 SDK 长时间等待后才返回 NO_ROUTE_FOUND。"
+                Log.w(TAG, "⏱️ $msg")
+                try {
+                    nav.stopGuidance()
+                    nav.clearDestinations()
+                } catch (e: Exception) {
+                    Log.w(TAG, "超时时清理导航状态失败: ${e.message}")
+                }
+                onRouteError?.invoke(msg)
+            }
+            if (routeTimeoutMs > 0) {
+                mainHandler.postDelayed(timeoutRunnable, routeTimeoutMs)
+            }
+
+            pendingRoute.setOnResultListener { code ->
+                if (!finished.compareAndSet(false, true)) {
+                    Log.i(TAG, "收到路线状态回调（已结束/超时忽略）: $code")
+                    return@setOnResultListener
+                }
+                mainHandler.removeCallbacks(timeoutRunnable)
+
                 Log.i(TAG, "收到路线状态回调: $code")
                 when (code) {
                     RouteStatus.OK -> {
@@ -366,6 +400,8 @@ class GoogleNavManager(
                                 source_last = "google_nav"
                             )
                         }
+
+                        onNavigationStarted?.invoke()
                     }
                     RouteStatus.ROUTE_CANCELED -> {
                         val msg = "路线规划已取消"
@@ -390,10 +426,6 @@ class GoogleNavManager(
                         onRouteError?.invoke(msg)
                     }
                 }
-            } ?: run {
-                val msg = "无法创建路线请求（pendingRoute 为 null）"
-                Log.e(TAG, "❌ $msg")
-                onRouteError?.invoke(msg)
             }
 
         } catch (e: Exception) {
@@ -406,9 +438,17 @@ class GoogleNavManager(
     /**
      * 通过 Place ID 设置目的地（推荐方式，可获得更准确的路线和 ETA）
      */
-    fun startNavigationByPlaceId(placeId: String, destName: String, simulate: Boolean = true) {
+    fun startNavigationByPlaceId(
+        placeId: String,
+        destName: String,
+        simulate: Boolean = true,
+        routeTimeoutMs: Long = 15_000,
+        onNavigationStarted: (() -> Unit)? = null,
+        onRouteError: ((String) -> Unit)? = null
+    ) {
         val nav = navigator ?: run {
             Log.e(TAG, "Navigator 未初始化，无法开始导航")
+            onRouteError?.invoke("导航服务未初始化")
             return
         }
 
@@ -418,7 +458,35 @@ class GoogleNavManager(
                 .build()
 
             val pendingRoute = nav.setDestination(destination)
-            pendingRoute?.setOnResultListener { code ->
+
+            if (pendingRoute == null) {
+                val msg = "无法创建路线请求（pendingRoute 为 null）"
+                Log.e(TAG, "❌ $msg")
+                onRouteError?.invoke(msg)
+                return
+            }
+
+            val finished = AtomicBoolean(false)
+            val timeoutRunnable = Runnable {
+                if (!finished.compareAndSet(false, true)) return@Runnable
+                val msg = "路线规划超时（>${routeTimeoutMs}ms）"
+                Log.w(TAG, "⏱️ $msg")
+                try {
+                    nav.stopGuidance()
+                    nav.clearDestinations()
+                } catch (e: Exception) {
+                    Log.w(TAG, "超时时清理导航状态失败: ${e.message}")
+                }
+                onRouteError?.invoke(msg)
+            }
+            if (routeTimeoutMs > 0) {
+                mainHandler.postDelayed(timeoutRunnable, routeTimeoutMs)
+            }
+
+            pendingRoute.setOnResultListener { code ->
+                if (!finished.compareAndSet(false, true)) return@setOnResultListener
+                mainHandler.removeCallbacks(timeoutRunnable)
+
                 when (code) {
                     RouteStatus.OK -> {
                         nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
@@ -438,12 +506,19 @@ class GoogleNavManager(
                                 source_last = "google_nav"
                             )
                         }
+
+                        onNavigationStarted?.invoke()
                     }
-                    else -> Log.w(TAG, "⚠️ 路线状态: $code")
+                    RouteStatus.ROUTE_CANCELED -> onRouteError?.invoke("路线规划已取消")
+                    RouteStatus.NO_ROUTE_FOUND -> onRouteError?.invoke("未找到路线（PlaceId）")
+                    RouteStatus.NETWORK_ERROR -> onRouteError?.invoke("网络错误，无法规划路线")
+                    else -> onRouteError?.invoke("路线规划失败: $code")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ 通过 Place ID 启动导航失败: ${e.message}", e)
+            val msg = "通过 Place ID 启动导航失败: ${e.message}"
+            Log.e(TAG, "❌ $msg", e)
+            onRouteError?.invoke(msg)
         }
     }
 
