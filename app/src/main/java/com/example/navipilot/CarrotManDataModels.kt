@@ -429,7 +429,7 @@ fun CarrotManFields.withTencentSlice(transform: (CarrotManTencentSlice) -> Carro
 
 
 // 高德地图广播静态接收器 - 用于接收高德地图发送的广播，即使应用未启动
-class amapAutoStaticReceiver : BroadcastReceiver() {
+class AmapAutoStaticReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "AmapAutoStaticReceiver"
     }
