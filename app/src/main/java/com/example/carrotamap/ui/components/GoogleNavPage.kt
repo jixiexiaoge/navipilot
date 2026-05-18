@@ -101,7 +101,7 @@ fun GoogleNavPage(
                     navigator = nav
                     isReady = true
 
-                    // 将 navigator 注入 navManager
+                    // 将 navigator 注入 navManager（会自动注册监听器和初始化数据桥接）
                     navManager.setNavigator(nav)
 
                     // 设置任务移除行为
@@ -139,7 +139,7 @@ fun GoogleNavPage(
                         Log.w(TAG, "获取地图实例失败: ${e.message}")
                     }
 
-                    // 开始导航
+                    // 开始导航（如果提供了有效的目的地坐标）
                     if (goalLat != 0.0 && goalLon != 0.0) {
                         Log.i(TAG, "🚀 开始导航...")
 
@@ -149,14 +149,14 @@ fun GoogleNavPage(
                         val startLon = if (currentLon != 0.0) currentLon
                                       else carrotManFieldsState?.value?.longitude ?: 0.0
 
-                        // 使用真实路线计算（如果有VPN可以访问Google服务）
+                        // 开始导航（使用真实路线或模拟）
                         navManager.startNavigation(
                             startLat = startLat,
                             startLon = startLon,
                             destLat = goalLat,
                             destLon = goalLon,
                             destName = goalName,
-                            simulate = true,
+                            simulate = true,  // Debug 模式下使用模拟
                             onRouteError = { error ->
                                 Log.e(TAG, "❌ 路线错误: $error")
                                 routeError = error
