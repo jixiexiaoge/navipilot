@@ -77,6 +77,40 @@ class SshConnectionManager(private val context: Context) {
         get() = _connectionState.value == SshConnectionState.CONNECTED
 
     /**
+     * 格式化 OpenSSH 私钥：确保 Base64 内容每 64 个字符一行
+     * 修复粘贴或导入时丢失换行符的问题
+     */
+    private fun formatOpenSshPrivateKey(keyContent: String): String {
+        val trimmedContent = keyContent.trim()
+
+        // 检查是否包含 OpenSSH 私钥标记
+        val beginMarker = "-----BEGIN OPENSSH PRIVATE KEY-----"
+        val endMarker = "-----END OPENSSH PRIVATE KEY-----"
+
+        if (!trimmedContent.contains(beginMarker) || !trimmedContent.contains(endMarker)) {
+            // 不是 OpenSSH 格式，返回原内容（可能是 RSA 等其他格式）
+            return trimmedContent
+        }
+
+        // 提取 Base64 内容（去除 BEGIN/END 标记）
+        val base64Content = trimmedContent
+            .substringAfter(beginMarker)
+            .substringBefore(endMarker)
+            .replace(Regex("\\s+"), "") // 移除所有空白字符
+
+        // 如果 Base64 内容为空，返回原内容
+        if (base64Content.isEmpty()) {
+            return trimmedContent
+        }
+
+        // 将 Base64 内容按每 64 个字符分行
+        val formattedBase64 = base64Content.chunked(64).joinToString("\n")
+
+        // 重新组装私钥
+        return "$beginMarker\n$formattedBase64\n$endMarker"
+    }
+
+    /**
      * 连接到 SSH 服务器
      */
     suspend fun connect(
@@ -132,11 +166,12 @@ class SshConnectionManager(private val context: Context) {
                 throw Exception("无效的私钥格式。请确保使用 OpenSSH 格式私钥")
             }
 
-            // 清理私钥文件：移除多余的空格、换行，确保格式正确
-            val cleanedKeyContent = keyContent.trim()
+            // 修复 OpenSSH 私钥格式：确保 Base64 内容有正确的换行符
+            val cleanedKeyContent = formatOpenSshPrivateKey(keyContent)
             if (cleanedKeyContent != keyContent) {
                 tempKeyFile.writeText(cleanedKeyContent)
-                Log.d(TAG, "已清理私钥文件格式")
+                Log.d(TAG, "已重新格式化私钥文件")
+                Log.d(TAG, "格式化后长度: ${cleanedKeyContent.length} 字符")
             }
 
             // 使用 SSHJ 加载私钥文件
