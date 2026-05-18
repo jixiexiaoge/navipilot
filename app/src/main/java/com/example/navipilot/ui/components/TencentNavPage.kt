@@ -508,32 +508,8 @@ fun TencentNavPage(
                     Log.w(TAG, "建筑物3D效果设置失败: ${e.message}")
                 }
 
-                // 地图手势回调
-                try {
-                    val mapApi = root.javaClass.getMethod("getMapApi").invoke(root)
-                    if (mapApi != null) {
-                        val listenerClass = Class.forName("com.tencent.navix.api.layer.MapGestureListener")
-                        val proxy = java.lang.reflect.Proxy.newProxyInstance(
-                            listenerClass.classLoader,
-                            arrayOf(listenerClass)
-                        ) { _, method, _ ->
-                            when (method.name) {
-                                "onMapTouchBegin", "onScroll", "onFling" -> {
-                                    // 用户拖动地图
-                                }
-                                "onMapTouchEnd" -> {
-                                    // 用户松手
-                                }
-                            }
-                            null
-                        }
-                        mapApi.javaClass.getMethod("addTencentMapGestureListener", listenerClass)
-                            .invoke(mapApi, proxy)
-                        Log.i(TAG, "✅ 地图手势回调已注册")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "地图手势回调注册失败: ${e.message}")
-                }
+                // 🔧 修复：移除 MapGestureListener 注册（在某些 SDK 版本会导致初始化失败和 NavInfoView 崩溃）
+                // 该回调仅用于追踪用户地图交互，非核心功能，移除不影响导航
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
                 // 🔧 修复：使用 contextForTencentNavView 优先获取 Activity Context
