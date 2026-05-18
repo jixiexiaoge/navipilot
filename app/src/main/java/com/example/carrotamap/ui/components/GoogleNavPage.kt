@@ -83,14 +83,12 @@ fun GoogleNavPage(
     var navViewRef by remember { mutableStateOf<NavigationView?>(null) }
     var loadingMessage by remember { mutableStateOf("正在初始化 Google 导航...") }
 
-    // 初始化 Navigator（只执行一次）
-    LaunchedEffect(Unit) {
-        // 等待 navViewRef 准备好
-        while (navViewRef == null) {
-            kotlinx.coroutines.delay(50)
-        }
-        
-        Log.i(TAG, "开始初始化 Navigator...")
+    // 🔧 修复: Navigator 初始化必须在 navView 创建后立即同步执行
+    // 参考官方 NavViewActivity.kt，initializeNavigationApi 在 onCreate 中调用，不使用协程等待
+    LaunchedEffect(navViewRef) {
+        val view = navViewRef ?: return@LaunchedEffect
+
+        Log.i(TAG, "✅ NavigationView 已准备好，开始初始化 Navigator...")
 
         NavigationApi.getNavigator(
             context as android.app.Activity,
@@ -99,7 +97,7 @@ fun GoogleNavPage(
                     Log.i(TAG, "✅ Google Navigator 准备好了")
                     Log.i(TAG, "  目的地: ($goalLat, $goalLon) $goalName")
                     Log.i(TAG, "  起点: ($currentLat, $currentLon)")
-                    
+
                     navigator = nav
                     isReady = true
 
@@ -122,15 +120,15 @@ fun GoogleNavPage(
                         val cameraLat = if (currentLat != 0.0) currentLat else goalLat
                         val cameraLon = if (currentLon != 0.0) currentLon else goalLon
                         if (cameraLat != 0.0 && cameraLon != 0.0) {
-                            navViewRef?.getMapAsync { googleMap ->
+                            view.getMapAsync { googleMap ->
                                 try {
                                     val position = com.google.android.gms.maps.model.LatLng(cameraLat, cameraLon)
                                     val cameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(position, 15f)
                                     googleMap.moveCamera(cameraUpdate)
-                                    
+
                                     // 启用我的位置图层
                                     googleMap.isMyLocationEnabled = true
-                                    
+
                                     Log.i(TAG, "✅ 地图相机已初始化: ($cameraLat, $cameraLon)")
                                 } catch (e: Exception) {
                                     Log.w(TAG, "地图相机初始化失败: ${e.message}")
@@ -144,13 +142,13 @@ fun GoogleNavPage(
                     // 开始导航
                     if (goalLat != 0.0 && goalLon != 0.0) {
                         Log.i(TAG, "🚀 开始导航...")
-                        
+
                         // 解析起点坐标
-                        val startLat = if (currentLat != 0.0) currentLat 
+                        val startLat = if (currentLat != 0.0) currentLat
                                       else carrotManFieldsState?.value?.latitude ?: 0.0
-                        val startLon = if (currentLon != 0.0) currentLon 
+                        val startLon = if (currentLon != 0.0) currentLon
                                       else carrotManFieldsState?.value?.longitude ?: 0.0
-                        
+
                         // 使用真实路线计算（如果有VPN可以访问Google服务）
                         navManager.startNavigation(
                             startLat = startLat,
