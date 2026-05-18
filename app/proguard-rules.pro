@@ -124,10 +124,10 @@
 -dontwarn androidx.media3.**
 
 # ===========================================
-# ML Kit（车道车辆检测，JNI）
+# ML Kit（车道车辆检测，JNI）- 已移除以减小APK体积
 # ===========================================
--keep class com.google.mlkit.** { *; }
--dontwarn com.google.mlkit.**
+# -keep class com.google.mlkit.** { *; }
+# -dontwarn com.google.mlkit.**
 
 # ===========================================
 # MapLibre / OSM 地图 SDK
