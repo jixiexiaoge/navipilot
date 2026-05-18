@@ -159,7 +159,8 @@
 -keep class com.tencent.navix.api.model.NavDayNightMode { *; }
 -keep class com.tencent.navix.api.config.RouteElementConfig { *; }
 -keep class com.tencent.navix.api.config.RouteElementConfig$* { *; }
--keep class com.tencent.navix.api.layer.MapGestureListener { *; }
+# 🔧 修复：移除 MapGestureListener keep 规则（已从代码中删除，不再使用）
+# -keep class com.tencent.navix.api.layer.MapGestureListener { *; }
 -keep class com.tencent.tencentmap.mapsdk.maps.model.LatLng { *; }
 -keep class com.tencent.tencentmap.mapsdk.maps.CameraUpdate { *; }
 -keep class com.tencent.tencentmap.mapsdk.maps.CameraUpdateFactory { *; }
