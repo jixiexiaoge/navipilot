@@ -360,6 +360,69 @@ class SshConnectionManager(private val context: Context) {
         }
 
     /**
+     * 执行上传后的清理和重新编译操作
+     *
+     * 在上传模型文件后执行以下操作：
+     * 1. 切换到 /data/openpilot 目录
+     * 2. 删除旧的元数据和模型编译文件
+     * 3. 禁用缓存强制重新编译 modeld
+     */
+    suspend fun cleanAndRebuildModels(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            appendUserLog("开始清理旧模型文件...")
+
+            // 1. 删除旧的元数据文件
+            val cleanMetadata = execCommand(
+                "cd /data/openpilot && rm -f selfdrive/modeld/models/*_metadata.pkl",
+                timeoutSec = 30L
+            )
+            if (cleanMetadata.isFailure) {
+                val error = cleanMetadata.exceptionOrNull()
+                appendUserLog("清理元数据文件失败: ${error?.message}")
+                // 继续执行，不中断流程（文件可能不存在）
+            } else {
+                appendUserLog("元数据文件清理完成")
+            }
+
+            // 2. 删除旧的 tinygrad 编译文件
+            val cleanTinygrad = execCommand(
+                "cd /data/openpilot && rm -f selfdrive/modeld/models/*_tinygrad.pkl*",
+                timeoutSec = 30L
+            )
+            if (cleanTinygrad.isFailure) {
+                val error = cleanTinygrad.exceptionOrNull()
+                appendUserLog("清理 tinygrad 文件失败: ${error?.message}")
+                // 继续执行，不中断流程（文件可能不存在）
+            } else {
+                appendUserLog("Tinygrad 文件清理完成")
+            }
+
+            // 3. 禁用缓存强制重新编译（这是关键步骤，需要较长时间）
+            appendUserLog("开始重新编译模型（可能需要 1-3 分钟）...")
+            val rebuildResult = execCommand(
+                "cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/",
+                timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
+            )
+
+            if (rebuildResult.isFailure) {
+                val error = rebuildResult.exceptionOrNull()
+                appendUserLog("模型重新编译失败: ${error?.message}")
+                return@withContext Result.failure(
+                    Exception("模型重新编译失败: ${error?.message}")
+                )
+            }
+
+            appendUserLog("模型重新编译成功")
+            Result.success(Unit)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "清理和重新编译失败: ${e.message}")
+            appendUserLog("清理和重新编译失败: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 重启远程设备
      *
      * 说明：
