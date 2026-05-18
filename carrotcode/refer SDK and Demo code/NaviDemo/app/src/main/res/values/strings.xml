@@ -1,0 +1,184 @@
+<resources>
+    <string name="app_name">导航示例</string>
+    <string name="hello_world">Hello world!</string>
+    <string name="action_settings">Settings</string>
+    <string name="start_title">示例代码</string>
+    <string name="base_function">基本功能</string>
+    <string name="hud_title">HUD显示</string>
+    <string name="extend_title">扩展功能</string>
+    <string name="extend_navi_navi">自定义导航</string>
+
+    <string name="navibar_title">路径规划</string>
+    <string name="navi_car">驾车</string>
+    <string name="navi_foot">步行</string>
+    <string name="start_hud_navi">HUD显示</string>
+    <string name="complex_function">综合展示</string>
+
+
+    <string name="navi_empty_car">"驾   车"</string>
+    <string name="navi_empty_foot">"步   行"</string>
+    <string name="navi_start">"起    点"</string>
+    <string name="navi_middle">途经点</string>
+    <string name="navi_end">"终    点"</string>
+    <string name="navi_strategy">"策    略"</string>
+    <string name="navi_route">路径规划</string>
+    <string name="navi_navi">模拟导航</string>
+    <string name="start_navi_navi">实时导航</string>
+    <string name="navi_strategy_speed">速度最快</string>
+    <string name="navi_strategy_cost">避免收费</string>
+    <string name="navi_strategy_distance">距离最短</string>
+    <string name="navi_strategy_nohighway">不走高速快速路</string>
+    <string name="navi_strategy_timenojam">时间最短且躲避拥堵</string>
+    <string name="navi_strategy_costnojam">避免收费且躲避拥堵</string>
+
+    <string name="theme_blue">经典蓝</string>
+    <string name="theme_pink">可爱粉</string>
+    <string name="theme_white">简约白</string>
+
+    <string name="setting">设置</string>
+    <string name="day">白天</string>
+    <string name="night">夜间</string>
+    <string name="yes">"  是  "</string>
+    <string name="no">"  否  "</string>
+    <string name="open">打开</string>
+    <string name="close">关闭</string>
+    <string name="daynightmode">"昼夜模式    "</string>
+    <string name="deviationrecalculation">"偏航重算    "</string>
+    <string name="jamrecalculation">"拥堵重算    "</string>
+    <string name="trafficbroadcast">"交通播报    "</string>
+    <string name="camerabroadcast">摄像头播报</string>
+    <string name="screenon">"屏幕常亮    "</string>
+    <string name="routeshow">线路展示</string>
+    <string name="tapmap">点击地图设置</string>
+    <string name="starttapmap">我的位置（可点击地图设置）</string>
+    <string name="walkdescription">步行状态不可用</string>
+    <string name="routeinfo">全程   --公里/--分钟    收费 --元</string>
+    <string name="routeinfo_1">全程 </string>
+    <string name="routeinfo_2">公里/</string>
+    <string name="routeinfo_3">"分钟    收费"</string>
+    <string name="routeinfo_4">元</string>
+    <string name="routeinfo_default">--</string>
+    <string name="app_id">输入您讯飞的appid</string>
+    <string name="mypoistion">我的位置</string>
+    <string name="mappoistion">地图点选</string>
+    <string name="positioninfo">位置信息</string>
+
+    <string-array name="preference_values_tts_role">z
+        <item>xiaoyan</item>
+        <item>xiaoyu</item>
+        <item>vixy</item>
+        <item>vixq</item>
+        <item>vixf</item>
+        <item>vixm</item>
+        <item>vixl</item>
+        <item>vixr</item>
+        <item>vixyun</item>
+        <item>vixk</item>
+        <item>vixqa</item>
+        <item>vixying</item>
+        <item>vixx</item>
+        <item>vinn</item>
+        <item>vils</item>
+    </string-array>
+
+    <string name="preference_default_tts_role">xiaoyan</string>
+    <string name="preference_key_tts_speed">tts_speed</string>
+    <string name="preference_title_tts_speed">语速</string>
+    <string name="preference_default_tts_speed">50</string>
+    <string name="preference_dialog_title_tts_speed">选择语速</string>
+    <string name="preference_key_tts_volume">tts_volume</string>
+    <string name="preference_title_tts_volume">音量</string>
+    <string name="preference_default_tts_volume">50</string>
+    <string name="preference_dialog_title_tts_volume">选择音量</string>
+    <string name="preference_key_tts_pitch">tts_pitch</string>
+    <string name="preference_title_tts_pitch">语调</string>
+    <string name="preference_default_tts_pitch">50</string>
+    <string name="intell_bd_title">智能播报</string>
+
+    <string name="poi_input_type_start">从</string>
+    <string name="poi_input_type_dest">到</string>
+    <string name="poi_input_type_mid">经</string>
+
+    <string name="navi_guide_from">出发</string>
+    <string name="navi_guide_end">到达终点</string>
+
+    <string name="drawer_open">开</string>
+    <string name="drawer_close">关</string>
+
+    <!-- 首页索引 -->
+    <string name="navi_ui">导航组件<font color='red'>(新)</font></string>
+    <string name="blank"></string>
+
+    <string name="navi_start_end_poi_calculate_title">起终点算路</string>
+    <string name="navi_start_end_poi_calculate_desc">包含起点和终点的组件算路</string>
+    <string name="navi_end_poi_calculate_title">无起点算路</string>
+    <string name="navi_end_poi_calculate_desc">无起点有终点的组件算路</string>
+    <string name="navi_bywayof_poi_calculate_title">途经点算路</string>
+    <string name="navi_bywayof_poi_calculate_desc">有途经点的组件算路</string>
+    <string name="navi_ui_navi_title">组件直接导航</string>
+    <string name="navi_ui_navi_desc">组件直接导航</string>
+    <string name="navi_ui_component_theme_title">起始点算路（白色主题）</string>
+    <string name="navi_ui_custom_activity">自定义Activity的导航组件</string>
+    <string name="navi_ui_component_theme_desc">起始点算路（白色主题）</string>
+
+    <string name="navi_route_line">路径规划</string>
+    <string name="navi_route_driver_title">驾车路径规划</string>
+    <string name="navi_route_driver_desc">驾车路径规划</string>
+    <string name="navi_route_walk_title">步行路径规划</string>
+    <string name="navi_route_walk_desc">步行路径规划</string>
+    <string name="navi_route_ride_title">骑行路径规划</string>
+    <string name="navi_route_ride_desc">骑行路径规划</string>
+    <string name="navi_route_motorcycle_title">摩托车路径规划</string>
+    <string name="navi_route_motorcycle_desc">摩托车路径规划</string>
+    <string name="navi_route_ele_bike_title">骑行电动车路径规划</string>
+    <string name="navi_route_ele_bike_desc">骑行电动车路径规划</string>
+    <string name="navi_route_independent_title">独立路径规划</string>
+    <string name="navi_route_truck_title">货车导航路径规划</string>
+    <string name="navi_route_truck_desc">货车导航路径规划</string>
+
+    <string name="navi_type">多类型导航</string>
+    <string name="navi_type_gps_title">实时导航</string>
+    <string name="navi_type_gps_desc">实时导航</string>
+    <string name="navi_type_inner_voice">内置语音导航</string>
+    <string name="navi_type_truck">货车导航</string>
+
+    <string name="navi_type_emu_title">模拟导航</string>
+    <string name="navi_type_emu_desc">模拟导航</string>
+    <string name="navi_type_intelligent_title">智能巡航</string>
+    <string name="navi_type_intelligent_desc">智能巡航</string>
+    <string name="navi_type_hud_title">HUD导航</string>
+    <string name="navi_type_hud_desc">HUD导航</string>
+
+    <string name="navi_ui_custom">导航UI自定义</string>
+    <string name="navi_ui_custom_car_icon">自定义车标</string>
+    <string name="navi_ui_custom_route">自定义路线UI</string>
+    <string name="navi_ui_custom_route_style">自定义路线纹理</string>
+    <string name="navi_ui_custom_trun_across_tip">自定义路口转向提示</string>
+    <string name="navi_ui_custom_northmode">正北模式</string>
+    <string name="navi_ui_custom_wholescan_button">自定义全览模式</string>
+    <string name="navi_ui_custom_compass">自定义指南针</string>
+    <string name="navi_ui_custom_traffic_button">自定义路况按钮</string>
+    <string name="navi_ui_custom_zoom_button">自定义放大缩小按钮</string>
+    <string name="navi_ui_custom_across_overlay">自定义路口放大图</string>
+    <string name="navi_ui_custom_traffic_bar">自定义导航光柱</string>
+    <string name="navi_ui_custom_traffic_bar_new">自定义导航光柱(new)</string>
+    <string name="navi_ui_custom_route_select">自定义车道信息</string>
+
+
+    <string name="navi_custom_all">导航完全自定义示例</string>
+    <string name="navi_custom_car_route">自车改变位置和绘制路线示例</string>
+    <string name="navi_custom_road_distance_nexttip">路名、剩余距离、转向图标示例</string>
+    <string name="navi_custom_traffic_bar">绘制导航路况条示例</string>
+    <string name="navi_custom_route_way">自定义车道信息示例</string>
+    <string name="navi_custom_crossing">路口放大图示例</string>
+    <string name="navi_custom_camera">摄像头违章摄影示例</string>
+    <string name="navi_custom_navi">各组件整合导航示例</string>
+
+    <string name="navi_expand">导航扩展</string>
+    <string name="navi_expand_set_gps_data">传入GPS数据导航</string>
+    <string name="navi_expand_route_detail">展示导航路径详情</string>
+    <string name="navi_expand_switch_road">主辅路切换</string>
+    <string name="navi_expand_iflyt_voice">科大讯飞语音集成</string>
+
+
+</resources>

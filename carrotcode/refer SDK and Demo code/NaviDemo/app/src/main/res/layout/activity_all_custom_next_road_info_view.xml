@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.amap.api.maps.TextureMapView
+        android:id="@+id/navi_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+
+    <LinearLayout
+        android:id="@+id/navi_sdk_autonavi_port_leftwidget"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="#252831"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <!--剩余的公里数-->
+        <TextView
+            android:id="@+id/text_next_road_distance"
+            android:layout_width="80dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dip"
+            android:textColor="@color/white"
+            android:textSize="20.0sp" />
+
+        <!--左右转向的图标-->
+        <com.amap.navi.demo.activity.custom.view.NextTurnTipView
+            android:id="@+id/icon_next_turn_tip"
+            android:layout_width="50.0dip"
+            android:layout_height="40.0dip"
+            android:layout_gravity="center_vertical" />
+
+
+        <!--组件： 进入-->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="20dip"
+            android:gravity="left|center_vertical"
+            android:minHeight="46dp"
+            android:text="进入"
+            android:textColor="#676B70"
+            android:textSize="16.0sp" />
+
+        <!--组件： 下一路路名-->
+        <TextView
+            android:id="@+id/text_next_road_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dip"
+            android:singleLine="true"
+            android:textColor="@color/white"
+            android:textSize="20.0sp" />
+    </LinearLayout>
+
+
+</RelativeLayout>

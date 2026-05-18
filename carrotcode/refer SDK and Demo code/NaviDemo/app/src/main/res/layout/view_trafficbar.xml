@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent">
+
+    <RelativeLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_marginBottom="24dp">
+
+        <com.amap.navi.demo.activity.custom.view.TmcBarView
+            android:id="@+id/navi_sdk_apiTmcBarView"
+            android:layout_width="18dp"
+            android:layout_height="match_parent"
+            android:layout_centerHorizontal="true"
+            android:layout_marginBottom="24dp"
+            android:layout_marginLeft="4dp"
+            android:layout_marginRight="4dp"
+            android:layout_marginTop="3dp" />
+
+        <View
+            android:id="@+id/navi_sdk_tmc_bar_container"
+            android:layout_width="22dp"
+            android:layout_height="match_parent"
+            android:layout_centerHorizontal="true"
+            android:layout_marginBottom="22dp"
+            android:background="@drawable/lbs_navi_tmcbar_bg" />
+
+        <ImageView
+            android:id="@+id/navi_sdk_apiTmcBarCar"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_centerHorizontal="true"
+            android:layout_gravity="right"
+            android:src="@drawable/lbs_navi_tmcbar_cursor" />
+    </RelativeLayout>
+
+</FrameLayout>

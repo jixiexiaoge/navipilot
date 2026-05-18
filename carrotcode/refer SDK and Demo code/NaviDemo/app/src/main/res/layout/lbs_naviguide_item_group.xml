@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/white"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingTop="@dimen/guide_filling">
+
+    <ImageView
+        android:id="@+id/iv_groupIcon"
+        android:layout_width="@dimen/guide_group_icon_size"
+        android:layout_height="@dimen/guide_group_icon_size"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginLeft="@dimen/guide_filling"
+        android:layout_marginRight="@dimen/guide_filling"
+        android:background="@drawable/action2" />
+
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <RelativeLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/guide_group_icon_size">
+
+            <TextView
+                android:id="@+id/tv_before"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_marginRight="2dp"
+                android:text="从"
+                android:textColor="@color/soft_black"
+                android:textSize="@dimen/guide_detail_text_size"
+                android:visibility="visible" />
+
+            <TextView
+                android:id="@+id/tv_groupName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_toRightOf="@id/tv_before"
+                android:text="开始位置"
+                android:textColor="@color/soft_black"
+                android:textSize="@dimen/guide_group_name_text_size"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_after"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_marginLeft="2dp"
+                android:layout_toRightOf="@id/tv_groupName"
+                android:text="出发"
+                android:textColor="@color/soft_black"
+                android:textSize="@dimen/guide_detail_text_size"
+                android:visibility="visible" />
+
+            <ImageView
+                android:id="@+id/iv_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true"
+                android:layout_alignTop="@id/tv_groupName"
+                android:layout_centerVertical="true"
+                android:layout_marginRight="10dp"
+                android:background="@drawable/up" />
+        </RelativeLayout>
+
+        <TextView
+            android:id="@+id/tv_groupDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="红落定"
+            android:textColor="@color/soft_black"
+            android:textSize="@dimen/guide_detail_text_size" />
+
+        <View
+            android:id="@+id/line"
+            android:layout_width="fill_parent"
+            android:layout_height="1px"
+            android:layout_marginTop="@dimen/guide_filling"
+            android:background="#ffe2e2e2"
+            android:baselineAlignBottom="true" />
+    </LinearLayout>
+
+</LinearLayout>
