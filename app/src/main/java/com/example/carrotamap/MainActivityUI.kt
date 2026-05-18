@@ -80,6 +80,7 @@ import com.example.carrotamap.ui.components.OnboardingScreen
 import com.example.carrotamap.ui.components.TencentNavPage
 import com.example.carrotamap.ui.components.AmapMobileNavPage
 import com.example.carrotamap.ui.components.GoogleNavPage
+import com.example.carrotamap.navigation.GoogleNavManager
 import com.example.carrotamap.ui.components.GoogleWelcomeDialog
 import com.example.carrotamap.ui.components.hasGoogleWelcomeShown
 import com.example.carrotamap.ui.components.PrivacyConsentDialog
@@ -107,6 +108,7 @@ class MainActivityUI(
     fun SetupUserInterface() {
         NavipilotTheme {
             val appContext = LocalContext.current
+            val googleNavManager = remember { GoogleNavManager(appContext, core.carrotManFields) }
             
             // 🆕 隐私政策 + 新手引导流程
             var showPrivacyDialog by remember { mutableStateOf(!hasPrivacyConsent(appContext)) }
@@ -559,6 +561,7 @@ class MainActivityUI(
                         "GOOGLE" -> {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 GoogleNavPage(
+                                    navManager = googleNavManager,
                                     carrotManFieldsState = core.carrotManFields,
                                     goalLat = core.carrotManFields.value.goalPosY,
                                     goalLon = core.carrotManFields.value.goalPosX,

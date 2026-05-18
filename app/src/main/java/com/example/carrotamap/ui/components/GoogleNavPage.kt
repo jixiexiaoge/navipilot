@@ -41,6 +41,7 @@ private const val TAG = "GoogleNavPage"
 @SuppressLint("MissingPermission")
 @Composable
 fun GoogleNavPage(
+    navManager: GoogleNavManager? = null,
     carrotManFieldsState: MutableState<CarrotManFields>?,
     goalLat: Double = 0.0,
     goalLon: Double = 0.0,
@@ -53,6 +54,7 @@ fun GoogleNavPage(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val ownsNavManager = navManager == null
 
     // 三模互斥：进入页面时切换到 Google 模式，退出时恢复
     DisposableEffect(Unit) {
@@ -73,17 +75,19 @@ fun GoogleNavPage(
         }
     }
 
-    // 创建导航管理器
-    val navManager = remember { GoogleNavManager(context, carrotManFieldsState) }
+    // 创建/复用导航管理器（复用可避免重复初始化导致的几十秒等待）
+    val resolvedNavManager = navManager ?: remember { GoogleNavManager(context, carrotManFieldsState) }
 
     var isNavStarted by remember { mutableStateOf(false) }
     var routeError by remember { mutableStateOf<String?>(null) }
     var navigator by remember { mutableStateOf<Navigator?>(null) }
+    var arrivalListenerRegisteredForNav by remember { mutableStateOf<Navigator?>(null) }
     var isReady by remember { mutableStateOf(false) }
     var navViewRef by remember { mutableStateOf<NavigationView?>(null) }
     var loadingMessage by remember { mutableStateOf("正在初始化 Google 导航...") }
     var navigatorInitialized by remember { mutableStateOf(false) }
     var pendingNavigation by remember { mutableStateOf(false) }
+    var isRoutePlanning by remember { mutableStateOf(false) }
 
     // 🔧 修复: Navigator 初始化必须在 navView 创建后立即同步执行
     // 参考官方 NavViewActivity.kt，initializeNavigationApi 在 onCreate 中调用，不使用协程等待
@@ -91,6 +95,32 @@ fun GoogleNavPage(
     LaunchedEffect(navViewRef, navigatorInitialized) {
         val view = navViewRef ?: return@LaunchedEffect
         if (navigatorInitialized) return@LaunchedEffect  // 防止重复初始化
+
+        // 如果 Manager 已经持有 Navigator（例如从上次进入 Google 模式复用），直接复用避免长等待
+        if (resolvedNavManager.isReady() && resolvedNavManager.navigator != null) {
+            val nav = resolvedNavManager.navigator!!
+            navigator = nav
+            isReady = true
+            navigatorInitialized = true
+
+            if (arrivalListenerRegisteredForNav !== nav) {
+                nav.addArrivalListener {
+                    Log.i(TAG, "🏁 到达目的地")
+                    nav.clearDestinations()
+                    resolvedNavManager.stopNavigation()
+                    isNavStarted = false
+                    isRoutePlanning = false
+                }
+                arrivalListenerRegisteredForNav = nav
+            }
+
+            if (goalLat != 0.0 && goalLon != 0.0) {
+                pendingNavigation = true
+                Log.i(TAG, "📌 复用 Navigator：导航请求已排队")
+            }
+            Log.i(TAG, "✅ 复用已初始化的 Google Navigator")
+            return@LaunchedEffect
+        }
 
         navigatorInitialized = true
         Log.i(TAG, "✅ NavigationView 已准备好，开始初始化 Navigator...")
@@ -107,17 +137,21 @@ fun GoogleNavPage(
                     isReady = true
 
                     // 将 navigator 注入 navManager（会自动注册监听器和初始化数据桥接）
-                    navManager.setNavigator(nav)
+                    resolvedNavManager.setNavigator(nav)
 
                     // 设置任务移除行为
                     nav.setTaskRemovedBehavior(Navigator.TaskRemovedBehavior.QUIT_SERVICE)
 
                     // 注册到达监听器
-                    nav.addArrivalListener {
-                        Log.i(TAG, "🏁 到达目的地")
-                        nav.clearDestinations()
-                        navManager.stopNavigation()
-                        isNavStarted = false
+                    if (arrivalListenerRegisteredForNav !== nav) {
+                        nav.addArrivalListener {
+                            Log.i(TAG, "🏁 到达目的地")
+                            nav.clearDestinations()
+                            resolvedNavManager.stopNavigation()
+                            isNavStarted = false
+                            isRoutePlanning = false
+                        }
+                        arrivalListenerRegisteredForNav = nav
                     }
 
                     // 初始化地图相机（显示起点位置）
@@ -164,6 +198,8 @@ fun GoogleNavPage(
                     routeError = msg
                     isReady = false
                     navigatorInitialized = false  // 允许重试
+                    isRoutePlanning = false
+                    isNavStarted = false
                     Log.e(TAG, "❌ $msg")
                 }
             }
@@ -173,9 +209,9 @@ fun GoogleNavPage(
     // 🔧 新增: 监听 Navigator 状态并在准备好后自动开始导航
     // 这会在用户接受 ToS 后触发（ToS 对话框关闭后 isReady 变为 true）
     LaunchedEffect(isReady, pendingNavigation) {
-        if (!isReady || !pendingNavigation || isNavStarted) return@LaunchedEffect
+        if (!isReady || !pendingNavigation || isRoutePlanning || isNavStarted) return@LaunchedEffect
 
-        Log.i(TAG, "🚀 ToS 已接受，开始导航...")
+        Log.i(TAG, "🚀 Navigator 已就绪，开始规划路线...")
         pendingNavigation = false
 
         // 解析起点坐标
@@ -184,28 +220,36 @@ fun GoogleNavPage(
         val startLon = if (currentLon != 0.0) currentLon
                       else carrotManFieldsState?.value?.longitude ?: 0.0
 
+        isRoutePlanning = true
+
         // 开始导航（使用真实路线或模拟）
-        navManager.startNavigation(
+        resolvedNavManager.startNavigation(
             startLat = startLat,
             startLon = startLon,
             destLat = goalLat,
             destLon = goalLon,
             destName = goalName,
             simulate = true,  // Debug 模式下使用模拟
+            onNavigationStarted = {
+                isRoutePlanning = false
+                isNavStarted = true
+            },
             onRouteError = { error ->
                 Log.e(TAG, "❌ 路线错误: $error")
                 routeError = error
+                isRoutePlanning = false
+                isNavStarted = false
             }
         )
-        isNavStarted = true
     }
 
     // 安全退出
     val safeBack: () -> Unit = {
         try {
-            if (isNavStarted) {
-                navManager.stopNavigation()
+            if (isRoutePlanning || isNavStarted) {
+                resolvedNavManager.stopNavigation()
                 isNavStarted = false
+                isRoutePlanning = false
                 Log.i(TAG, "🔙 返回前已停止导航")
             }
         } catch (e: Exception) {
@@ -236,8 +280,10 @@ fun GoogleNavPage(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             try {
-                navManager.stopNavigation()
-                navManager.destroy()
+                resolvedNavManager.stopNavigation()
+                if (ownsNavManager) {
+                    resolvedNavManager.destroy()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "清理导航资源异常: ${e.message}")
             }
@@ -267,7 +313,7 @@ fun GoogleNavPage(
         )
 
         // 加载指示器（区分初始化和等待 ToS）
-        if (!isReady || pendingNavigation) {
+        if (!isReady || pendingNavigation || isRoutePlanning) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -287,8 +333,8 @@ fun GoogleNavPage(
                     Text(
                         text = when {
                             !isReady && !navigatorInitialized -> localized("正在初始化 Google 导航...", "Initializing Google Navigation...")
-                            !isReady && navigatorInitialized -> localized("请在弹窗中接受服务条款...", "Please accept Terms of Service...")
-                            pendingNavigation -> localized("正在规划路线...", "Planning route...")
+                            !isReady && navigatorInitialized -> localized("正在加载导航服务（可能需要几十秒）...", "Loading navigation service (may take a while)...")
+                            pendingNavigation || isRoutePlanning -> localized("正在规划路线...", "Planning route...")
                             else -> localized("正在加载 Google 导航...", "Loading Google Navigation...")
                         },
                         color = Color.White
