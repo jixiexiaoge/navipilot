@@ -365,7 +365,10 @@ class SshConnectionManager(private val context: Context) {
      * 在上传模型文件后执行以下操作：
      * 1. 切换到 /data/openpilot 目录
      * 2. 删除旧的元数据和模型编译文件
-     * 3. 禁用缓存强制重新编译 modeld
+     * 3. 尝试禁用缓存强制重新编译 modeld（如果 scons 可用）
+     *
+     * 注意：部分 comma3 设备可能没有安装 scons，此时跳过编译步骤，
+     * 重启后 openpilot 会自动检测并加载新模型。
      */
     suspend fun cleanAndRebuildModels(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -397,22 +400,34 @@ class SshConnectionManager(private val context: Context) {
                 appendUserLog("Tinygrad 文件清理完成")
             }
 
-            // 3. 禁用缓存强制重新编译（这是关键步骤，需要较长时间）
-            appendUserLog("开始重新编译模型（可能需要 1-3 分钟）...")
-            val rebuildResult = execCommand(
-                "cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/",
-                timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
+            // 3. 检查 scons 是否可用
+            val sconsCheck = execCommand(
+                "which scons",
+                timeoutSec = 10L
             )
 
-            if (rebuildResult.isFailure) {
-                val error = rebuildResult.exceptionOrNull()
-                appendUserLog("模型重新编译失败: ${error?.message}")
-                return@withContext Result.failure(
-                    Exception("模型重新编译失败: ${error?.message}")
+            if (sconsCheck.isSuccess) {
+                // scons 可用，尝试编译
+                appendUserLog("检测到 scons，开始重新编译模型（可能需要 1-3 分钟）...")
+                val rebuildResult = execCommand(
+                    "cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/",
+                    timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
                 )
+
+                if (rebuildResult.isFailure) {
+                    val error = rebuildResult.exceptionOrNull()
+                    appendUserLog("模型重新编译失败: ${error?.message}")
+                    appendUserLog("提示: 重启后 openpilot 会自动加载新模型")
+                    // 不返回失败，继续后续流程
+                } else {
+                    appendUserLog("模型重新编译成功")
+                }
+            } else {
+                // scons 不可用，跳过编译步骤
+                appendUserLog("scons 不可用，跳过编译步骤")
+                appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
             }
 
-            appendUserLog("模型重新编译成功")
             Result.success(Unit)
 
         } catch (e: Exception) {
@@ -428,6 +443,7 @@ class SshConnectionManager(private val context: Context) {
      * 说明：
      * - 部分设备需要 root 权限，直接 `reboot` 会返回 exit 1。
      * - 使用 `sudo -n` 避免阻塞等待密码（无权限时会快速失败并返回提示）。
+     * - 重启命令成功后 SSH 会立即断开，无需尝试其他命令。
      */
     suspend fun rebootDevice(): Result<Unit> = withContext(Dispatchers.IO) {
         val commands = listOf(
@@ -439,10 +455,16 @@ class SshConnectionManager(private val context: Context) {
 
         var lastError: Exception? = null
         for (cmd in commands) {
+            // 检查连接状态，如果已断开说明上一个重启命令生效了
+            if (sshClient?.isConnected == false) {
+                appendUserLog("SSH 已断开，重启命令已生效")
+                return@withContext Result.success(Unit)
+            }
+
             val result = try {
                 execCommand(cmd, timeoutSec = 15L)
             } catch (e: Exception) {
-                // reboot 可能会导致 SSH 连接立即断开；把这类断开视为“可能已重启”
+                // reboot 可能会导致 SSH 连接立即断开；把这类断开视为"可能已重启"
                 if (isLikelyRebootDisconnect(e)) {
                     appendUserLog("重启命令已发送（连接断开）")
                     return@withContext Result.success(Unit)
@@ -451,6 +473,7 @@ class SshConnectionManager(private val context: Context) {
             }
 
             if (result.isSuccess) {
+                appendUserLog("重启命令执行成功")
                 return@withContext Result.success(Unit)
             }
 
