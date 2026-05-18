@@ -180,69 +180,487 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 
 ## 技术架构
 
-### 模块划分
+### 核心架构模式
+
+**协调器模式 + MVVM + Jetpack Compose**
+
+应用采用协调器模式拆分 MainActivity，实现关注点分离：
 
 ```
-MainActivity.kt          # 应用入口（协调器模式）
-    ├── MainActivityCore.kt       # 核心业务逻辑 & 状态管理
-    ├── MainActivityUI.kt         # Compose UI 组件
-    └── MainActivityLifecycle.kt  # 生命周期 & 初始化
+MainActivity.kt          # 应用入口（协调器）
+    ├── MainActivityCore.kt       # 核心业务逻辑 & 状态管理（MVVM ViewModel 层）
+    ├── MainActivityUI.kt         # Compose UI 组件（View 层）
+    └── MainActivityLifecycle.kt  # 生命周期 & 初始化管理
 ```
 
-### 目录结构
+**优势**：
+- ✅ 清晰的关注点分离
+- ✅ 可测试性（业务逻辑与 UI 解耦）
+- ✅ 生命周期管理独立
+- ✅ 支持并行开发
+
+### 详细模块结构
+
+#### 📦 核心层（Core Layer）
 
 ```
 com.example.carrotamap/
-├── MainActivity*.kt           # 入口与协调器
-├── CarrotApplication.kt       # Application 初始化
-├── CarrotManDataModels.kt     # 数据模型
-├── CarrotManNetworkClient.kt  # UDP/TCP 网络通信
-├── CarrotParamClient.kt       # HTTP 参数读写
-├── NetworkManager.kt          # 网络管理
-├── DeviceManager.kt           # 设备管理
-├── LocationSensorManager.kt   # 定位传感器
-├── AmapBroadcastManager.kt    # 高德广播接收
-├── AmapBroadcastHandlers.kt   # 高德数据解析
-├── XiaogeDataReceiver.kt      # 设备数据接收
-├── AutoOvertakeManager.kt     # 自动超车辅助
-├── ConditionalExperimentManager.kt  # 条件实验模式
-├── PermissionManager.kt       # 权限管理
-├── Constants.kt               # 常量定义
+├── [应用入口与协调]
+│   ├── MainActivity.kt                  # 入口协调器（191 行）
+│   ├── MainActivityCore.kt             # 核心业务逻辑（1,247 行）
+│   ├── MainActivityUI.kt               # Compose UI 组件（879 行）
+│   ├── MainActivityLifecycle.kt        # 生命周期管理（413 行）
+│   └── CarrotApplication.kt            # Application 初始化（Koin DI）
 │
-├── navigation/
-│   ├── OsmNavigationManager.kt    # OSM 导航
-│   ├── TencentNavDataBridge.kt     # 腾讯 SDK 桥接
-│   └── ...                         # 导航辅助类
+├── [数据模型与状态]
+│   ├── CarrotManDataModels.kt          # UDP/TCP 协议数据模型（232 行）
+│   └── CarrotManFields.kt              # 中央状态容器（SSOT）
 │
-├── ui/
-│   ├── components/
-│   │   ├── OsmMapView.kt           # OSM 地图组件（含地点搜索 UI）
-│   │   ├── MapSearchService.kt     # 统一地点搜索（高德 SDK/REST、腾讯、Photon 等）
-│   │   ├── NavModeSwitcher.kt      # 模式切换器
-│   │   ├── ProfilePage.kt          # 个人中心
-│   │   ├── OpenpilotHUDPage.kt     # HUD 叠加层
-│   │   ├── SSHTerminalPage.kt      # SSH 终端
-│   │   ├── LedMatrixManager.kt     # LED 设备管理
-│   │   └── ...
-│   ├── driving/
-│   │   ├── DrivingReportScreen.kt  # 驾驶报告
-│   │   └── DrivingReportShareImage.kt
-│   ├── discovery/
-│   │   ├── CommaDeviceDiscovery.kt
-│   │   └── OpenpilotConnectionManager.kt
-│   ├── theme/                      # Material 主题
-│   └── utils/                      # UI 工具类
+├── [网络通信层]
+│   ├── CarrotManNetworkClient.kt       # UDP 7706 + TCP 7709 发送（578 行）
+│   ├── XiaogeDataReceiver.kt           # TCP 7711 设备数据接收（945 行）
+│   │   └── 功能：JSON 解析、心跳、自动重连、超时检测
+│   ├── CarrotParamClient.kt            # HTTP 7000 参数读写 REST API（134 行）
+│   └── NetworkManager.kt               # 网络层统一编排器
 │
-├── scoring/
-│   ├── DrivingScoreEngine.kt       # 评分引擎
-│   ├── DrivingDataCollector.kt     # 数据采集
-│   └── DrivingSession.kt           # 驾驶会话
-│
-├── core/                           # 核心工具
-├── data/                           # 数据仓库
-├── di/                             # Koin 依赖注入
-└── utils/                          # 通用工具
+├── [设备管理]
+│   ├── DeviceManager.kt                # 设备生命周期管理
+│   ├── LocationSensorManager.kt        # GPS 定位传感器
+│   └── PermissionManager.kt            # Android 权限管理
 ```
+
+#### 🗺️ 导航集成层（Navigation Layer）
+
+```
+navigation/
+├── [多源导航管理]
+│   ├── AmapBroadcastManager.kt         # 高德车机版广播接收器（632 行）
+│   │   ├── 功能：Channel 背压控制、三模式互斥、循环缓冲区
+│   │   └── 支持：KEY_TYPE 10001/10002/13022/10056/12110
+│   ├── AmapBroadcastHandlers.kt        # 高德数据解析器（478 行）
+│   ├── AmapNavDataBridge.kt            # 高德 → CarrotManFields 桥接
+│   │
+│   ├── TencentNaviManager.kt           # 腾讯导航 SDK 管理（117 行）
+│   ├── TencentNavDataBridge.kt         # 腾讯 → CarrotManFields 桥接
+│   │
+│   ├── OsmNavigationManager.kt         # OSM 导航管理器（68 行，框架）
+│   ├── OsmNavModels.kt                 # OSM 数据模型
+│   │
+│   ├── GoogleNavManager.kt             # Google Navigation SDK 管理（304 行）
+│   └── GoogleNavDataBridge.kt          # Google → CarrotManFields 桥接
+│
+├── [坐标系统]
+│   ├── CoordinateConverter.kt          # GCJ-02 ↔ WGS-84 转换
+│   └── GeoUtils.kt                     # 地理计算工具
+│
+└── [导航辅助]
+    └── TurnTypeTextInference.kt        # 转向类型文本推断
+```
+
+#### 🤖 决策系统层（Decision Layer）
+
+```
+├── [智能超车系统]
+│   └── AutoOvertakeManager.kt          # ML 决策引擎（1,649 行）
+│       ├── 决策流水线：
+│       │   ├── 1️⃣ 先决条件检查（速度、曲率、转向角）
+│       │   ├── 2️⃣ 前车检测（modelV2.lead0）
+│       │   ├── 3️⃣ 邻道安全检测（ML Kit 视觉识别）
+│       │   ├── 4️⃣ 三帧防抖验证
+│       │   ├── 5️⃣ TBT 方向偏好（出口避让）
+│       │   ├── 6️⃣ 2.5s 延迟执行
+│       │   └── 7️⃣ 20s 冷却期
+│       ├── 自适应参数系统：
+│       │   ├── 保守型（60km/h, 40m, 400m）
+│       │   ├── 标准型（50km/h, 50m, 300m）
+│       │   └── 激进型（40km/h, 60m, 200m）
+│       └── 集成：Google ML Kit + SoundPool
+│
+└── [驾驶评分系统]
+    └── scoring/
+        ├── DrivingScoreEngine.kt       # 五维评分引擎（265 行）
+        │   ├── 平稳性（30%）：急加减速/急转弯次数
+        │   ├── 预判力（25%）：速度波动 + 提前减速
+        │   ├── 接管依赖（20%）：每 100km 接管次数
+        │   ├── 节能（15%）：巡航比例 + 速度经济性
+        │   └── NOO 稳定度（10%）：自动驾驶使用占比
+        ├── DrivingDataCollector.kt     # 数据采集器
+        └── DrivingSession.kt            # 驾驶会话数据模型
+```
+
+#### 🎨 UI 组件层（UI Layer）
+
+```
+ui/
+├── components/
+│   ├── [导航界面]
+│   │   ├── OsmMapView.kt               # MapLibre OSM 地图组件（824 行）
+│   │   ├── AmapNaviPage.kt             # 高德导航页面
+│   │   ├── AmapMobileNavPage.kt        # 高德手机版导航页
+│   │   ├── TencentNavPage.kt           # 腾讯导航页面
+│   │   ├── GoogleNavPage.kt            # Google NavigationView 嵌入页
+│   │   ├── NavModeSwitcher.kt          # 导航模式切换器
+│   │   └── MapSearchService.kt         # 统一 POI 搜索（高德 SDK/Web REST/腾讯/Photon）
+│   │
+│   ├── [硬件集成]
+│   │   ├── LedMatrixManager.kt         # BLE LED 点阵屏控制器（300+ 行）
+│   │   │   ├── 协议：逆向工程 iPixel Color 协议
+│   │   │   ├── 渲染：Text → Bitmap → 列优先字节数组
+│   │   │   └── 动画：静态/滚动/呼吸/激光效果
+│   │   └── LedMatrixPreview.kt         # LED 预览组件
+│   │
+│   ├── [功能页面]
+│   │   ├── ProfilePage.kt              # 个人中心
+│   │   ├── ModelSwitcherPage.kt        # 驾驶模型切换
+│   │   ├── AutoSwitchExperimentPage.kt # 条件实验模式
+│   │   ├── OnboardingScreen.kt         # 新手引导
+│   │   ├── HelpPage.kt                 # 帮助页面
+│   │   ├── Carrot7706JsonDebugOverlay.kt # 调试叠加层
+│   │   ├── SshConfigDialog.kt          # SSH 配置对话框
+│   │   └── PrivacyDialog.kt            # 隐私声明对话框
+│   │
+│   └── [Widget]
+│       └── TencentNavWidgets.kt        # 腾讯导航小部件
+│
+├── driving/
+│   ├── DrivingReportScreen.kt          # 驾驶报告界面（605 行）
+│   └── DrivingReportShareImage.kt      # 分享图片生成
+│
+├── discovery/
+│   ├── CommaDeviceDiscovery.kt         # comma3 设备发现（局域网扫描）
+│   └── OpenpilotConnectionManager.kt   # openpilot 连接管理
+│
+├── theme/
+│   ├── Color.kt                        # Material 3 配色
+│   ├── Theme.kt                        # 主题定义
+│   └── Type.kt                         # 字体排版
+│
+└── utils/
+    └── LocaleUtils.kt                  # 本地化工具
+```
+
+#### 🔧 基础设施层（Infrastructure Layer）
+
+```
+├── core/
+│   ├── AppAnalytics.kt                 # 应用分析（埋点）
+│   ├── ErrorReporter.kt                # 错误上报
+│   ├── Result.kt                       # 统一结果封装（Success/Failure）
+│   └── SecurePrefs.kt                  # 加密 SharedPreferences
+│
+├── data/
+│   ├── PreferenceRepository.kt         # 偏好设置仓库
+│   ├── ModelDownloadManager.kt         # 模型下载管理
+│   ├── ModelDownloadState.kt           # 下载状态
+│   └── SshConnectionManager.kt         # SSH 连接管理（JSch）
+│
+├── di/
+│   └── AppModule.kt                    # Koin 依赖注入模块
+│       ├── single { } — 单例（网络客户端、管理器）
+│       └── factory { } — 工厂（IP 相关客户端）
+│
+└── utils/
+    ├── CoordinatePreferences.kt        # 坐标偏好设置
+    └── NetworkPerformanceUtils.kt      # 网络性能监控
+```
+
+### 代码规模统计
+
+| 模块 | 文件数 | 总行数（估算） | 关键组件行数 |
+|------|--------|---------------|-------------|
+| **核心入口** | 5 | ~2,730 | MainActivityCore (1,247) |
+| **网络通信** | 4 | ~1,657 | XiaogeDataReceiver (945) |
+| **导航集成** | 10 | ~2,500 | AmapBroadcastManager (632), GoogleNavManager (304) |
+| **决策系统** | 4 | ~2,179 | AutoOvertakeManager (1,649) |
+| **UI 组件** | 23 | ~7,500+ | OsmMapView (824), DrivingReportScreen (605) |
+| **基础设施** | 10 | ~1,800 | - |
+| **其他** | 14 | ~4,750 | - |
+| **总计** | **70+** | **~23,116** | - |
+
+---
+
+## 数据流与通信模式
+
+### 主数据流（App → comma3）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 导航数据源（高德/腾讯/OSM/Google）                                │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 广播/SDK 回调
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 广播/SDK 管理器                                                   │
+│ (AmapBroadcastManager, GoogleNavManager, TencentNaviManager)   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 更新中央状态
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> (单一数据源 SSOT)                 │
+└────────────┬───────────────────────────────┬────────────────────┘
+             │ 订阅状态                       │ 订阅状态
+             ▼                               ▼
+┌────────────────────────────┐  ┌───────────────────────────────┐
+│ NetworkManager (网络编排器) │  │ Compose UI（响应式渲染）       │
+└────────────┬───────────────┘  └───────────────────────────────┘
+             │ 协调发送
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ CarrotManNetworkClient                                          │
+│ • UDP 7706 (导航数据：GPS、TBT、限速、电子眼) - 5 Hz           │
+│ • TCP 7709 (路线几何点) - 规划成功后一次性发送                 │
+└─────────────────────────────────────────────────────────────────┘
+             │ 网络传输
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ comma3/openpilot 设备                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 反向数据流（comma3 → App）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ comma3/openpilot Python 后端 (carrot_server.py)                 │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ TCP 7711 (JSON 数据包)
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ XiaogeDataReceiver                                              │
+│ • JSON 解析（carState, modelV2, controlsState）                │
+│ • 心跳机制（5s 间隔）                                           │
+│ • 超时检测（4s 无数据触发重连）                                 │
+│ • 指数退避重连（5s → 10s → 20s → 40s → 60s max）              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ XiaogeVehicleData
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AutoOvertakeManager（ML 决策流水线）                            │
+│ • 先决条件检查                                                   │
+│ • 前车检测 (modelV2.lead0)                                      │
+│ • 邻道安全检测 (ML Kit)                                         │
+│ • 三帧防抖                                                       │
+│ • TBT 方向偏好                                                   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 变道指令
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ ZMQ 7710 → comma3（超车控制命令）                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 状态管理模式
+
+#### 1. **中央状态容器（SSOT）**
+```kotlin
+// 不可变数据类 + MutableState
+data class CarrotManFields(
+    val vpPosPointLat: Double = 0.0,
+    val vpPosPointLon: Double = 0.0,
+    val szRoadName: String = "",
+    val nRemainDist: Int = 0,
+    // ... 50+ 字段
+)
+
+val state = mutableStateOf(CarrotManFields())
+```
+
+**优势**：
+- 单向数据流
+- 可预测的状态变化
+- 时间旅行调试
+- Compose 自动响应式更新
+
+#### 2. **Coroutine Channel 背压控制**
+```kotlin
+// AmapBroadcastManager 中的关键实现
+private val intentChannel = Channel<Intent>(Channel.BUFFERED)
+
+// 广播接收器仅将 Intent 放入 Channel
+override fun onReceive(context: Context?, intent: Intent?) {
+    intentChannel.trySend(intent) // 非阻塞，满时丢弃
+}
+
+// 单个协程顺序处理，防止内存溢出
+launch {
+    for (intent in intentChannel) {
+        processIntent(intent) // 顺序处理
+    }
+}
+```
+
+**解决问题**：
+- 高德广播频率 ~20 Hz，直接处理会 OOM
+- Channel 缓冲区固定 64，满时丢弃旧数据
+- 单协程顺序处理，保证线程安全
+
+#### 3. **三模式导航互斥**
+```kotlin
+// 防止多个导航源同时更新状态
+when (activeNavMode.value) {
+    "AMAP" -> // 仅处理高德广播
+    "GOOGLE" -> // 仅处理 Google SDK 回调
+    "TENCENT" -> // 仅处理腾讯 SDK 回调
+    else -> // 跳过广播
+}
+```
+
+#### 4. **AtomicBoolean 连接状态**
+```kotlin
+// XiaogeDataReceiver 中的线程安全标志
+private val isTcpConnected = AtomicBoolean(false)
+
+// 无锁读写
+if (isTcpConnected.get()) { /* ... */ }
+isTcpConnected.set(true)
+```
+
+---
+
+## 独特设计模式
+
+### 1. **协调器模式（MainActivity 四文件拆分）**
+
+**模式来源**：iOS Coordinator Pattern
+**实现**：
+```
+MainActivity.kt           # 入口，委托生命周期事件
+    ├── MainActivityCore.kt        # 业务逻辑 + 状态管理（ViewModel 层）
+    ├── MainActivityUI.kt          # Compose UI（View 层）
+    └── MainActivityLifecycle.kt   # 初始化 + 资源清理
+```
+
+**优势**：
+- 单一职责原则（SRP）
+- 可测试性（Core 可独立测试）
+- 并行开发（UI 和逻辑解耦）
+- 代码审查友好（小文件）
+
+### 2. **Broadcast Channel 背压控制**
+
+**问题**：高德广播 20 Hz → OOM
+**解决方案**：
+- `Channel<Intent>` 容量 64
+- `trySend()` 非阻塞，满时丢弃
+- 单协程顺序处理
+- 循环缓冲区（保留最近 20 条）
+
+**代码**：
+```kotlin
+private val broadcastList = mutableStateListOf<BroadcastData>()
+if (broadcastList.size > 20) {
+    broadcastList.removeAt(0) // 丢弃最旧数据
+}
+```
+
+### 3. **自适应参数系统（策略模式变体）**
+
+**问题**：固定阈值不适应不同驾驶风格
+**解决方案**：
+```kotlin
+enum class DrivingStyle {
+    CONSERVATIVE, STANDARD, AGGRESSIVE
+}
+
+fun getAdaptiveParameter(key: String, default: Float): Float {
+    val multiplier = when (currentStyle) {
+        CONSERVATIVE -> 0.8f
+        STANDARD -> 1.0f
+        AGGRESSIVE -> 1.2f
+    }
+    return baseParams[key] * multiplier
+}
+```
+
+**应用**：
+- 超车速度阈值
+- 前车距离判断
+- 转弯点避让距离
+
+### 4. **坐标系统适配器**
+
+**问题**：高德/腾讯用 GCJ-02，Google/OSM 用 WGS-84
+**解决方案**：
+```kotlin
+// 内部统一存储 WGS-84
+object CoordinateConverter {
+    fun gcj02ToWgs84(lat: Double, lon: Double): Pair<Double, Double>
+    fun wgs84ToGcj02(lat: Double, lon: Double): Pair<Double, Double>
+}
+
+// 导航管理器在边界转换
+class AmapBroadcastManager {
+    private fun processLocation(gcjLat: Double, gcjLon: Double) {
+        val (wgsLat, wgsLon) = CoordinateConverter.gcj02ToWgs84(gcjLat, gcjLon)
+        updateState(wgsLat, wgsLon)
+    }
+}
+```
+
+### 5. **三帧防抖决策**
+
+**问题**：传感器噪声导致误触发超车
+**解决方案**：
+```kotlin
+private val recentDecisions = ArrayDeque<Boolean>(3)
+
+fun shouldOvertake(): Boolean {
+    val currentDecision = checkConditions()
+    recentDecisions.addLast(currentDecision)
+    if (recentDecisions.size > 3) recentDecisions.removeFirst()
+
+    // 需要连续 3 帧都满足条件
+    return recentDecisions.size == 3 && recentDecisions.all { it }
+}
+```
+
+### 6. **逆向工程 BLE 协议**
+
+**成就**：无官方 SDK，通过 HCI 抓包完全复现协议
+**实现**：
+```kotlin
+// iPixel Color 协议包结构
+// ┌──────┬──────┬──────┬──────┬─────────────┬──────────┐
+// │ 0xFA │ 0x02 │ CMD  │ LEN  │   PAYLOAD   │ CHECKSUM │
+// └──────┴──────┴──────┴──────┴─────────────┴──────────┘
+
+fun buildPacket(text: String): ByteArray {
+    val bitmap = renderTextToBitmap(text)
+    val columnMajor = bitmapToColumnMajor(bitmap) // 16x16 → 32 字节
+    val checksum = columnMajor.fold(0) { acc, b -> acc xor b.toInt() }
+    return byteArrayOf(0xFA.toByte(), 0x02, CMD_DISPLAY, 32, *columnMajor, checksum.toByte())
+}
+```
+
+### 7. **穷举式 When 语句**
+
+**模式**：所有 `when` 表达式处理所有 enum 分支
+**优势**：
+- 编译时安全
+- 添加新 case 时编译器强制更新所有 when
+- 无 `else` 分支，避免遗漏
+
+**示例**：
+```kotlin
+when (broadcastKeyType) {
+    10001 -> handleGuideInfo()
+    10002 -> handleLocationInfo()
+    10056 -> handleRouteInfo()
+    12110 -> handleSpeedLimit()
+    13022 -> handleNavigationStatus()
+    // 15 个分支，无 else
+}
+```
+
+### 8. **JSON-Based IPC（TCP 7711）**
+
+**独特性**：openpilot 通常用 Cereal/Capnproto 二进制协议
+**本项目**：Python ↔ Android 用 JSON
+**权衡**：
+- ✅ 人类可读，易调试
+- ✅ 跨语言无需代码生成
+- ❌ 带宽略高（~2x）
+- ❌ 解析稍慢（可接受，5 Hz 更新）
 
 ---
 
