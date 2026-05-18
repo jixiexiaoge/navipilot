@@ -95,17 +95,22 @@ private tailrec fun findActivityContext(c: Context): Context? {
 
 /**
  * 为腾讯导航 View 提供合适的 Context：
- * - 优先使用 Activity Context（最稳定，所有主题属性可用）
- * - 如无 Activity，使用 [androidx.appcompat.view.ContextThemeWrapper] 包装 Material Components 主题
+ * - 必须使用 ContextThemeWrapper 包装 MaterialComponents 主题
+ * - 因为 SDK 内部使用已弃用的 Resources.getDrawable(int) API
+ * - 该 API 需要主题中定义了所有可能被引用的属性
  *
  * 修复：NavigatorLayerViewDrive 内部 inflate navix_ui_navigation.xml 时，
  * NavInfoView 引用的 drawable (navix_rect_guide_lane_gradient_bg) 需要解析 ?attr 主题属性。
  * 如果 Context 没有正确的主题，会抛出 "unresolved theme attributes" 异常导致闪退。
+ *
+ * 重要：必须使用 ContextThemeWrapper 而非直接返回 Activity Context，
+ * 因为 Activity 的主题可能不是 MaterialComponents，导致主题属性无法解析。
  */
 private fun contextForTencentNavView(base: Context): Context {
     val act = findActivityContext(base)
-    if (act != null) return act
-    return androidx.appcompat.view.ContextThemeWrapper(base, R.style.Theme_Navipilot)
+    // 始终使用 ContextThemeWrapper 包装主题，确保 SDK 能正确解析主题属性
+    val baseContext = act ?: base.applicationContext
+    return androidx.appcompat.view.ContextThemeWrapper(baseContext, R.style.Theme_Navipilot)
 }
 
 /**

@@ -441,8 +441,8 @@ class SshConnectionManager(private val context: Context) {
                   if ! command -v scons >/dev/null 2>&1; then echo "__NAVIPILOT_NO_SCONS__"; exit 0; fi;
                   rm -f /tmp/navipilot_modeld_rebuild.log;
                   scons -j4 --cache-disable selfdrive/modeld/ >/tmp/navipilot_modeld_rebuild.log 2>&1;
-                  scons_ec=$?;
-                  echo "__NAVIPILOT_SCONS_EXIT__${scons_ec}";
+                  scons_ec=${'$'}?;
+                  echo "__NAVIPILOT_SCONS_EXIT__${'$'}{scons_ec}";
                   tail -n 120 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true;
                   if grep -q "Traceback (most recent call last)" /tmp/navipilot_modeld_rebuild.log 2>/dev/null; then
                     echo "__NAVIPILOT_TRACEBACK__";
