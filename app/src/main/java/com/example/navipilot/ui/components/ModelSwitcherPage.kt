@@ -340,16 +340,24 @@ fun ModelSwitcherPage(
 
                 // 5. Reboot device
                 sshManager.logToUser(localized("重启设备", "Reboot device"))
-                val rebootResult = sshManager.execCommand("reboot")
+                val rebootResult = sshManager.rebootDevice()
                 if (rebootResult.isFailure) {
-                    Log.w("ModelSwitcher", "重启命令可能未成功返回: ${rebootResult.exceptionOrNull()?.message}")
+                    val msg = rebootResult.exceptionOrNull()?.message ?: "unknown"
+                    Log.w("ModelSwitcher", "重启失败: $msg")
+                    sshManager.logToUser(localized("重启失败", "Reboot failed") + ": $msg")
+                    android.widget.Toast.makeText(
+                        context,
+                        localized("上传成功，但重启失败（可能需要 sudo 权限）", "Upload succeeded, but reboot failed (may require sudo)") +
+                            ": $msg",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        localized("上传成功，重启中...", "Upload successful, rebooting..."),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
                 }
-
-                android.widget.Toast.makeText(
-                    context,
-                    localized("上传成功，重启中...", "Upload successful, rebooting..."),
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
 
             } catch (e: Exception) {
                 Log.e("ModelSwitcher", "上传失败: ${e.message}")

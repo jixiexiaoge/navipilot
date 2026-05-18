@@ -49,6 +49,8 @@ class SshConnectionManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SshConnectionManager"
+        private const val MAX_LOG_CHARS = 800
+        private const val DEFAULT_COMMAND_TIMEOUT_SEC = 30L
 
         init {
             // 注册 BouncyCastle 作为安全提供者（解决 X25519 算法问题）
@@ -60,6 +62,20 @@ class SshConnectionManager(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "注册 BouncyCastle 失败: ${e.message}")
             }
+        }
+
+        private fun truncateForLog(value: String, maxChars: Int = MAX_LOG_CHARS): String {
+            if (value.length <= maxChars) return value
+            return value.take(maxChars) + "…(truncated)"
+        }
+
+        private fun isLikelyRebootDisconnect(e: Exception): Boolean {
+            val msg = (e.message ?: "").lowercase()
+            return msg.contains("eof") ||
+                msg.contains("connection reset") ||
+                msg.contains("broken pipe") ||
+                msg.contains("socket") && msg.contains("closed") ||
+                msg.contains("disconnected")
         }
     }
 
@@ -289,7 +305,8 @@ class SshConnectionManager(private val context: Context) {
     /**
      * 执行远程命令
      */
-    suspend fun execCommand(cmd: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun execCommand(cmd: String, timeoutSec: Long = DEFAULT_COMMAND_TIMEOUT_SEC): Result<String> =
+        withContext(Dispatchers.IO) {
         val ssh = sshClient ?: return@withContext Result.failure(Exception("未连接 SSH"))
 
         try {
@@ -297,18 +314,38 @@ class SshConnectionManager(private val context: Context) {
             val session: Session = ssh.startSession()
             try {
                 val command = session.exec(cmd)
-                val output = IOUtils.readFully(command.inputStream).toString()
-                command.join(30, TimeUnit.SECONDS)
+                val finished = command.join(timeoutSec, TimeUnit.SECONDS)
                 val exitStatus = command.exitStatus
-                Log.i(TAG, "命令执行完成: $cmd, exitStatus: $exitStatus")
 
-                if (exitStatus == 0) {
+                val output =
+                    if (finished || exitStatus != null) IOUtils.readFully(command.inputStream).toString() else ""
+                val errorOutput =
+                    if (finished || exitStatus != null) IOUtils.readFully(command.errorStream).toString() else ""
+
+                Log.i(TAG, "命令执行完成: $cmd, finished=$finished, exitStatus=$exitStatus")
+
+                if (!finished && exitStatus == null) {
+                    appendUserLog("命令超时: ${timeoutSec}s")
+                    Result.failure(Exception("命令执行超时 (${timeoutSec}s): $cmd"))
+                } else if (exitStatus == 0) {
+                    if (errorOutput.isNotBlank()) {
+                        appendUserLog("stderr: ${truncateForLog(errorOutput)}")
+                    }
                     appendUserLog("命令完成: exit 0")
                     Result.success(output)
                 } else {
-                    val errorOutput = IOUtils.readFully(command.errorStream).toString()
-                    appendUserLog("命令失败: exit $exitStatus")
-                    Result.failure(Exception("命令执行失败 (exit $exitStatus): $errorOutput"))
+                    if (errorOutput.isNotBlank()) {
+                        appendUserLog("stderr: ${truncateForLog(errorOutput)}")
+                    } else if (output.isNotBlank()) {
+                        // 有些命令会把错误写到 stdout
+                        appendUserLog("stdout: ${truncateForLog(output)}")
+                    }
+                    appendUserLog("命令失败: exit ${exitStatus ?: "?"}")
+                    val details = buildString {
+                        if (errorOutput.isNotBlank()) append(errorOutput)
+                        if (errorOutput.isBlank() && output.isNotBlank()) append(output)
+                    }
+                    Result.failure(Exception("命令执行失败 (exit ${exitStatus ?: "?"}): ${truncateForLog(details)}"))
                 }
             } finally {
                 session.close()
@@ -318,6 +355,45 @@ class SshConnectionManager(private val context: Context) {
             appendUserLog("命令异常: ${e.message ?: e.javaClass.simpleName}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * 重启远程设备
+     *
+     * 说明：
+     * - 部分设备需要 root 权限，直接 `reboot` 会返回 exit 1。
+     * - 使用 `sudo -n` 避免阻塞等待密码（无权限时会快速失败并返回提示）。
+     */
+    suspend fun rebootDevice(): Result<Unit> = withContext(Dispatchers.IO) {
+        val commands = listOf(
+            "sudo -n reboot",
+            "sudo -n systemctl reboot",
+            "sudo -n shutdown -r now",
+            "reboot"
+        )
+
+        var lastError: Exception? = null
+        for (cmd in commands) {
+            val result = try {
+                execCommand(cmd, timeoutSec = 15L)
+            } catch (e: Exception) {
+                // reboot 可能会导致 SSH 连接立即断开；把这类断开视为“可能已重启”
+                if (isLikelyRebootDisconnect(e)) {
+                    appendUserLog("重启命令已发送（连接断开）")
+                    return@withContext Result.success(Unit)
+                }
+                Result.failure(e)
+            }
+
+            if (result.isSuccess) {
+                return@withContext Result.success(Unit)
+            }
+
+            val error = result.exceptionOrNull() as? Exception
+            lastError = error
+        }
+
+        Result.failure(lastError ?: Exception("重启失败"))
     }
 
     /**
