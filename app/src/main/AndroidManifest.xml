@@ -63,7 +63,7 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
-        android:name="com.example.carrotamap.CarrotApplication"
+        android:name="com.example.navipilot.CarrotApplication"
         android:allowBackup="true"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -103,7 +103,7 @@
             android:name="com.heytap.openid.disable"
             android:value="true" />
         <activity
-            android:name="com.example.carrotamap.MainActivity"
+            android:name="com.example.navipilot.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Navipilot"
             android:launchMode="singleTask"
@@ -121,7 +121,7 @@
 
         <!-- 前台服务 - 用于保持应用在后台稳定运行 -->
         <service
-            android:name="com.example.carrotamap.CarrotAmapForegroundService"
+            android:name="com.example.navipilot.CarrotAmapForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location"
@@ -129,7 +129,7 @@
         </service>
 
         <receiver
-            android:name="com.example.carrotamap.amapAutoStaticReceiver"
+            android:name="com.example.navipilot.amapAutoStaticReceiver"
             android:exported="true"
             android:enabled="true"
             android:permission="android.permission.INTERNET">

@@ -37,9 +37,9 @@
 -keep public class * extends android.content.ContentProvider
 
 # 显式保留 Application 类（防止 R8 移除或重命名）
--keep class com.example.carrotamap.CarrotApplication { *; }
--keep class com.example.carrotamap.CarrotApplication$* { *; }
--keepclassmembers class com.example.carrotamap.CarrotApplication { *; }
+-keep class com.example.navipilot.CarrotApplication { *; }
+-keep class com.example.navipilot.CarrotApplication$* { *; }
+-keepclassmembers class com.example.navipilot.CarrotApplication { *; }
 
 -keepclassmembers enum * {
     public static **[] values();
@@ -91,7 +91,7 @@
 -keep class io.insert-koin.** { *; }
 -dontwarn io.insert-koin.**
 # Koin 通过反射创建实例，保留所有被注入类的构造函数
--keepclassmembers class com.example.carrotamap.** {
+-keepclassmembers class com.example.navipilot.** {
     public <init>(...);
 }
 
@@ -187,57 +187,57 @@
 # ===========================================
 
 # 保留 Application 入口（已被上面 extends Application 覆盖，这里显式声明）
--keep class com.example.carrotamap.CarrotApplication { *; }
+-keep class com.example.navipilot.CarrotApplication { *; }
 
 # 保留 MainActivity（Activity 入口）
--keep class com.example.carrotamap.MainActivity { *; }
+-keep class com.example.navipilot.MainActivity { *; }
 
 # MainActivity 拆分类（大量 Compose / 注册 ActivityResult / 匿名内部类）
 # Release + R8 全优化 + 重打包时若不保留，曾出现 VerifyError（构造与 switchToTencentMode 等校验失败）
--keep class com.example.carrotamap.MainActivityCore { *; }
--keep class com.example.carrotamap.MainActivityCore$* { *; }
--keep class com.example.carrotamap.MainActivityLifecycle { *; }
--keep class com.example.carrotamap.MainActivityLifecycle$* { *; }
--keep class com.example.carrotamap.MainActivityUI { *; }
--keep class com.example.carrotamap.MainActivityUI$* { *; }
--keep class com.example.carrotamap.MainActivityUIComponents { *; }
--keep class com.example.carrotamap.MainActivityUIComponents$* { *; }
+-keep class com.example.navipilot.MainActivityCore { *; }
+-keep class com.example.navipilot.MainActivityCore$* { *; }
+-keep class com.example.navipilot.MainActivityLifecycle { *; }
+-keep class com.example.navipilot.MainActivityLifecycle$* { *; }
+-keep class com.example.navipilot.MainActivityUI { *; }
+-keep class com.example.navipilot.MainActivityUI$* { *; }
+-keep class com.example.navipilot.MainActivityUIComponents { *; }
+-keep class com.example.navipilot.MainActivityUIComponents$* { *; }
 
 # 保留 Service
--keep class com.example.carrotamap.CarrotAmapForegroundService { *; }
+-keep class com.example.navipilot.CarrotAmapForegroundService { *; }
 
 # 保留 BroadcastReceiver
--keep class com.example.carrotamap.XiaogeDataReceiver { *; }
--keep class com.example.carrotamap.amapAutoStaticReceiver { *; }
+-keep class com.example.navipilot.XiaogeDataReceiver { *; }
+-keep class com.example.navipilot.amapAutoStaticReceiver { *; }
 
 # 保留数据模型类（Gson 序列化/反序列化需要字段名）
--keep class com.example.carrotamap.CarrotManDataModels { *; }
--keepclassmembers class com.example.carrotamap.CarrotManDataModels$* { *; }
--keep class com.example.carrotamap.CarrotManFields { *; }
--keepclassmembers class com.example.carrotamap.CarrotManFields { *; }
--keep class com.example.carrotamap.CarrotManTencentSlice { *; }
--keepclassmembers class com.example.carrotamap.CarrotManTencentSlice { *; }
+-keep class com.example.navipilot.CarrotManDataModels { *; }
+-keepclassmembers class com.example.navipilot.CarrotManDataModels$* { *; }
+-keep class com.example.navipilot.CarrotManFields { *; }
+-keepclassmembers class com.example.navipilot.CarrotManFields { *; }
+-keep class com.example.navipilot.CarrotManTencentSlice { *; }
+-keepclassmembers class com.example.navipilot.CarrotManTencentSlice { *; }
 
 # 保留 DI 模块定义（Koin module 引用类名）
--keep class com.example.carrotamap.di.** { *; }
+-keep class com.example.navipilot.di.** { *; }
 
 # 保留 data 层（DataStore 序列化）
--keep class com.example.carrotamap.data.** { *; }
+-keep class com.example.navipilot.data.** { *; }
 
 # 保留 WebRTC 相关自定义类（JNI 回调）
--keep class com.example.carrotamap.webrtc.** { *; }
+-keep class com.example.navipilot.webrtc.** { *; }
 
 # 保留 TencentNavPage 相关（大量反射调用腾讯SDK）
--keep class com.example.carrotamap.ui.components.TencentNavPage** { *; }
--keepclassmembers class com.example.carrotamap.ui.components.TencentNavPage** { *; }
--keep class com.example.carrotamap.ui.components.TencentNavWidgets** { *; }
--keep class com.example.carrotamap.navigation.TencentNavDataBridge { *; }
--keepclassmembers class com.example.carrotamap.navigation.TencentNavDataBridge { *; }
--keep class com.example.carrotamap.navigation.TencentNtripProvider { *; }
--keep class com.example.carrotamap.navigation.TencentRouteProvider { *; }
+-keep class com.example.navipilot.ui.components.TencentNavPage** { *; }
+-keepclassmembers class com.example.navipilot.ui.components.TencentNavPage** { *; }
+-keep class com.example.navipilot.ui.components.TencentNavWidgets** { *; }
+-keep class com.example.navipilot.navigation.TencentNavDataBridge { *; }
+-keepclassmembers class com.example.navipilot.navigation.TencentNavDataBridge { *; }
+-keep class com.example.navipilot.navigation.TencentNtripProvider { *; }
+-keep class com.example.navipilot.navigation.TencentRouteProvider { *; }
 
 # 保留 TencentNavPage 中的所有 Composable 函数和 lambda
--keepclassmembers class com.example.carrotamap.ui.components.TencentNavPageKt {
+-keepclassmembers class com.example.navipilot.ui.components.TencentNavPageKt {
     *** TencentNavPage(...);
     *** TencentComma3StatusBadge(...);
 }
@@ -249,58 +249,58 @@
 }
 
 # 保留 OsmMapView（MapLibre 回调）
--keep class com.example.carrotamap.ui.components.OsmMapView** { *; }
+-keep class com.example.navipilot.ui.components.OsmMapView** { *; }
 
 # 保留 WebRTCVideoView（WebRTC 回调）
--keep class com.example.carrotamap.ui.components.WebRTCVideoView** { *; }
+-keep class com.example.navipilot.ui.components.WebRTCVideoView** { *; }
 
 # 保留 Constants（可能被反射引用）
--keep class com.example.carrotamap.Constants { *; }
+-keep class com.example.navipilot.Constants { *; }
 
 # ============================================================
 # 以下包/类会被正常混淆（核心业务逻辑）：
-# - com.example.carrotamap.core.*
-# - com.example.carrotamap.detection.*
-# - com.example.carrotamap.utils.*
-# - com.example.carrotamap.AutoOvertakeManager
-# - com.example.carrotamap.BatchedPreferences
-# - com.example.carrotamap.DataFieldManager
-# - com.example.carrotamap.DeviceManager
-# - com.example.carrotamap.LocationSensorManager
-# - com.example.carrotamap.NetworkManager
-# - com.example.carrotamap.CarrotManNetworkClient
-# - com.example.carrotamap.PermissionManager
-# - com.example.carrotamap.AmapBroadcastHandlers
-# - com.example.carrotamap.AmapBroadcastManager
-# - com.example.carrotamap.MainActivityCore
-# - com.example.carrotamap.MainActivityLifecycle
-# - com.example.carrotamap.MainActivityUI
-# - com.example.carrotamap.MainActivityUIComponents
-# - com.example.carrotamap.navigation.CoordinateConverter
-# - com.example.carrotamap.navigation.DualFreqGnssEngine
-# - com.example.carrotamap.navigation.GeoUtils
-# - com.example.carrotamap.navigation.GnssEnhancedProvider
-# - com.example.carrotamap.navigation.GpsKalmanFilter
-# - com.example.carrotamap.navigation.HybridRouteProvider
-# - com.example.carrotamap.navigation.LaneInfoCache
-# - com.example.carrotamap.navigation.LaneLevelNavigator
-# - com.example.carrotamap.navigation.NtripClient
-# - com.example.carrotamap.navigation.OsmDataMapper
-# - com.example.carrotamap.navigation.OsmNavigationManager
-# - com.example.carrotamap.navigation.OsrmRouteProvider
-# - com.example.carrotamap.navigation.OverpassClient
-# - com.example.carrotamap.navigation.RouteEngine
-# - com.example.carrotamap.navigation.RouteTracker
-# - com.example.carrotamap.navigation.RtcmDecoder
-# - com.example.carrotamap.ui.components.HelpPage
-# - com.example.carrotamap.ui.components.LaneComponents
-# - com.example.carrotamap.ui.components.LaneWarningOverlay
-# - com.example.carrotamap.ui.components.LedMatrixManager
-# - com.example.carrotamap.ui.components.MapSearchService
-# - com.example.carrotamap.ui.components.NavigationIcons
-# - com.example.carrotamap.ui.components.ProfilePage
-# - com.example.carrotamap.ui.theme.*
-# - com.example.carrotamap.ui.utils.*
+# - com.example.navipilot.core.*
+# - com.example.navipilot.detection.*
+# - com.example.navipilot.utils.*
+# - com.example.navipilot.AutoOvertakeManager
+# - com.example.navipilot.BatchedPreferences
+# - com.example.navipilot.DataFieldManager
+# - com.example.navipilot.DeviceManager
+# - com.example.navipilot.LocationSensorManager
+# - com.example.navipilot.NetworkManager
+# - com.example.navipilot.CarrotManNetworkClient
+# - com.example.navipilot.PermissionManager
+# - com.example.navipilot.AmapBroadcastHandlers
+# - com.example.navipilot.AmapBroadcastManager
+# - com.example.navipilot.MainActivityCore
+# - com.example.navipilot.MainActivityLifecycle
+# - com.example.navipilot.MainActivityUI
+# - com.example.navipilot.MainActivityUIComponents
+# - com.example.navipilot.navigation.CoordinateConverter
+# - com.example.navipilot.navigation.DualFreqGnssEngine
+# - com.example.navipilot.navigation.GeoUtils
+# - com.example.navipilot.navigation.GnssEnhancedProvider
+# - com.example.navipilot.navigation.GpsKalmanFilter
+# - com.example.navipilot.navigation.HybridRouteProvider
+# - com.example.navipilot.navigation.LaneInfoCache
+# - com.example.navipilot.navigation.LaneLevelNavigator
+# - com.example.navipilot.navigation.NtripClient
+# - com.example.navipilot.navigation.OsmDataMapper
+# - com.example.navipilot.navigation.OsmNavigationManager
+# - com.example.navipilot.navigation.OsrmRouteProvider
+# - com.example.navipilot.navigation.OverpassClient
+# - com.example.navipilot.navigation.RouteEngine
+# - com.example.navipilot.navigation.RouteTracker
+# - com.example.navipilot.navigation.RtcmDecoder
+# - com.example.navipilot.ui.components.HelpPage
+# - com.example.navipilot.ui.components.LaneComponents
+# - com.example.navipilot.ui.components.LaneWarningOverlay
+# - com.example.navipilot.ui.components.LedMatrixManager
+# - com.example.navipilot.ui.components.MapSearchService
+# - com.example.navipilot.ui.components.NavigationIcons
+# - com.example.navipilot.ui.components.ProfilePage
+# - com.example.navipilot.ui.theme.*
+# - com.example.navipilot.ui.utils.*
 # ============================================================
 
 # 移除 System.out 输出

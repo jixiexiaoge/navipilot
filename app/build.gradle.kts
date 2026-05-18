@@ -13,7 +13,7 @@ detekt {
 }
 
 android {
-    namespace = "com.example.carrotamap"
+    namespace = "com.example.navipilot"
     compileSdk = 35
 
     val navAbiList: List<String> =
