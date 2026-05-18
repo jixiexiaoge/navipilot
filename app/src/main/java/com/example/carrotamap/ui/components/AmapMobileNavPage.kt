@@ -841,36 +841,66 @@ fun AmapMobileNavPage(
                         dataBridge.onRouteCalculated = routeStartLambda@{
                             if (routeNavStarted.getAndSet(true)) return@routeStartLambda
                             try {
-                                val naviType = if (BuildConfig.DEBUG && AMAP_MOBILE_USE_EMULATOR_IN_DEBUG) {
-                                    NaviType.EMULATOR
-                                } else {
-                                    NaviType.GPS
-                                }
-                                if (naviType == NaviType.EMULATOR) {
-                                    navi.setEmulatorNaviSpeed(75)
-                                }
-                                val ok = navi.startNavi(naviType)
-                                Log.i(TAG, "startNavi($naviType)=$ok")
-                                if (ok) {
-                                    naviView.post {
-                                        try {
-                                            applyCarUpNaviMode(naviView)
-                                            naviMapMode = AMapNaviView.CAR_UP_MODE
-                                            if (naviView.isRouteOverviewNow) {
-                                                naviView.recoverLockMode()
-                                            }
-                                            overviewNow = naviView.isRouteOverviewNow
-                                        } catch (e: Exception) {
-                                            Log.w(TAG, "post-startNavi recoverLockMode: ${e.message}")
-                                        }
+                                // 🔧 修复：先显示路线全览，让用户看到完整路线（参考腾讯地图效果）
+                                naviView.post {
+                                    try {
+                                        // 显示路线全览
+                                        naviView.displayOverview()
+                                        overviewNow = true
+                                        Log.i(TAG, "✅ 路线全览已显示，用户可查看完整路线")
+
+                                        // 应用车头向上模式
+                                        applyCarUpNaviMode(naviView)
+                                        naviMapMode = AMapNaviView.CAR_UP_MODE
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "显示路线全览失败: ${e.message}")
                                     }
                                 }
+
+                                // 延迟启动导航，让用户先看到路线（2秒后自动开始）
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    try {
+                                        val naviType = if (BuildConfig.DEBUG && AMAP_MOBILE_USE_EMULATOR_IN_DEBUG) {
+                                            NaviType.EMULATOR
+                                        } else {
+                                            NaviType.GPS
+                                        }
+                                        if (naviType == NaviType.EMULATOR) {
+                                            navi.setEmulatorNaviSpeed(75)
+                                        }
+                                        val ok = navi.startNavi(naviType)
+                                        Log.i(TAG, "startNavi($naviType)=$ok")
+                                        if (ok) {
+                                            naviView.post {
+                                                try {
+                                                    // 导航开始后，恢复跟车视图
+                                                    if (naviView.isRouteOverviewNow) {
+                                                        naviView.recoverLockMode()
+                                                    }
+                                                    overviewNow = naviView.isRouteOverviewNow
+                                                    applyCarUpNaviMode(naviView)
+                                                    naviMapMode = AMapNaviView.CAR_UP_MODE
+                                                } catch (e: Exception) {
+                                                    Log.w(TAG, "post-startNavi recoverLockMode: ${e.message}")
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "startNavi 失败: ${e.message}", e)
+                                        routeNavStarted.set(false)
+                                        Toast.makeText(
+                                            ctx,
+                                            localized("无法开始导航", "Cannot start navigation"),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }, 2000) // 2秒后自动开始导航
                             } catch (e: Exception) {
-                                Log.e(TAG, "startNavi 失败: ${e.message}", e)
+                                Log.e(TAG, "路线显示失败: ${e.message}", e)
                                 routeNavStarted.set(false)
                                 Toast.makeText(
                                     ctx,
-                                    localized("无法开始导航", "Cannot start navigation"),
+                                    localized("无法显示路线", "Cannot display route"),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
