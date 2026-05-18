@@ -30,6 +30,13 @@ import kotlinx.coroutines.Dispatchers
 import com.example.carrotamap.navigation.CoordinateConverter
 import com.example.carrotamap.ui.utils.localized
 import com.example.carrotamap.ui.theme.*
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.animation.core.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 
 /**
  * MainActivity UI组件 - 辅助组件和工具函数
@@ -115,7 +122,10 @@ object MainActivityUIComponents {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 6.dp)
+                .semantics {
+                    contentDescription = context.getString(R.string.app_name) + " " + localized("车辆控制面板", "Vehicle control panel")
+                },
             colors = CardDefaults.cardColors(containerColor = CardBackground),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
@@ -215,7 +225,7 @@ object MainActivityUIComponents {
     }
 
     /**
-     * 控制按钮组件（优化版 - 使用Material Icons）
+     * 控制按钮组件（优化版 - 使用Material Icons + 动画效果）
      */
     @Composable
     fun ControlButton(
@@ -224,14 +234,38 @@ object MainActivityUIComponents {
         color: Color,
         onClick: () -> Unit
     ) {
+        var isPressed by remember { mutableStateOf(false) }
+        val scale by animateFloatAsState(
+            targetValue = if (isPressed) 0.92f else 1f,
+            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+            label = "button_press_animation"
+        )
+
         Box(
             modifier = Modifier
                 .size(48.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
                 .clickable(
                     onClick = {
                         android.util.Log.i("MainActivity", "🔍 ControlButton: 检测到点击事件")
                         onClick()
-                    }
+                    },
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                        .also { interactionSource ->
+                            LaunchedEffect(interactionSource) {
+                                interactionSource.interactions.collect { interaction ->
+                                    when (interaction) {
+                                        is PressInteraction.Press -> isPressed = true
+                                        is PressInteraction.Release -> isPressed = false
+                                        is PressInteraction.Cancel -> isPressed = false
+                                    }
+                                }
+                            }
+                        }
                 )
                 .shadow(2.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                 .background(
@@ -244,7 +278,7 @@ object MainActivityUIComponents {
                 // 只有图标，居中显示
                 Icon(
                     imageVector = icon,
-                    contentDescription = null,
+                    contentDescription = localized("控制按钮", "Control button"),
                     modifier = Modifier.size(24.dp),
                     tint = Color.White
                 )
@@ -256,7 +290,7 @@ object MainActivityUIComponents {
                 ) {
                     Icon(
                         imageVector = icon,
-                        contentDescription = null,
+                        contentDescription = label,
                         modifier = Modifier.size(18.dp),
                         tint = Color.White
                     )
@@ -1272,7 +1306,7 @@ fun SpeedIndicatorCompose(
 
 
 /**
- * 速度圆环组件（优化版）
+ * 速度圆环组件（优化版 - 增强无障碍支持）
  */
 @Composable
 fun SpeedRing(
@@ -1285,6 +1319,9 @@ fun SpeedRing(
         modifier = Modifier
             .size(56.dp)
             .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = "$label $speed ${localized("公里每小时", "kilometers per hour")}"
+            }
             .background(color.copy(alpha = 0.15f), androidx.compose.foundation.shape.CircleShape)
             .padding(4.dp),
         contentAlignment = Alignment.Center
