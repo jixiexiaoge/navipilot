@@ -21,7 +21,7 @@ android {
             ?.split(",")
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
-            ?: listOf("arm64-v8a", "armeabi-v7a")
+            ?: listOf("arm64-v8a")
 
     defaultConfig {
         applicationId = "com.example.navipilot"
@@ -243,14 +243,14 @@ dependencies {
     // 🆕 安全存储（EncryptedSharedPreferences）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
-    // ML Kit - 用于左右车道车辆检测
-    implementation("com.google.mlkit:object-detection:17.0.2")
-    
+    // ML Kit - 用于左右车道车辆检测（已移除以减小APK体积）
+    // implementation("com.google.mlkit:object-detection:17.0.2")
+
     // MapLibre - OSM 地图显示
     implementation("org.maplibre.gl:android-sdk:11.8.0")
 
-    // WebRTC（org.webrtc）— comma3 摄像头视频流、HUD DataChannel
-    implementation("io.getstream:stream-webrtc-android:1.3.8")
+    // WebRTC（org.webrtc）— comma3 摄像头视频流、HUD DataChannel（已移除以减小APK体积）
+    // implementation("io.getstream:stream-webrtc-android:1.3.8")
     
     // 国内发行：腾讯导航 + 高德合并包（无 Google Navigation SDK）
     implementation("com.tencent.map:tencent-map-nav-sdk-core:7.5.0")
