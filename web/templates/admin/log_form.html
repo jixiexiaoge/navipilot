@@ -1,0 +1,90 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ '编辑' if action == 'edit' else '添加' }}日志 - 后台管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-file-{{ 'edit' if action == 'edit' else 'plus' }}"></i> 
+        {{ '编辑' if action == 'edit' else '添加' }}日志
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin_logs') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info-circle"></i> 日志信息
+                </h6>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="device_id" class="form-label">
+                            <i class="fas fa-mobile-alt"></i> 设备ID *
+                        </label>
+                        <input type="text" class="form-control" id="device_id" name="device_id" 
+                               value="{{ log.device_id if log else '' }}" required>
+                        <div class="form-text">关联的设备标识符</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="operation_record" class="form-label">
+                            <i class="fas fa-clipboard-list"></i> 操作记录 *
+                        </label>
+                        <textarea class="form-control" id="operation_record" name="operation_record" 
+                                  rows="5" required>{{ log.operation_record if log else '' }}</textarea>
+                        <div class="form-text">详细记录用户的操作行为</div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('admin_logs') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> 取消
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> {{ '更新' if action == 'edit' else '添加' }}日志
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info"></i> 说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-lightbulb"></i> 字段说明</h6>
+                    <ul class="mb-0">
+                        <li><strong>设备ID</strong>: 必填，关联的设备标识</li>
+                        <li><strong>操作记录</strong>: 必填，详细记录用户操作</li>
+                        <li><strong>日志时间</strong>: 自动设置为当前时间</li>
+                    </ul>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle"></i> 注意事项</h6>
+                    <ul class="mb-0">
+                        <li>操作记录应该详细描述用户的行为</li>
+                        <li>日志时间会自动更新为当前时间</li>
+                        <li>建议记录重要的用户操作</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

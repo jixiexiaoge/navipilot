@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        使用 MaterialComponents 主题（非 Material3），解决腾讯导航SDK内部drawable引用
+        ?attr/colorPrimary、?attr/colorPrimaryDark、?attr/colorAccent 等主题属性时的
+        "unresolved theme attributes" 错误。
+        Material3 主题不提供这些旧版属性，NavigatorLayerViewDrive 需要 MaterialComponents。
+    -->
+    <style name="Theme.Navipilot" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <!-- 保持状态栏/导航栏透明，与之前行为一致 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/white</item>
+
+        <!-- MaterialComponents 必需的主题色（腾讯SDK内部引用） -->
+        <item name="colorPrimary">#1E88E5</item>
+        <item name="colorPrimaryDark">#1565C0</item>
+        <item name="colorPrimaryVariant">#1565C0</item>
+        <item name="colorAccent">#10B981</item>
+        <item name="colorSecondary">#10B981</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorSurface">#FFFFFF</item>
+        <item name="colorOnSurface">#1C1B1F</item>
+        <item name="colorError">#B00020</item>
+        <item name="colorOnError">#FFFFFF</item>
+
+        <!-- 额外：SlidingUpPanelLayout 内部可能引用 -->
+        <item name="colorControlActivated">#1E88E5</item>
+        <item name="colorControlHighlight">#1E88E5</item>
+    </style>
+</resources>

@@ -1,0 +1,170 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ '编辑' if action == 'edit' else '添加' }}用户 - 后台管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-user-{{ 'edit' if action == 'edit' else 'plus' }}"></i> 
+        {{ '编辑' if action == 'edit' else '添加' }}用户
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info-circle"></i> 用户信息
+                </h6>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="device_id" class="form-label">
+                                <i class="fas fa-mobile-alt"></i> 设备ID *
+                            </label>
+                            <input type="text" class="form-control" id="device_id" name="device_id" 
+                                   value="{{ user.device_id if user else '' }}" required>
+                            <div class="form-text">设备的唯一标识符</div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="car_model" class="form-label">
+                                <i class="fas fa-car"></i> 车型信息
+                            </label>
+                            <input type="text" class="form-control" id="car_model" name="car_model" 
+                                   value="{{ user.car_model if user else '' }}">
+                            <div class="form-text">车辆型号信息</div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="wechat_name" class="form-label">
+                                <i class="fab fa-weixin"></i> 微信名
+                            </label>
+                            <input type="text" class="form-control" id="wechat_name" name="wechat_name" 
+                                   value="{{ user.wechat_name if user else '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">
+                                <i class="fas fa-envelope"></i> 邮箱
+                            </label>
+                            <input type="email" class="form-control" id="email" name="email" 
+                                   value="{{ user.email if user else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="login_method" class="form-label">
+                                <i class="fas fa-sign-in-alt"></i> 登录方式
+                            </label>
+                            <select class="form-select" id="login_method" name="login_method">
+                                <option value="" {{ 'selected' if not user or not user.login_method else '' }}>未设置</option>
+                                <option value="email" {{ 'selected' if user and user.login_method == 'email' else '' }}>邮箱</option>
+                                <option value="github" {{ 'selected' if user and user.login_method == 'github' else '' }}>GitHub</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="github_name" class="form-label">
+                                <i class="fab fa-github"></i> GitHub 用户名
+                            </label>
+                            <input type="text" class="form-control" id="github_name" name="github_name" 
+                                   value="{{ user.github_name if user else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="usage_count" class="form-label">
+                                <i class="fas fa-chart-bar"></i> 使用次数
+                            </label>
+                            <input type="number" class="form-control" id="usage_count" name="usage_count" 
+                                   value="{{ user.usage_count if user else 0 }}" min="0">
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="usage_duration" class="form-label">
+                                <i class="fas fa-clock"></i> 使用时长(h)
+                            </label>
+                            <input type="number" class="form-control" id="usage_duration" name="usage_duration" 
+                                   value="{{ user.usage_duration if user else 0 }}" min="0" step="0.1">
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="total_distance" class="form-label">
+                                <i class="fas fa-route"></i> 累计距离(km)
+                            </label>
+                            <input type="number" class="form-control" id="total_distance" name="total_distance" 
+                                   value="{{ user.total_distance if user else 0 }}" min="0" step="0.1">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="sponsor_amount" class="form-label">
+                                <i class="fas fa-dollar-sign"></i> 赞助金额
+                            </label>
+                            <input type="number" class="form-control" id="sponsor_amount" name="sponsor_amount" 
+                                   value="{{ user.sponsor_amount if user else 0 }}" min="0" step="0.01">
+                        </div>
+                        
+                        <div class="col-md-4 mb-3">
+                            <label for="user_type" class="form-label">
+                                <i class="fas fa-user-tag"></i> 用户类型
+                            </label>
+                            <select class="form-select" id="user_type" name="user_type">
+                                <option value="-1" {{ 'selected' if user and user.user_type == -1 else '' }}>管理员专用</option>
+                                <option value="0" {{ 'selected' if user and user.user_type == 0 else '' }}>未知用户</option>
+                                <option value="1" {{ 'selected' if user and user.user_type == 1 else '' }}>新用户</option>
+                                <option value="2" {{ 'selected' if user and user.user_type == 2 else '' }}>支持者</option>
+                                <option value="3" {{ 'selected' if user and user.user_type == 3 else '' }}>赞助者</option>
+                                <option value="4" {{ 'selected' if user and user.user_type == 4 else '' }}>铁粉</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> 取消
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> {{ '更新' if action == 'edit' else '添加' }}用户
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info"></i> 说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-lightbulb"></i> 字段说明</h6>
+                    <ul class="mb-0">
+                        <li><strong>设备ID</strong>: 必填，设备唯一标识</li>
+                        <li><strong>用户类型</strong>: -1管理员 / 0未知 / 1新用户 / 2支持者 / 3赞助者 / 4铁粉</li>
+                        <li><strong>登录方式</strong>: 邮箱验证码 或 GitHub OAuth</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

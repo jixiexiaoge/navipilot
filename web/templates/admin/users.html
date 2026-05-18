@@ -1,0 +1,131 @@
+{% extends "admin/base.html" %}
+
+{% block title %}用户管理 - 后台管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-users"></i> 用户管理
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin_users_add') }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> 添加用户
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">
+            <i class="fas fa-table"></i> 用户列表
+        </h6>
+    </div>
+    <div class="card-body">
+        {% if users %}
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover" id="dataTable" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>设备ID</th>
+                        <th>邮箱</th>
+                        <th>登录方式</th>
+                        <th>用户类型</th>
+                        <th>车型</th>
+                        <th>微信名</th>
+                        <th>GitHub</th>
+                        <th>使用次数</th>
+                        <th>时长(h)</th>
+                        <th>距离(km)</th>
+                        <th>赞助(¥)</th>
+                        <th>更新时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td><code title="{{ user.device_id }}">{{ user.device_id[:12] }}{% if user.device_id|length > 12 %}…{% endif %}</code></td>
+                        <td>{{ user.email or '-' }}</td>
+                        <td>
+                            {% if user.login_method == 'email' %}
+                                <span class="badge bg-primary">邮箱</span>
+                            {% elif user.login_method == 'github' %}
+                                <span class="badge bg-dark">GitHub</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.user_type == -1 %}
+                                <span class="badge bg-dark">管理员</span>
+                            {% elif user.user_type == 0 %}
+                                <span class="badge bg-secondary">未知</span>
+                            {% elif user.user_type == 1 %}
+                                <span class="badge bg-primary">新用户</span>
+                            {% elif user.user_type == 2 %}
+                                <span class="badge bg-info">支持者</span>
+                            {% elif user.user_type == 3 %}
+                                <span class="badge bg-warning">赞助者</span>
+                            {% elif user.user_type == 4 %}
+                                <span class="badge bg-danger">铁粉</span>
+                            {% else %}
+                                <span class="badge bg-light text-dark">{{ user.user_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.car_model or '-' }}</td>
+                        <td>{{ user.wechat_name or '-' }}</td>
+                        <td>{{ user.github_name or '-' }}</td>
+                        <td>{{ user.usage_count }}</td>
+                        <td>{{ "%.1f"|format(user.usage_duration) }}</td>
+                        <td>{{ "%.1f"|format(user.total_distance) }}</td>
+                        <td>{{ "%.0f"|format(user.sponsor_amount) }}</td>
+                        <td><small>{{ user.modify_time.strftime('%m-%d %H:%M') if user.modify_time else '-' }}</small></td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('admin_users_edit', user_id=user.id) }}" class="btn btn-warning" title="编辑">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                                <a href="{{ url_for('admin_users_delete', user_id=user.id) }}" 
+                                   class="btn btn-danger" title="删除"
+                                   onclick="return confirm('确定要删除这个用户吗？')">
+                                    <i class="fas fa-trash"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-users fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">暂无用户数据</h5>
+            <p class="text-muted">点击上方"添加用户"按钮开始添加用户</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/dataTables.bootstrap5.min.css">
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" src="https://cdn.datatables.net/1.10.24/js/dataTables.bootstrap5.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#dataTable').DataTable({
+        "language": {
+            "url": "//cdn.datatables.net/plug-ins/1.10.24/i18n/Chinese.json"
+        },
+        "pageLength": 25,
+        "order": [[ 0, "desc" ]]
+    });
+});
+</script>
+{% endblock %}

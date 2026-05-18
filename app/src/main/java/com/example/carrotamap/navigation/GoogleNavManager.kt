@@ -1,0 +1,304 @@
+package com.example.carrotamap.navigation
+
+import android.app.Activity
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.compose.runtime.MutableState
+import com.example.carrotamap.CarrotManFields
+import com.google.android.libraries.navigation.NavigationApi
+import com.google.android.libraries.navigation.Navigator
+import com.google.android.libraries.navigation.NavigationApi.NavigatorListener
+import com.google.android.libraries.navigation.Waypoint
+import com.google.android.libraries.navigation.SimulationOptions
+import com.google.android.libraries.navigation.Navigator.RouteStatus
+
+/**
+ * Google 导航管理器
+ *
+ * 负责 Google Navigation SDK 的初始化、路线规划和导航控制
+ * Google Maps 使用 WGS-84 坐标系，与内部存储一致，无需转换
+ */
+class GoogleNavManager(
+    private val context: Context,
+    private val carrotManFieldsState: MutableState<CarrotManFields>?
+) {
+    companion object {
+        private const val TAG = "GoogleNavManager"
+    }
+
+    private var _navigator: Navigator? = null
+    val navigator: Navigator? get() = _navigator
+    private var isInitialized = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    fun isReady(): Boolean = isInitialized && navigator != null
+
+    /**
+     * 外部设置 navigator 引用（由 GoogleNavPage 在 NavigatorListener.onNavigatorReady 中调用）
+     */
+    fun setNavigator(nav: Navigator) {
+        _navigator = nav
+        isInitialized = true
+        nav.setTaskRemovedBehavior(Navigator.TaskRemovedBehavior.QUIT_SERVICE)
+        Log.i(TAG, "Navigator 已注入 GoogleNavManager")
+    }
+
+    private fun postFieldsMutate(block: (CarrotManFields) -> CarrotManFields) {
+        val st = carrotManFieldsState ?: return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            st.value = block(st.value)
+        } else {
+            mainHandler.post { st.value = block(st.value) }
+        }
+    }
+
+    /**
+     * 初始化 Google Navigation SDK
+     * 必须在主线程调用，通常在页面 Composable 时触发
+     */
+    fun initializeNavigator(activity: Activity, onReady: () -> Unit = {}, onError: (Int, Int) -> Unit = { _, _ -> }) {
+        if (isInitialized) {
+            Log.w(TAG, "Navigator 已初始化，跳过")
+            onReady()
+            return
+        }
+
+        try {
+            NavigationApi.getNavigator(
+                activity,
+                object : NavigatorListener {
+                    override fun onNavigatorReady(navigator: Navigator) {
+                        Log.i(TAG, "Google Navigation SDK 初始化成功")
+                        this@GoogleNavManager._navigator = navigator
+                        isInitialized = true
+
+                        // 设置退出时行为
+                        navigator.setTaskRemovedBehavior(Navigator.TaskRemovedBehavior.QUIT_SERVICE)
+
+                        onReady()
+                    }
+
+                    override fun onError(errorCode: Int) {
+                        Log.e(TAG, "Google 导航错误: code=$errorCode")
+                        val msg = when (errorCode) {
+                            NavigationApi.ErrorCode.NOT_AUTHORIZED ->
+                                "API Key 无效或未授权使用 Navigation API"
+                            NavigationApi.ErrorCode.TERMS_NOT_ACCEPTED ->
+                                "用户未接受导航服务条款"
+                            else -> "导航错误: $errorCode"
+                        }
+                        Log.e(TAG, msg)
+                        // 根据 errorCode 判断是否需要调用 onError
+                        onError(errorCode, 0)
+                    }
+                }
+            )
+            Log.i(TAG, "Google Navigation SDK 初始化请求已发送")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Google Navigation SDK 初始化失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 设置目的地并开始导航
+     *
+     * @param startLat 起点纬度 (WGS-84)，0.0 表示使用当前位置
+     * @param startLon 起点经度 (WGS-84)，0.0 表示使用当前位置
+     * @param destLat 目的地纬度 (WGS-84)
+     * @param destLon 目的地经度 (WGS-84)
+     * @param destName 目的地名称
+     * @param simulate 是否模拟行程（debug 模式下默认 true）
+     * @param onRouteError 路线错误回调
+     */
+    fun startNavigation(
+        startLat: Double = 0.0,
+        startLon: Double = 0.0,
+        destLat: Double,
+        destLon: Double,
+        destName: String,
+        simulate: Boolean = true,
+        onRouteError: ((String) -> Unit)? = null
+    ) {
+        val nav = navigator ?: run {
+            Log.e(TAG, "Navigator 未初始化，无法开始导航")
+            onRouteError?.invoke("导航服务未初始化")
+            return
+        }
+
+        if (destLat == 0.0 || destLon == 0.0) {
+            Log.e(TAG, "目的地坐标无效: lat=$destLat, lon=$destLon")
+            onRouteError?.invoke("目的地坐标无效")
+            return
+        }
+
+        Log.i(TAG, "开始导航: $destName")
+        Log.i(TAG, "  起点: ($startLat, $startLon)")
+        Log.i(TAG, "  终点: ($destLat, $destLon)")
+        Log.i(TAG, "  模拟: $simulate")
+
+        try {
+            // 构建路线请求
+            val destinationBuilder = Waypoint.builder().setLatLng(destLat, destLon)
+            
+            // 如果提供了起点坐标，设置起点（否则使用当前GPS位置）
+            val pendingRoute = if (startLat != 0.0 && startLon != 0.0) {
+                Log.i(TAG, "使用指定起点: ($startLat, $startLon)")
+                val origin = Waypoint.builder().setLatLng(startLat, startLon).build()
+                val destination = destinationBuilder.build()
+                nav.setDestinations(listOf(origin, destination))
+            } else {
+                Log.i(TAG, "使用当前GPS位置作为起点")
+                val destination = destinationBuilder.build()
+                nav.setDestination(destination)
+            }
+
+            Log.i(TAG, "等待路线计算结果...")
+            
+            pendingRoute?.setOnResultListener { code ->
+                Log.i(TAG, "收到路线状态回调: $code")
+                when (code) {
+                    RouteStatus.OK -> {
+                        Log.i(TAG, "✅ 路线规划成功，开始导航: $destName")
+
+                        // 启用语音播报
+                        nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
+
+                        // 模拟行程（仅 debug 构建）
+                        if (simulate) {
+                            Log.i(TAG, "启动模拟导航（5倍速）")
+                            nav.simulator.simulateLocationsAlongExistingRoute(
+                                SimulationOptions().speedMultiplier(5f)
+                            )
+                        }
+
+                        // 开始导航
+                        nav.startGuidance()
+                        Log.i(TAG, "导航已启动")
+
+                        // 更新 CarrotManFields
+                        carrotManFieldsState?.let { state ->
+                            state.value = state.value.copy(
+                                goalPosX = destLon,
+                                goalPosY = destLat,
+                                szGoalName = destName,
+                                isNavigating = true,
+                                source_last = "google_nav"
+                            )
+                        }
+                    }
+                    RouteStatus.ROUTE_CANCELED -> {
+                        val msg = "路线规划已取消"
+                        Log.w(TAG, "⚠️ $msg")
+                        onRouteError?.invoke(msg)
+                    }
+                    RouteStatus.NO_ROUTE_FOUND -> {
+                        val msg = "未找到从起点到终点的路线，请检查坐标是否正确或网络连接"
+                        Log.w(TAG, "⚠️ $msg")
+                        Log.w(TAG, "   起点: ($startLat, $startLon)")
+                        Log.w(TAG, "   终点: ($destLat, $destLon)")
+                        onRouteError?.invoke(msg)
+                    }
+                    RouteStatus.NETWORK_ERROR -> {
+                        val msg = "网络错误，无法规划路线"
+                        Log.w(TAG, "⚠️ $msg")
+                        onRouteError?.invoke(msg)
+                    }
+                    else -> {
+                        val msg = "路线规划失败: $code"
+                        Log.w(TAG, "⚠️ $msg")
+                        onRouteError?.invoke(msg)
+                    }
+                }
+            } ?: run {
+                val msg = "无法创建路线请求（pendingRoute 为 null）"
+                Log.e(TAG, "❌ $msg")
+                onRouteError?.invoke(msg)
+            }
+
+        } catch (e: Exception) {
+            val msg = "启动导航失败: ${e.message}"
+            Log.e(TAG, "❌ $msg", e)
+            onRouteError?.invoke(msg)
+        }
+    }
+
+    /**
+     * 通过 Place ID 设置目的地（推荐方式，可获得更准确的路线和 ETA）
+     */
+    fun startNavigationByPlaceId(placeId: String, destName: String, simulate: Boolean = true) {
+        val nav = navigator ?: run {
+            Log.e(TAG, "Navigator 未初始化，无法开始导航")
+            return
+        }
+
+        try {
+            val destination = Waypoint.builder()
+                .setPlaceIdString(placeId)
+                .build()
+
+            val pendingRoute = nav.setDestination(destination)
+            pendingRoute?.setOnResultListener { code ->
+                when (code) {
+                    RouteStatus.OK -> {
+                        nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
+
+                        if (simulate) {
+                            nav.simulator.simulateLocationsAlongExistingRoute(
+                                SimulationOptions().speedMultiplier(5f)
+                            )
+                        }
+
+                        nav.startGuidance()
+
+                        carrotManFieldsState?.let { state ->
+                            state.value = state.value.copy(
+                                szGoalName = destName,
+                                isNavigating = true,
+                                source_last = "google_nav"
+                            )
+                        }
+                    }
+                    else -> Log.w(TAG, "⚠️ 路线状态: $code")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 通过 Place ID 启动导航失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 停止导航
+     */
+    fun stopNavigation() {
+        try {
+            navigator?.stopGuidance()
+            navigator?.clearDestinations()
+            carrotManFieldsState?.let { state ->
+                state.value = state.value.copy(
+                    isNavigating = false,
+                    source_last = "google_nav"
+                )
+            }
+            Log.i(TAG, "🛑 Google 导航已停止")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 停止 Google 导航失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 清理资源
+     */
+    fun destroy() {
+        try {
+            stopNavigation()
+            _navigator = null
+            isInitialized = false
+            Log.i(TAG, "✅ GoogleNavManager 资源已清理")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 清理资源失败: ${e.message}", e)
+        }
+    }
+}

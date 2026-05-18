@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/tencent_nav_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.tencent.navix.api.layer.NavigatorViewStub
+        android:id="@+id/tencent_navigator_view_stub"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:travel_mode="Driving" />
+
+</FrameLayout>

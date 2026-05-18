@@ -1,0 +1,89 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ '编辑' if action == 'edit' else '添加' }}视频 - 后台管理{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-video-{{ 'edit' if action == 'edit' else 'plus' }}"></i> 
+        {{ '编辑' if action == 'edit' else '添加' }}视频
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <a href="{{ url_for('admin_videos') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info-circle"></i> 视频信息
+                </h6>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="video_title" class="form-label">
+                            <i class="fas fa-heading"></i> 视频标题 *
+                        </label>
+                        <input type="text" class="form-control" id="video_title" name="video_title" 
+                               value="{{ video.video_title if video else '' }}" required>
+                        <div class="form-text">视频的标题名称</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="video_link" class="form-label">
+                            <i class="fas fa-link"></i> 视频链接 *
+                        </label>
+                        <input type="url" class="form-control" id="video_link" name="video_link" 
+                               value="{{ video.video_link if video else '' }}" required>
+                        <div class="form-text">视频的完整URL链接</div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('admin_videos') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> 取消
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> {{ '更新' if action == 'edit' else '添加' }}视频
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">
+                    <i class="fas fa-info"></i> 说明
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-lightbulb"></i> 字段说明</h6>
+                    <ul class="mb-0">
+                        <li><strong>视频标题</strong>: 必填，视频的标题名称</li>
+                        <li><strong>视频链接</strong>: 必填，完整的视频URL</li>
+                    </ul>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle"></i> 注意事项</h6>
+                    <ul class="mb-0">
+                        <li>视频链接必须是有效的URL格式</li>
+                        <li>支持各种视频平台的链接</li>
+                        <li>建议使用简短有意义的标题</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

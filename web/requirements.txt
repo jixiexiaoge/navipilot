@@ -1,0 +1,22 @@
+# Navipilot Web应用 - 精确依赖列表
+# 基于app.py的实际导入需求
+
+# 核心Flask框架
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+
+# Flask核心依赖（自动安装，但明确指定版本确保兼容性）
+Werkzeug==2.3.7
+Jinja2>=3.1.2
+MarkupSafe>=2.1.3
+itsdangerous>=2.1.2
+click>=8.1.7
+blinker>=1.6.3
+
+# SQLAlchemy核心依赖
+SQLAlchemy>=1.4.18
+greenlet>=1.0.0
+typing-extensions>=4.6.0
+
+# HTTP 客户端（GitHub API 调用）
+requests>=2.31.0

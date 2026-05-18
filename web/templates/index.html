@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>NaviPilot — Comma3 智能导航搭子</title>
+<meta name="description" content="NaviPilot 是面向 Comma3 OpenPilot 的智能导航辅助 App，三模导航 + 高精度定位 + 实时视频 + 车道检测">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;
+  --text:#f1f5f9;--text2:#94a3b8;--text3:#64748b;
+  --accent:#6366f1;--accent2:#818cf8;--accent-g:linear-gradient(135deg,#6366f1,#8b5cf6,#a78bfa);
+  --blue:#3b82f6;--green:#10b981;--orange:#f59e0b;--red:#ef4444;--cyan:#06b6d4;
+  --card:rgba(30,41,59,.6);--border:rgba(148,163,184,.12);
+  --radius:16px;
+}
+html{font-size:16px;scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);
+  line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{color:var(--accent2);text-decoration:none}
+
+/* ── Hero ── */
+.hero{position:relative;min-height:100vh;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;text-align:center;padding:60px 20px 40px;
+  overflow:hidden}
+.hero::before{content:'';position:absolute;top:-40%;left:-20%;width:140%;height:140%;
+  background:radial-gradient(ellipse at 50% 30%,rgba(99,102,241,.15) 0%,rgba(139,92,246,.08) 30%,transparent 70%);
+  pointer-events:none}
+.hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:120px;
+  background:linear-gradient(to top,var(--bg),transparent);pointer-events:none}
+</style>
+<style>
+.hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;
+  border-radius:100px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);
+  font-size:.75rem;font-weight:600;color:var(--accent2);letter-spacing:.5px;
+  text-transform:uppercase;margin-bottom:20px;backdrop-filter:blur(8px)}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);
+  animation:pulse-dot 2s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+.hero h1{font-size:clamp(2.2rem,8vw,3.6rem);font-weight:900;letter-spacing:-.02em;
+  line-height:1.1;margin-bottom:16px;
+  background:linear-gradient(135deg,#fff 0%,#c7d2fe 50%,#a78bfa 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(1rem,3vw,1.2rem);color:var(--text2);max-width:520px;
+  margin:0 auto 32px;line-height:1.7}
+.hero-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:36px}
+.hero-tags span{padding:5px 14px;border-radius:100px;font-size:.75rem;font-weight:600;
+  border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text2)}
+.hero-cta{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;
+  border-radius:14px;background:var(--accent-g);color:#fff;font-weight:700;
+  font-size:1rem;border:none;cursor:pointer;transition:transform .2s,box-shadow .2s;
+  box-shadow:0 4px 24px rgba(99,102,241,.35)}
+.hero-cta:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(99,102,241,.45)}
+.hero-cta svg{width:20px;height:20px}
+
+/* ── Section ── */
+.section{padding:60px 20px;max-width:680px;margin:0 auto}
+.section-label{display:inline-flex;align-items:center;gap:6px;font-size:.7rem;
+  font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent2);
+  margin-bottom:12px}
+.section-label .icon{width:20px;height:20px;border-radius:6px;display:flex;
+  align-items:center;justify-content:center;font-size:.7rem}
+.section h2{font-size:clamp(1.5rem,5vw,2rem);font-weight:800;letter-spacing:-.01em;
+  margin-bottom:12px;line-height:1.2}
+.section .desc{color:var(--text2);font-size:.95rem;margin-bottom:32px;line-height:1.7}
+
+/* ── Cards ── */
+.card-grid{display:flex;flex-direction:column;gap:14px}
+.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px;backdrop-filter:blur(12px);transition:border-color .3s,transform .2s}
+.fcard:hover{border-color:rgba(99,102,241,.3);transform:translateY(-2px)}
+.fcard-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:1.3rem;margin-bottom:14px;flex-shrink:0}
+.fcard h3{font-size:1.05rem;font-weight:700;margin-bottom:6px}
+.fcard p{font-size:.85rem;color:var(--text2);line-height:1.6;margin:0}
+.fcard-row{display:flex;gap:14px;align-items:flex-start}
+.fcard-row .fcard-icon{margin-bottom:0}
+.fcard-row .fcard-text{flex:1}
+</style>
+<style>
+/* ── Mode Switcher ── */
+.mode-cards{display:flex;flex-direction:column;gap:14px}
+.mode-card{border-radius:var(--radius);padding:20px;border:1px solid var(--border);
+  position:relative;overflow:hidden}
+.mode-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.mode-card.osm{background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(59,130,246,.02))}
+.mode-card.osm::before{background:linear-gradient(90deg,var(--blue),#60a5fa)}
+.mode-card.amap{background:linear-gradient(135deg,rgba(16,185,129,.08),rgba(16,185,129,.02))}
+.mode-card.amap::before{background:linear-gradient(90deg,var(--green),#34d399)}
+.mode-card.tencent{background:linear-gradient(135deg,rgba(139,92,246,.08),rgba(139,92,246,.02))}
+.mode-card.tencent::before{background:linear-gradient(90deg,#8b5cf6,#a78bfa)}
+.mode-card .mode-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.mode-card .mode-emoji{font-size:1.4rem}
+.mode-card .mode-name{font-size:1rem;font-weight:700}
+.mode-card .mode-tag{font-size:.65rem;padding:2px 8px;border-radius:100px;font-weight:600}
+.mode-card p{font-size:.82rem;color:var(--text2);line-height:1.6;margin:0}
+
+/* ── Protocol Table ── */
+.proto-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:16px}
+.proto-table th{text-align:left;padding:10px 12px;font-weight:600;color:var(--text2);
+  border-bottom:1px solid var(--border);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.5px}
+.proto-table td{padding:10px 12px;border-bottom:1px solid rgba(148,163,184,.06);
+  vertical-align:top}
+.proto-table tr:last-child td{border-bottom:none}
+.proto-table .port{font-family:'SF Mono',Consolas,monospace;font-weight:600;color:var(--accent2)}
+.proto-table .dir{color:var(--text3);font-size:.72rem}
+
+/* ── Stats ── */
+.stats-row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:24px}
+.stat-box{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:18px 16px;text-align:center;backdrop-filter:blur(8px)}
+.stat-box .num{font-size:1.6rem;font-weight:800;
+  background:var(--accent-g);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text}
+.stat-box .label{font-size:.72rem;color:var(--text3);margin-top:2px;font-weight:500}
+
+/* ── Arch Diagram ── */
+.arch-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px;font-family:'SF Mono',Consolas,'Courier New',monospace;font-size:.72rem;
+  line-height:1.8;color:var(--text2);overflow-x:auto;white-space:pre;margin-top:16px}
+.arch-box .hl{color:var(--accent2);font-weight:600}
+.arch-box .gr{color:var(--green)}
+.arch-box .or{color:var(--orange)}
+.arch-box .cy{color:var(--cyan)}
+
+/* ── Footer ── */
+.site-footer{text-align:center;padding:40px 20px 60px;color:var(--text3);font-size:.78rem}
+.site-footer a{color:var(--text2)}
+.admin-link{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;
+  border-radius:8px;border:1px solid var(--border);font-size:.72rem;color:var(--text3);
+  margin-top:12px;transition:border-color .2s}
+.admin-link:hover{border-color:var(--accent);color:var(--accent2)}
+
+/* ── Divider ── */
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);
+  margin:0 auto;max-width:200px}
+
+/* ── Scroll Fade ── */
+.fade-up{opacity:0;transform:translateY(24px);transition:opacity .6s,transform .6s}
+.fade-up.visible{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ════════ HERO ════════ -->
+<section class="hero">
+  <div class="hero-badge"><span class="dot"></span> Comma3 · OpenPilot 生态</div>
+  <h1>NaviPilot</h1>
+  <p class="hero-sub">你的 Comma3 智能导航搭子。三模导航无缝切换，厘米级高精度定位，实时视频 + AI 车道检测，让每一次出行更安全、更从容。</p>
+  <div class="hero-tags">
+    <span>🗺️ 三模导航</span>
+    <span>📡 RTK 定位</span>
+    <span>🎥 实时视频</span>
+    <span>🤖 AI 检测</span>
+    <span>🌍 全球可用</span>
+  </div>
+  <a class="hero-cta" href="https://github.com/jixiexiaoge/openpilot/releases" target="_blank">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    下载 APK
+  </a>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 三模导航 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(59,130,246,.15);color:var(--blue)">🗺️</span> NAVIGATION</div>
+  <h2>三模导航，无缝切换</h2>
+  <p class="desc">OSM / 高德 / 腾讯三种导航引擎互斥运行，同一时刻只有一种模式写入数据，自动切换、零手动干预。</p>
+
+  <div class="mode-cards">
+    <div class="mode-card osm">
+      <div class="mode-head">
+        <span class="mode-emoji">🔵</span>
+        <span class="mode-name">OSM 模式</span>
+        <span class="mode-tag" style="background:rgba(59,130,246,.15);color:var(--blue)">默认</span>
+      </div>
+      <p>基于 OpenStreetMap + OSRM/腾讯混合路由，完全免费、全球可用。MapLibre 卫星地图渲染，支持搜索、路线规划、TBT 转弯引导。</p>
+    </div>
+    <div class="mode-card amap">
+      <div class="mode-head">
+        <span class="mode-emoji">🟢</span>
+        <span class="mode-name">高德模式</span>
+        <span class="mode-tag" style="background:rgba(16,185,129,.15);color:var(--green)">自动</span>
+      </div>
+      <p>检测到高德地图车机版广播时自动激活，获取实时路况、电子眼、限速、车道线等完整导航数据。导航结束 30 秒后自动回退。</p>
+    </div>
+    <div class="mode-card tencent">
+      <div class="mode-head">
+        <span class="mode-emoji">🟣</span>
+        <span class="mode-name">腾讯模式</span>
+        <span class="mode-tag" style="background:rgba(139,92,246,.15);color:#a78bfa">SDK</span>
+      </div>
+      <p>集成腾讯导航 SDK v7.5.0，3D 实景导航、TTS 语音播报、区间测速、道路吸附坐标。进入腾讯导航页面时自动切换。</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 高精度定位 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(16,185,129,.15);color:var(--green)">📡</span> POSITIONING</div>
+  <h2>厘米级高精度定位</h2>
+  <p class="desc">多级 GNSS 增强定位引擎，从 RTK 固定解到 SBAS 双频，自动选择最优定位模式。</p>
+
+  <div class="card-grid">
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(16,185,129,.12);color:var(--green)">🎯</div>
+      <div class="fcard-text">
+        <h3>NTRIP CORS 差分</h3>
+        <p>连接六分科技 / 千寻位置等 CORS 服务，获取 RTCM3 差分数据流，实现 DGNSS（1-2m）到 RTK 固定解（厘米级）。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(6,182,212,.12);color:var(--cyan)">📶</div>
+      <div class="fcard-text">
+        <h3>双频 GNSS 解算</h3>
+        <p>从 Android Raw GNSS API 提取 L1+L5 伪距，无电离层组合消除延迟，加权最小二乘法解算。支持 GPS / GLONASS / Galileo / BDS 四系统。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(99,102,241,.12);color:var(--accent2)">🔄</div>
+      <div class="fcard-text">
+        <h3>卡尔曼滤波融合</h3>
+        <p>GPS + IMU 3D 状态向量融合，精度自适应增益、静止防漂移、航向校准、大误差硬重置。移植自 Dashy gpsd.py。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box"><div class="num">2cm</div><div class="label">RTK 固定解精度</div></div>
+    <div class="stat-box"><div class="num">4</div><div class="label">卫星系统支持</div></div>
+    <div class="stat-box"><div class="num">5</div><div class="label">定位模式自动切换</div></div>
+    <div class="stat-box"><div class="num">L1+L5</div><div class="label">双频伪距解算</div></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 智能辅助 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(245,158,11,.15);color:var(--orange)">🤖</span> INTELLIGENCE</div>
+  <h2>AI 驾驶辅助</h2>
+  <p class="desc">实时视频流 + ML Kit 车辆检测 + 多维超车决策，为 OpenPilot 提供更丰富的环境感知。</p>
+
+  <div class="card-grid">
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(239,68,68,.12);color:var(--red)">🎥</div>
+      <div class="fcard-text">
+        <h3>WebRTC 实时视频</h3>
+        <p>通过 WebRTC 连接 Comma3 前置摄像头，圆角悬浮窗实时显示路况画面，支持折叠/展开。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(245,158,11,.12);color:var(--orange)">👁️</div>
+      <div class="fcard-text">
+        <h3>车道车辆检测</h3>
+        <p>ML Kit Object Detection 实时分析视频帧，画面三等分识别左右车道车辆，边缘红色渐变警告条提示盲区风险。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(99,102,241,.12);color:var(--accent2)">🚗</div>
+      <div class="fcard-text">
+        <h3>智能超车决策</h3>
+        <p>综合前车距离、速度差、车道线曲率、方向盘角度、TBT 转向偏好等多维数据，支持禁止超车 / 拨杆超车 / 自动超车三种模式。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(6,182,212,.12);color:var(--cyan)">🛣️</div>
+      <div class="fcard-text">
+        <h3>车道级导航</h3>
+        <p>基于高精度定位检测当前车道，结合导航指令推荐正确车道，生成车道变更引导（方向 + 紧急程度）。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 通信协议 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(6,182,212,.15);color:var(--cyan)">⚡</span> PROTOCOL</div>
+  <h2>实时数据通道</h2>
+  <p class="desc">200ms 间隔 UDP 实时推送导航数据到 Comma3，统一 JSON 格式兼容 carrot_serv.py，三模共用同一数据管线。</p>
+
+  <div class="fcard" style="padding:0;overflow:hidden">
+    <table class="proto-table">
+      <thead><tr><th>端口</th><th>协议</th><th>方向</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td class="port">7705</td><td>UDP</td><td class="dir">C3 → 手机</td><td>设备广播发现</td></tr>
+        <tr><td class="port">7706</td><td>UDP</td><td class="dir">手机 → C3</td><td>导航数据（200ms）</td></tr>
+        <tr><td class="port">7709</td><td>TCP</td><td class="dir">手机 → C3</td><td>路线点串（弯道限速）</td></tr>
+        <tr><td class="port">7711</td><td>TCP</td><td class="dir">C3 → 手机</td><td>车辆感知数据</td></tr>
+        <tr><td class="port">5001</td><td>WebRTC</td><td class="dir">双向</td><td>实时视频流</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="arch-box"><span class="hl">高德广播</span> ──┐
+             ├──→ <span class="cy">CarrotManFields</span> ──→ <span class="or">NetworkManager</span> ──→ UDP <span class="gr">7706</span>
+<span class="hl">腾讯 SDK</span> ──┤     <span class="cy">(统一数据模型)</span>      <span class="or">(200ms 自动发送)</span>
+             │
+<span class="hl">OSM 引擎</span> ──┘
+
+Comma3 ──→ UDP <span class="gr">7705</span> ──→ 设备发现
+       ──→ TCP <span class="gr">7711</span> ──→ 车辆感知 ──→ <span class="or">超车决策</span>
+       ──→ WebRTC <span class="gr">5001</span> ──→ 视频流 ──→ <span class="or">AI 检测</span></div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 数据字段 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(139,92,246,.15);color:#a78bfa">📊</span> DATA FIELDS</div>
+  <h2>UDP 7706 核心字段</h2>
+  <p class="desc">三种模式统一写入 CarrotManFields，通过 <code style="color:var(--accent2);font-size:.85rem">convertCarrotFieldsToJson()</code> 序列化后发送。以下为关键字段覆盖情况。</p>
+
+  <div class="card-grid">
+    <div class="fcard">
+      <h3>📍 GPS 位置（9 字段）</h3>
+      <p>latitude / longitude / heading / accuracy / gps_speed — 三模均来自手机 GPS。vpPosPointLat/Lon — OSM 用 GPS，高德用 GCJ-02 广播坐标，腾讯用 SDK 道路吸附坐标（最精确）。</p>
+    </div>
+    <div class="fcard">
+      <h3>🔀 TBT 转弯引导（9 字段）</h3>
+      <p>nTBTDist / nTBTTurnType / szTBTMainText — 距下一转弯距离、类型编码、指令文本。支持双层 TBT（下一转弯 + 下下转弯），三模均完整覆盖。</p>
+    </div>
+    <div class="fcard">
+      <h3>📷 SDI 电子眼（15 字段）</h3>
+      <p>nSdiType / nSdiSpeedLimit / nSdiDist — 电子眼类型、限速、距离。支持双电子眼 + 区间测速。高德和腾讯完整覆盖，OSM 模式无电子眼数据。</p>
+    </div>
+    <div class="fcard">
+      <h3>🛣️ 道路信息（4 字段）</h3>
+      <p>szPosRoadName / nRoadLimitSpeed / roadcate / nLaneCount — 当前道路名、限速、道路类别（高速/快速/普通）、车道数。腾讯模式通过 NavRoadType + grade/kind 精确推断。</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 技术栈 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(59,130,246,.15);color:var(--blue)">🔧</span> TECH STACK</div>
+  <h2>技术栈</h2>
+
+  <div class="card-grid">
+    <div class="fcard" style="display:flex;flex-wrap:wrap;gap:8px;padding:16px">
+      <span class="hero-tags" style="margin:0;gap:8px;justify-content:flex-start">
+        <span>Kotlin</span><span>Jetpack Compose</span><span>Material 3</span>
+        <span>Koin DI</span><span>Coroutines + Flow</span><span>OkHttp</span>
+        <span>MapLibre 11.8</span><span>腾讯导航 SDK 7.5</span><span>ML Kit</span>
+        <span>WebRTC</span><span>ExoPlayer</span><span>DataStore</span>
+        <span>NTRIP v1</span><span>RTCM3 Decoder</span><span>Kalman Filter</span>
+        <span>OSRM</span><span>Overpass API</span><span>Timber</span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ 快速上手 ════════ -->
+<section class="section fade-up">
+  <div class="section-label"><span class="icon" style="background:rgba(16,185,129,.15);color:var(--green)">🚀</span> QUICK START</div>
+  <h2>快速上手</h2>
+
+  <div class="card-grid">
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(59,130,246,.12);color:var(--blue);font-weight:800;font-size:1rem">1</div>
+      <div class="fcard-text">
+        <h3>安装 APK</h3>
+        <p>下载最新版 NaviPilot APK 安装到手机，授予定位、通知等权限。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(16,185,129,.12);color:var(--green);font-weight:800;font-size:1rem">2</div>
+      <div class="fcard-text">
+        <h3>连接 Comma3</h3>
+        <p>确保手机与 Comma3 在同一局域网（热点或 Wi-Fi），App 自动发现设备并建立 UDP 连接。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(139,92,246,.12);color:#a78bfa;font-weight:800;font-size:1rem">3</div>
+      <div class="fcard-text">
+        <h3>开始导航</h3>
+        <p>OSM 模式：搜索目的地 → 点击导航。高德模式：打开高德车机版自动切换。腾讯模式：底部导航栏进入。</p>
+      </div>
+    </div>
+    <div class="fcard fcard-row">
+      <div class="fcard-icon" style="background:rgba(245,158,11,.12);color:var(--orange);font-weight:800;font-size:1rem">4</div>
+      <div class="fcard-text">
+        <h3>高级功能</h3>
+        <p>「我的」页面配置 NTRIP 差分定位账号、地图样式、路由策略。九宫格弹窗切换控速模式、超车模式。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ════════ Footer ════════ -->
+<footer class="site-footer">
+  <p>NaviPilot — Comma3 智能导航搭子</p>
+  <p style="margin-top:4px">Built with ❤️ for the OpenPilot community</p>
+  <a href="/admin/login" class="admin-link">🔒 管理员入口</a>
+</footer>
+
+<!-- ── Scroll Animation ── -->
+<script>
+const obs=new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target)}})
+},{threshold:0.15});
+document.querySelectorAll('.fade-up').forEach(el=>obs.observe(el));
+</script>
+</body>
+</html>
