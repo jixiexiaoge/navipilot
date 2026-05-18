@@ -404,9 +404,10 @@ class SshConnectionManager(private val context: Context) {
             // 注意：直接执行 scons 命令，而不是先检测 which scons
             // 因为 SSH 非交互式会话可能无法正确检测到 PATH 中的 scons
             // 如果 scons 不存在，命令会失败并给出友好提示
+            // 使用 bash -c 确保命令在 shell 环境中执行，以便 $(nproc) 等命令替换能正常工作
             appendUserLog("尝试重新编译模型（可能需要 1-3 分钟）...")
             val rebuildResult = execCommand(
-                "cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/",
+                "bash -c 'cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/'",
                 timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
             )
 
