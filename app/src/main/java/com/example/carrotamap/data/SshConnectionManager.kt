@@ -47,6 +47,18 @@ class SshConnectionManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SshConnectionManager"
+
+        init {
+            // 注册 BouncyCastle 作为安全提供者（解决 X25519 算法问题）
+            // 必须在创建 SSHClient 之前注册，且只需注册一次
+            try {
+                java.security.Security.removeProvider("BC")  // 先移除避免重复
+                java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+                Log.i(TAG, "BouncyCastle 安全提供者已注册")
+            } catch (e: Exception) {
+                Log.e(TAG, "注册 BouncyCastle 失败: ${e.message}")
+            }
+        }
     }
 
     private val _connectionState = MutableStateFlow(SshConnectionState.DISCONNECTED)
@@ -85,9 +97,6 @@ class SshConnectionManager(private val context: Context) {
 
             // 创建 SSH 客户端
             val ssh = SSHClient()
-
-            // 注册 BouncyCastle 作为安全提供者（解决 X25519 算法问题）
-            java.security.Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
 
             // 跳过主机密钥验证（适合开发/测试）
             ssh.addHostKeyVerifier(PromiscuousVerifier())
