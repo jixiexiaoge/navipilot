@@ -180,69 +180,1063 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 
 ## 技术架构
 
-### 模块划分
+### 核心架构模式
+
+**协调器模式 + MVVM + Jetpack Compose**
+
+应用采用协调器模式拆分 MainActivity，实现关注点分离：
 
 ```
-MainActivity.kt          # 应用入口（协调器模式）
-    ├── MainActivityCore.kt       # 核心业务逻辑 & 状态管理
-    ├── MainActivityUI.kt         # Compose UI 组件
-    └── MainActivityLifecycle.kt  # 生命周期 & 初始化
+MainActivity.kt          # 应用入口（协调器）
+    ├── MainActivityCore.kt       # 核心业务逻辑 & 状态管理（MVVM ViewModel 层）
+    ├── MainActivityUI.kt         # Compose UI 组件（View 层）
+    └── MainActivityLifecycle.kt  # 生命周期 & 初始化管理
 ```
 
-### 目录结构
+**优势**：
+- ✅ 清晰的关注点分离
+- ✅ 可测试性（业务逻辑与 UI 解耦）
+- ✅ 生命周期管理独立
+- ✅ 支持并行开发
+
+### 详细模块结构
+
+#### 📦 核心层（Core Layer）
 
 ```
 com.example.carrotamap/
-├── MainActivity*.kt           # 入口与协调器
-├── CarrotApplication.kt       # Application 初始化
-├── CarrotManDataModels.kt     # 数据模型
-├── CarrotManNetworkClient.kt  # UDP/TCP 网络通信
-├── CarrotParamClient.kt       # HTTP 参数读写
-├── NetworkManager.kt          # 网络管理
-├── DeviceManager.kt           # 设备管理
-├── LocationSensorManager.kt   # 定位传感器
-├── AmapBroadcastManager.kt    # 高德广播接收
-├── AmapBroadcastHandlers.kt   # 高德数据解析
-├── XiaogeDataReceiver.kt      # 设备数据接收
-├── AutoOvertakeManager.kt     # 自动超车辅助
-├── ConditionalExperimentManager.kt  # 条件实验模式
-├── PermissionManager.kt       # 权限管理
-├── Constants.kt               # 常量定义
+├── [应用入口与协调]
+│   ├── MainActivity.kt                  # 入口协调器（191 行）
+│   ├── MainActivityCore.kt             # 核心业务逻辑（1,247 行）
+│   ├── MainActivityUI.kt               # Compose UI 组件（879 行）
+│   ├── MainActivityLifecycle.kt        # 生命周期管理（413 行）
+│   └── CarrotApplication.kt            # Application 初始化（Koin DI）
 │
-├── navigation/
-│   ├── OsmNavigationManager.kt    # OSM 导航
-│   ├── TencentNavDataBridge.kt     # 腾讯 SDK 桥接
-│   └── ...                         # 导航辅助类
+├── [数据模型与状态]
+│   ├── CarrotManDataModels.kt          # UDP/TCP 协议数据模型（232 行）
+│   └── CarrotManFields.kt              # 中央状态容器（SSOT）
 │
-├── ui/
-│   ├── components/
-│   │   ├── OsmMapView.kt           # OSM 地图组件（含地点搜索 UI）
-│   │   ├── MapSearchService.kt     # 统一地点搜索（高德 SDK/REST、腾讯、Photon 等）
-│   │   ├── NavModeSwitcher.kt      # 模式切换器
-│   │   ├── ProfilePage.kt          # 个人中心
-│   │   ├── OpenpilotHUDPage.kt     # HUD 叠加层
-│   │   ├── SSHTerminalPage.kt      # SSH 终端
-│   │   ├── LedMatrixManager.kt     # LED 设备管理
-│   │   └── ...
-│   ├── driving/
-│   │   ├── DrivingReportScreen.kt  # 驾驶报告
-│   │   └── DrivingReportShareImage.kt
-│   ├── discovery/
-│   │   ├── CommaDeviceDiscovery.kt
-│   │   └── OpenpilotConnectionManager.kt
-│   ├── theme/                      # Material 主题
-│   └── utils/                      # UI 工具类
+├── [网络通信层]
+│   ├── CarrotManNetworkClient.kt       # UDP 7706 + TCP 7709 发送（578 行）
+│   ├── XiaogeDataReceiver.kt           # TCP 7711 设备数据接收（945 行）
+│   │   └── 功能：JSON 解析、心跳、自动重连、超时检测
+│   ├── CarrotParamClient.kt            # HTTP 7000 参数读写 REST API（134 行）
+│   └── NetworkManager.kt               # 网络层统一编排器
 │
-├── scoring/
-│   ├── DrivingScoreEngine.kt       # 评分引擎
-│   ├── DrivingDataCollector.kt     # 数据采集
-│   └── DrivingSession.kt           # 驾驶会话
-│
-├── core/                           # 核心工具
-├── data/                           # 数据仓库
-├── di/                             # Koin 依赖注入
-└── utils/                          # 通用工具
+├── [设备管理]
+│   ├── DeviceManager.kt                # 设备生命周期管理
+│   ├── LocationSensorManager.kt        # GPS 定位传感器
+│   └── PermissionManager.kt            # Android 权限管理
 ```
+
+#### 🗺️ 导航集成层（Navigation Layer）
+
+```
+navigation/
+├── [多源导航管理]
+│   ├── AmapBroadcastManager.kt         # 高德车机版广播接收器（632 行）
+│   │   ├── 功能：Channel 背压控制、三模式互斥、循环缓冲区
+│   │   └── 支持：KEY_TYPE 10001/10002/13022/10056/12110
+│   ├── AmapBroadcastHandlers.kt        # 高德数据解析器（478 行）
+│   ├── AmapNavDataBridge.kt            # 高德 → CarrotManFields 桥接
+│   │
+│   ├── TencentNaviManager.kt           # 腾讯导航 SDK 管理（117 行）
+│   ├── TencentNavDataBridge.kt         # 腾讯 → CarrotManFields 桥接
+│   │
+│   ├── OsmNavigationManager.kt         # OSM 导航管理器（68 行，框架）
+│   ├── OsmNavModels.kt                 # OSM 数据模型
+│   │
+│   ├── GoogleNavManager.kt             # Google Navigation SDK 管理（304 行）
+│   └── GoogleNavDataBridge.kt          # Google → CarrotManFields 桥接
+│
+├── [坐标系统]
+│   ├── CoordinateConverter.kt          # GCJ-02 ↔ WGS-84 转换
+│   └── GeoUtils.kt                     # 地理计算工具
+│
+└── [导航辅助]
+    └── TurnTypeTextInference.kt        # 转向类型文本推断
+```
+
+#### 🤖 决策系统层（Decision Layer）
+
+```
+├── [智能超车系统]
+│   └── AutoOvertakeManager.kt          # ML 决策引擎（1,649 行）
+│       ├── 决策流水线：
+│       │   ├── 1️⃣ 先决条件检查（速度、曲率、转向角）
+│       │   ├── 2️⃣ 前车检测（modelV2.lead0）
+│       │   ├── 3️⃣ 邻道安全检测（ML Kit 视觉识别）
+│       │   ├── 4️⃣ 三帧防抖验证
+│       │   ├── 5️⃣ TBT 方向偏好（出口避让）
+│       │   ├── 6️⃣ 2.5s 延迟执行
+│       │   └── 7️⃣ 20s 冷却期
+│       ├── 自适应参数系统：
+│       │   ├── 保守型（60km/h, 40m, 400m）
+│       │   ├── 标准型（50km/h, 50m, 300m）
+│       │   └── 激进型（40km/h, 60m, 200m）
+│       └── 集成：Google ML Kit + SoundPool
+│
+└── [驾驶评分系统]
+    └── scoring/
+        ├── DrivingScoreEngine.kt       # 五维评分引擎（265 行）
+        │   ├── 平稳性（30%）：急加减速/急转弯次数
+        │   ├── 预判力（25%）：速度波动 + 提前减速
+        │   ├── 接管依赖（20%）：每 100km 接管次数
+        │   ├── 节能（15%）：巡航比例 + 速度经济性
+        │   └── NOO 稳定度（10%）：自动驾驶使用占比
+        ├── DrivingDataCollector.kt     # 数据采集器
+        └── DrivingSession.kt            # 驾驶会话数据模型
+```
+
+#### 🎨 UI 组件层（UI Layer）
+
+```
+ui/
+├── components/
+│   ├── [导航界面]
+│   │   ├── OsmMapView.kt               # MapLibre OSM 地图组件（824 行）
+│   │   ├── AmapNaviPage.kt             # 高德导航页面
+│   │   ├── AmapMobileNavPage.kt        # 高德手机版导航页
+│   │   ├── TencentNavPage.kt           # 腾讯导航页面
+│   │   ├── GoogleNavPage.kt            # Google NavigationView 嵌入页
+│   │   ├── NavModeSwitcher.kt          # 导航模式切换器
+│   │   └── MapSearchService.kt         # 统一 POI 搜索（高德 SDK/Web REST/腾讯/Photon）
+│   │
+│   ├── [硬件集成]
+│   │   ├── LedMatrixManager.kt         # BLE LED 点阵屏控制器（300+ 行）
+│   │   │   ├── 协议：逆向工程 iPixel Color 协议
+│   │   │   ├── 渲染：Text → Bitmap → 列优先字节数组
+│   │   │   └── 动画：静态/滚动/呼吸/激光效果
+│   │   └── LedMatrixPreview.kt         # LED 预览组件
+│   │
+│   ├── [功能页面]
+│   │   ├── ProfilePage.kt              # 个人中心
+│   │   ├── ModelSwitcherPage.kt        # 驾驶模型切换
+│   │   ├── AutoSwitchExperimentPage.kt # 条件实验模式
+│   │   ├── OnboardingScreen.kt         # 新手引导
+│   │   ├── HelpPage.kt                 # 帮助页面
+│   │   ├── Carrot7706JsonDebugOverlay.kt # 调试叠加层
+│   │   ├── SshConfigDialog.kt          # SSH 配置对话框
+│   │   └── PrivacyDialog.kt            # 隐私声明对话框
+│   │
+│   └── [Widget]
+│       └── TencentNavWidgets.kt        # 腾讯导航小部件
+│
+├── driving/
+│   ├── DrivingReportScreen.kt          # 驾驶报告界面（605 行）
+│   └── DrivingReportShareImage.kt      # 分享图片生成
+│
+├── discovery/
+│   ├── CommaDeviceDiscovery.kt         # comma3 设备发现（局域网扫描）
+│   └── OpenpilotConnectionManager.kt   # openpilot 连接管理
+│
+├── theme/
+│   ├── Color.kt                        # Material 3 配色
+│   ├── Theme.kt                        # 主题定义
+│   └── Type.kt                         # 字体排版
+│
+└── utils/
+    └── LocaleUtils.kt                  # 本地化工具
+```
+
+#### 🔧 基础设施层（Infrastructure Layer）
+
+```
+├── core/
+│   ├── AppAnalytics.kt                 # 应用分析（埋点）
+│   ├── ErrorReporter.kt                # 错误上报
+│   ├── Result.kt                       # 统一结果封装（Success/Failure）
+│   └── SecurePrefs.kt                  # 加密 SharedPreferences
+│
+├── data/
+│   ├── PreferenceRepository.kt         # 偏好设置仓库
+│   ├── ModelDownloadManager.kt         # 模型下载管理
+│   ├── ModelDownloadState.kt           # 下载状态
+│   └── SshConnectionManager.kt         # SSH 连接管理（JSch）
+│
+├── di/
+│   └── AppModule.kt                    # Koin 依赖注入模块
+│       ├── single { } — 单例（网络客户端、管理器）
+│       └── factory { } — 工厂（IP 相关客户端）
+│
+└── utils/
+    ├── CoordinatePreferences.kt        # 坐标偏好设置
+    └── NetworkPerformanceUtils.kt      # 网络性能监控
+```
+
+### 代码规模统计
+
+| 模块 | 文件数 | 总行数（估算） | 关键组件行数 |
+|------|--------|---------------|-------------|
+| **核心入口** | 5 | ~2,730 | MainActivityCore (1,247) |
+| **网络通信** | 4 | ~1,657 | XiaogeDataReceiver (945) |
+| **导航集成** | 10 | ~2,500 | AmapBroadcastManager (632), GoogleNavManager (304) |
+| **决策系统** | 4 | ~2,179 | AutoOvertakeManager (1,649) |
+| **UI 组件** | 23 | ~7,500+ | OsmMapView (824), DrivingReportScreen (605) |
+| **基础设施** | 10 | ~1,800 | - |
+| **其他** | 14 | ~4,750 | - |
+| **总计** | **70+** | **~23,116** | - |
+
+---
+
+## 数据流与通信模式
+
+### 主数据流（App → comma3）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 导航数据源（高德/腾讯/OSM/Google）                                │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 广播/SDK 回调
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 广播/SDK 管理器                                                   │
+│ (AmapBroadcastManager, GoogleNavManager, TencentNaviManager)   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 更新中央状态
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> (单一数据源 SSOT)                 │
+└────────────┬───────────────────────────────┬────────────────────┘
+             │ 订阅状态                       │ 订阅状态
+             ▼                               ▼
+┌────────────────────────────┐  ┌───────────────────────────────┐
+│ NetworkManager (网络编排器) │  │ Compose UI（响应式渲染）       │
+└────────────┬───────────────┘  └───────────────────────────────┘
+             │ 协调发送
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ CarrotManNetworkClient                                          │
+│ • UDP 7706 (导航数据：GPS、TBT、限速、电子眼) - 5 Hz           │
+│ • TCP 7709 (路线几何点) - 规划成功后一次性发送                 │
+└─────────────────────────────────────────────────────────────────┘
+             │ 网络传输
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ comma3/openpilot 设备                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 反向数据流（comma3 → App）
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ comma3/openpilot Python 后端 (carrot_server.py)                 │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ TCP 7711 (JSON 数据包)
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ XiaogeDataReceiver                                              │
+│ • JSON 解析（carState, modelV2, controlsState）                │
+│ • 心跳机制（5s 间隔）                                           │
+│ • 超时检测（4s 无数据触发重连）                                 │
+│ • 指数退避重连（5s → 10s → 20s → 40s → 60s max）              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ XiaogeVehicleData
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AutoOvertakeManager（ML 决策流水线）                            │
+│ • 先决条件检查                                                   │
+│ • 前车检测 (modelV2.lead0)                                      │
+│ • 邻道安全检测 (ML Kit)                                         │
+│ • 三帧防抖                                                       │
+│ • TBT 方向偏好                                                   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ 变道指令
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ ZMQ 7710 → comma3（超车控制命令）                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 状态管理模式
+
+#### 1. **中央状态容器（SSOT）**
+```kotlin
+// 不可变数据类 + MutableState
+data class CarrotManFields(
+    val vpPosPointLat: Double = 0.0,
+    val vpPosPointLon: Double = 0.0,
+    val szRoadName: String = "",
+    val nRemainDist: Int = 0,
+    // ... 50+ 字段
+)
+
+val state = mutableStateOf(CarrotManFields())
+```
+
+**优势**：
+- 单向数据流
+- 可预测的状态变化
+- 时间旅行调试
+- Compose 自动响应式更新
+
+#### 2. **Coroutine Channel 背压控制**
+```kotlin
+// AmapBroadcastManager 中的关键实现
+private val intentChannel = Channel<Intent>(Channel.BUFFERED)
+
+// 广播接收器仅将 Intent 放入 Channel
+override fun onReceive(context: Context?, intent: Intent?) {
+    intentChannel.trySend(intent) // 非阻塞，满时丢弃
+}
+
+// 单个协程顺序处理，防止内存溢出
+launch {
+    for (intent in intentChannel) {
+        processIntent(intent) // 顺序处理
+    }
+}
+```
+
+**解决问题**：
+- 高德广播频率 ~20 Hz，直接处理会 OOM
+- Channel 缓冲区固定 64，满时丢弃旧数据
+- 单协程顺序处理，保证线程安全
+
+#### 3. **三模式导航互斥**
+```kotlin
+// 防止多个导航源同时更新状态
+when (activeNavMode.value) {
+    "AMAP" -> // 仅处理高德广播
+    "GOOGLE" -> // 仅处理 Google SDK 回调
+    "TENCENT" -> // 仅处理腾讯 SDK 回调
+    else -> // 跳过广播
+}
+```
+
+#### 4. **AtomicBoolean 连接状态**
+```kotlin
+// XiaogeDataReceiver 中的线程安全标志
+private val isTcpConnected = AtomicBoolean(false)
+
+// 无锁读写
+if (isTcpConnected.get()) { /* ... */ }
+isTcpConnected.set(true)
+```
+
+---
+
+## 独特设计模式
+
+### 1. **协调器模式（MainActivity 四文件拆分）**
+
+**模式来源**：iOS Coordinator Pattern
+**实现**：
+```
+MainActivity.kt           # 入口，委托生命周期事件
+    ├── MainActivityCore.kt        # 业务逻辑 + 状态管理（ViewModel 层）
+    ├── MainActivityUI.kt          # Compose UI（View 层）
+    └── MainActivityLifecycle.kt   # 初始化 + 资源清理
+```
+
+**优势**：
+- 单一职责原则（SRP）
+- 可测试性（Core 可独立测试）
+- 并行开发（UI 和逻辑解耦）
+- 代码审查友好（小文件）
+
+### 2. **Broadcast Channel 背压控制**
+
+**问题**：高德广播 20 Hz → OOM
+**解决方案**：
+- `Channel<Intent>` 容量 64
+- `trySend()` 非阻塞，满时丢弃
+- 单协程顺序处理
+- 循环缓冲区（保留最近 20 条）
+
+**代码**：
+```kotlin
+private val broadcastList = mutableStateListOf<BroadcastData>()
+if (broadcastList.size > 20) {
+    broadcastList.removeAt(0) // 丢弃最旧数据
+}
+```
+
+### 3. **自适应参数系统（策略模式变体）**
+
+**问题**：固定阈值不适应不同驾驶风格
+**解决方案**：
+```kotlin
+enum class DrivingStyle {
+    CONSERVATIVE, STANDARD, AGGRESSIVE
+}
+
+fun getAdaptiveParameter(key: String, default: Float): Float {
+    val multiplier = when (currentStyle) {
+        CONSERVATIVE -> 0.8f
+        STANDARD -> 1.0f
+        AGGRESSIVE -> 1.2f
+    }
+    return baseParams[key] * multiplier
+}
+```
+
+**应用**：
+- 超车速度阈值
+- 前车距离判断
+- 转弯点避让距离
+
+### 4. **坐标系统适配器**
+
+**问题**：高德/腾讯用 GCJ-02，Google/OSM 用 WGS-84
+**解决方案**：
+```kotlin
+// 内部统一存储 WGS-84
+object CoordinateConverter {
+    fun gcj02ToWgs84(lat: Double, lon: Double): Pair<Double, Double>
+    fun wgs84ToGcj02(lat: Double, lon: Double): Pair<Double, Double>
+}
+
+// 导航管理器在边界转换
+class AmapBroadcastManager {
+    private fun processLocation(gcjLat: Double, gcjLon: Double) {
+        val (wgsLat, wgsLon) = CoordinateConverter.gcj02ToWgs84(gcjLat, gcjLon)
+        updateState(wgsLat, wgsLon)
+    }
+}
+```
+
+### 5. **三帧防抖决策**
+
+**问题**：传感器噪声导致误触发超车
+**解决方案**：
+```kotlin
+private val recentDecisions = ArrayDeque<Boolean>(3)
+
+fun shouldOvertake(): Boolean {
+    val currentDecision = checkConditions()
+    recentDecisions.addLast(currentDecision)
+    if (recentDecisions.size > 3) recentDecisions.removeFirst()
+
+    // 需要连续 3 帧都满足条件
+    return recentDecisions.size == 3 && recentDecisions.all { it }
+}
+```
+
+### 6. **逆向工程 BLE 协议**
+
+**成就**：无官方 SDK，通过 HCI 抓包完全复现协议
+**实现**：
+```kotlin
+// iPixel Color 协议包结构
+// ┌──────┬──────┬──────┬──────┬─────────────┬──────────┐
+// │ 0xFA │ 0x02 │ CMD  │ LEN  │   PAYLOAD   │ CHECKSUM │
+// └──────┴──────┴──────┴──────┴─────────────┴──────────┘
+
+fun buildPacket(text: String): ByteArray {
+    val bitmap = renderTextToBitmap(text)
+    val columnMajor = bitmapToColumnMajor(bitmap) // 16x16 → 32 字节
+    val checksum = columnMajor.fold(0) { acc, b -> acc xor b.toInt() }
+    return byteArrayOf(0xFA.toByte(), 0x02, CMD_DISPLAY, 32, *columnMajor, checksum.toByte())
+}
+```
+
+### 7. **穷举式 When 语句**
+
+**模式**：所有 `when` 表达式处理所有 enum 分支
+**优势**：
+- 编译时安全
+- 添加新 case 时编译器强制更新所有 when
+- 无 `else` 分支，避免遗漏
+
+**示例**：
+```kotlin
+when (broadcastKeyType) {
+    10001 -> handleGuideInfo()
+    10002 -> handleLocationInfo()
+    10056 -> handleRouteInfo()
+    12110 -> handleSpeedLimit()
+    13022 -> handleNavigationStatus()
+    // 15 个分支，无 else
+}
+```
+
+### 8. **JSON-Based IPC（TCP 7711）**
+
+**独特性**：openpilot 通常用 Cereal/Capnproto 二进制协议
+**本项目**：Python ↔ Android 用 JSON
+**权衡**：
+- ✅ 人类可读，易调试
+- ✅ 跨语言无需代码生成
+- ❌ 带宽略高（~2x）
+- ❌ 解析稍慢（可接受，5 Hz 更新）
+
+---
+
+## 四种导航模式详解
+
+### 概览对比
+
+| 导航模式 | 状态 | 坐标系 | 集成方式 | 成本 | 推荐场景 |
+|---------|------|--------|----------|------|---------|
+| **AMAP（高德车机版）** | ✅ 生产就绪 | GCJ-02 | 广播接收器 | 🆓 免费 | 日常使用（默认） |
+| **Google Navigation SDK** | ✅ 生产就绪 | WGS-84 | 官方 SDK | 💰 需 API Key | 海外/高精度需求 |
+| **Tencent（腾讯导航）** | ⚠️ 框架就绪 | GCJ-02 | 官方 SDK | 💰 需授权 | 国内商业场景 |
+| **OSM（开源地图）** | ⚠️ 数据结构 | WGS-84 | 自研引擎 | 🆓 免费 | 开源/自研需求 |
+
+---
+
+### 模式 1: AMAP（高德车机版）— 默认生产模式
+
+#### 工作原理
+
+**核心机制**：通过 Android `BroadcastReceiver` 监听高德车机版 App 发出的系统广播，无需 API Key 或 SDK 集成。
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 高德地图车机版 App（用户操作导航）                          │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 发送系统广播（Android Intent）
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ AmapBroadcastManager（注册 BroadcastReceiver）           │
+│ • 监听 Actions:                                          │
+│   - com.autonavi.amapauto.action.AMAP_SEND_MESSAGE      │
+│   - com.autonavi.minimap.action.EXTRA_MESSAGE           │
+└────────────────┬─────────────────────────────────────────┘
+                 │ Intent 放入 Channel（背压控制）
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Channel<Intent> (容量 64)                                │
+│ • trySend() 非阻塞，满时丢弃                             │
+│ • 防止 20 Hz 广播导致 OOM                                │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 单协程顺序处理
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ AmapBroadcastHandlers（解析 Intent Extras）              │
+│ • KEY_TYPE 10001: 引导信息（转弯、距离、路名）            │
+│ • KEY_TYPE 10002: 位置信息（GPS、速度）                  │
+│ • KEY_TYPE 10056: 路线信息（路线点数组）                  │
+│ • KEY_TYPE 12110: 限速信息（区间测速）                    │
+│ • KEY_TYPE 13022: 导航状态（开始/结束）                   │
+└────────────────┬─────────────────────────────────────────┘
+                 │ GCJ-02 → WGS-84 转换
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> 更新                       │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### 关键技术特性
+
+**1. Channel 背压控制**
+```kotlin
+private val broadcastChannel = Channel<Intent>(Channel.BUFFERED) // 容量 64
+
+override fun onReceive(context: Context?, intent: Intent?) {
+    broadcastChannel.trySend(intent) // 满时丢弃，防止 OOM
+}
+
+// 单协程顺序处理，保证线程安全
+receiverScope.launch {
+    for (intent in broadcastChannel) {
+        processIntent(intent)
+    }
+}
+```
+
+**2. 循环缓冲区**
+```kotlin
+if (broadcastList.size > 20) {
+    broadcastList.removeAt(0) // 保留最近 20 条
+}
+```
+
+**3. 三模式互斥**
+```kotlin
+// 当其他导航模式激活时，跳过 AMAP 广播处理
+if (activeNavMode?.value != "AMAP" && activeNavMode?.value != "") {
+    return // 避免数据冲突
+}
+```
+
+**4. 坐标系转换**
+```kotlin
+// 高德使用 GCJ-02（国测局坐标），内部存储 WGS-84
+val (wgsLat, wgsLon) = CoordinateConverter.gcj02ToWgs84(gcjLat, gcjLon)
+```
+
+#### 广播类型详解
+
+| KEY_TYPE | 名称 | 数据内容 | 触发频率 |
+|----------|------|----------|---------|
+| **10001** | 引导信息 | 转弯类型、距离、下一路口名、剩余距离/时间 | 实时（路口前高频） |
+| **10002** | 位置信息 | GPS 坐标、当前速度、方向角 | ~1 Hz |
+| **10056** | 路线信息 | 完整路线点坐标数组（JSON） | 规划成功时一次 |
+| **12110** | 限速信息 | 当前限速、下一限速、区间测速起止点 | 变化时 |
+| **13022** | 导航状态 | 导航开始/结束/取消 | 状态变化时 |
+
+#### 优势与限制
+
+**✅ 优势**：
+- **零成本**：无需 API Key，完全免费
+- **零配置**：无需 SDK 集成，仅需监听广播
+- **稳定可靠**：依赖高德官方 App，数据准确
+- **省电**：不需要自行计算路线，仅被动接收
+
+**❌ 限制**：
+- **依赖外部 App**：用户必须安装高德地图车机版
+- **单向通信**：只能接收，无法控制高德导航行为
+- **坐标偏移**：需要 GCJ-02 → WGS-84 转换（~10-600m 偏移）
+- **广播延迟**：系统广播有轻微延迟（通常 <100ms）
+
+---
+
+### 模式 2: Google Navigation SDK — 国际化生产模式
+
+#### 工作原理
+
+**核心机制**：集成 Google Maps Navigation SDK，使用官方 `NavigationView` 和 `Navigator` API，提供完整导航功能。
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ GoogleNavPage（Compose 页面）                             │
+│ • AndroidView 嵌入 NavigationView                        │
+│ • 管理 SDK 生命周期                                       │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 初始化
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ NavigationApi.getNavigator()                             │
+│ • 异步初始化（主线程）                                     │
+│ • NavigatorListener 回调                                 │
+│   - onNavigatorReady(navigator)                          │
+│   - onError(errorCode)                                   │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 获取 Navigator 实例
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ GoogleNavManager                                         │
+│ • 存储 Navigator 引用                                     │
+│ • 路线规划 setDestination()                               │
+│ • 导航控制 startGuidance() / stopGuidance()              │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 注册监听器
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ GoogleNavDataBridge (实现 Navigator.Listener)            │
+│ • onRemainingTimeOrDistanceChanged()                     │
+│ • onRouteChanged()                                       │
+│ • onArrival()                                            │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 实时回调更新
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> 更新                       │
+│ • WGS-84 坐标（无需转换）                                 │
+│ • Maneuver → nTBTTurnType 映射                           │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### 关键技术特性
+
+**1. 异步初始化**
+```kotlin
+NavigationApi.getNavigator(activity, object : NavigatorListener {
+    override fun onNavigatorReady(navigator: Navigator) {
+        navManager.setNavigator(navigator)
+        // 注册数据桥接监听器
+        val bridge = GoogleNavDataBridge(carrotManFieldsState)
+        navigator.addListener(bridge)
+    }
+
+    override fun onError(errorCode: Int) {
+        when (errorCode) {
+            NavigationApi.ErrorCode.NOT_AUTHORIZED -> "API Key 无效"
+            NavigationApi.ErrorCode.TERMS_NOT_ACCEPTED -> "未接受服务条款"
+        }
+    }
+})
+```
+
+**2. 路线规划**
+```kotlin
+val waypoint = Waypoint.builder()
+    .setLatLng(goalLat, goalLon)
+    .setTitle(goalName)
+    .build()
+
+navigator.setDestination(waypoint, object : Navigator.RouteStatusListener {
+    override fun onRouteStatusResult(status: RouteStatus) {
+        when (status) {
+            RouteStatus.OK -> startGuidance()
+            RouteStatus.NO_ROUTE_FOUND -> showError("无法规划路线")
+            RouteStatus.NETWORK_ERROR -> showError("网络错误")
+        }
+    }
+})
+```
+
+**3. Maneuver 类型映射**
+```kotlin
+// Google SDK Maneuver → openpilot nTBTTurnType
+fun mapManeuverToTurnType(maneuver: Int): Int {
+    return when (maneuver) {
+        1 /*DEPART*/, 5 /*STRAIGHT*/ -> 51  // 直行
+        6 /*TURN_LEFT*/ -> 12               // 左转
+        7 /*TURN_RIGHT*/ -> 13              // 右转
+        8 /*TURN_KEEP_LEFT*/ -> 102         // 左前方
+        9 /*TURN_KEEP_RIGHT*/ -> 101        // 右前方
+        14, 15 /*U_TURN*/ -> 14             // 掉头
+        16, 17, 22 /*ROUNDABOUT*/ -> 131    // 环岛
+        // ... 25+ 类型映射
+    }
+}
+```
+
+**4. 模拟模式**
+```kotlin
+// 调试用 5x 速度模拟
+val simOptions = SimulationOptions().apply {
+    speedMultiplier = 5.0f
+}
+navigator.simulator.simulateLocationsAlongExistingRoute(simOptions)
+```
+
+#### 生命周期管理
+
+```kotlin
+// Compose DisposableEffect 管理生命周期
+DisposableEffect(Unit) {
+    onEnterGoogleMode() // 切换到 Google 模式
+    onDispose {
+        navigator.clearDestinations()
+        navigator.stopGuidance()
+        onExitGoogleMode()
+    }
+}
+```
+
+#### 优势与限制
+
+**✅ 优势**：
+- **完整功能**：官方 SDK，功能全面（3D 地图、车道引导、实时路况）
+- **WGS-84 坐标**：无需坐标转换，直接与内部存储一致
+- **高精度**：GPS 精度高，国际化支持好
+- **主动控制**：可编程控制导航行为（路线规划、模拟等）
+
+**❌ 限制**：
+- **需要 API Key**：Google Cloud 计费，超出免费额度后收费
+- **网络依赖**：需要联网加载地图瓦片
+- **授权限制**：需接受 Google 服务条款
+- **国内限制**：中国大陆地图数据受限，坐标可能偏移
+
+**成本估算**：
+- 免费额度：每月 $200 USD 或 40,000 次导航请求
+- 超出后：$0.005/次请求（约 ¥0.035/次）
+
+---
+
+### 模式 3: Tencent（腾讯导航 SDK）— 国内商业场景
+
+#### 工作原理
+
+**核心机制**：集成腾讯导航 SDK v7.5.0，通过 `NavigatorDrive` API 实现路线规划和导航引导。
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ TencentNavPage（Compose 页面）                            │
+│ • 集成腾讯导航 SDK View                                   │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 初始化
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ TencentNaviManager                                       │
+│ • 初始化观察者 initializeObserver()                       │
+│ • 启动导航 startNavigation()                             │
+│ • 停止导航 stopNavigation()                              │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 坐标转换（WGS-84 → GCJ-02）
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ TencentNavDataBridge（数据桥接器）                        │
+│ • 注册为 SDK 观察者                                       │
+│ • 接收导航事件回调                                        │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 实时更新
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> 更新                       │
+│ • 坐标自动转换回 WGS-84                                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### 关键代码实现
+
+**1. 初始化观察者**
+```kotlin
+fun initializeObserver() {
+    dataBridge = TencentNavDataBridge(carrotManFieldsState)
+
+    // TODO: 获取 NavigatorDrive 实例并注册观察者
+    // 示例（需要腾讯 SDK 授权）：
+    // val navigator = NavigatorDrive.getInstance(context)
+    // navigator.addNaviListener(dataBridge)
+}
+```
+
+**2. 启动导航**
+```kotlin
+fun startNavigation(
+    startLat: Double, startLon: Double,
+    endLat: Double, endLon: Double,
+    endName: String
+) {
+    // WGS-84 → GCJ-02 转换（腾讯 SDK 要求 GCJ-02）
+    val (startGcjLat, startGcjLon) = CoordinateConverter.wgs84ToGcj02(startLat, startLon)
+    val (endGcjLat, endGcjLon) = CoordinateConverter.wgs84ToGcj02(endLat, endLon)
+
+    // TODO: 调用腾讯 SDK 启动导航
+    // navigator.startNavi(startLatLng, endLatLng, NaviPlan.TRIP_COMMUTE)
+}
+```
+
+**3. 数据桥接**
+```kotlin
+// TencentNavDataBridge 实现 SDK 监听器接口
+class TencentNavDataBridge(
+    private val carrotManFieldsState: MutableState<CarrotManFields>?
+) {
+    // TODO: 实现腾讯 SDK 监听器方法
+    // override fun onRouteUpdate(route: RouteInfo) { ... }
+    // override fun onLocationUpdate(location: NaviLocation) { ... }
+}
+```
+
+#### 当前状态
+
+**⚠️ 框架就绪，待配置**
+
+- ✅ **已完成**：
+  - `TencentNaviManager` 类结构
+  - `TencentNavDataBridge` 桥接器框架
+  - 坐标转换逻辑（WGS-84 ↔ GCJ-02）
+  - CarrotManFields 集成接口
+
+- ⏳ **待完成**：
+  - 腾讯导航 SDK 授权配置
+  - `NavigatorDrive` API 调用
+  - 观察者接口实现
+  - UI 组件集成
+
+#### 优势与限制
+
+**✅ 优势**：
+- **国内优化**：针对中国地图和路况优化
+- **官方支持**：腾讯官方 SDK，更新及时
+- **功能全面**：支持实时路况、车道引导、电子眼
+- **商业授权**：适合企业级应用
+
+**❌ 限制**：
+- **需要授权**：腾讯开发者认证 + SDK 授权
+- **付费服务**：商业使用需要付费（具体咨询腾讯）
+- **坐标转换**：需 WGS-84 ↔ GCJ-02 转换
+- **SDK 复杂度**：API 相对复杂，学习成本高
+
+---
+
+### 模式 4: OSM（OpenStreetMap）— 开源自研模式
+
+#### 工作原理
+
+**核心机制**：基于 OpenStreetMap 数据 + MapLibre GL 渲染 + 自研导航引擎（规划中）。
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ OsmMapView（MapLibre GL Native）                         │
+│ • 渲染 OSM 瓦片地图                                       │
+│ • 显示路线几何                                            │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 用户选择目的地
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ MapSearchService（统一搜索接口）                          │
+│ • 优先级：高德 SDK > Web REST > 腾讯 > Photon           │
+│ • 返回 WGS-84 坐标                                        │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 发起路线规划请求
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ RouteEngine（路线引擎 - 存根）                            │
+│ • TODO: 调用 OSRM / Valhalla / GraphHopper              │
+│ • TODO: 解析路线几何 + Turn-by-Turn 指令                 │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 路线规划结果
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ OsmNavigationManager（导航管理器 - 存根）                 │
+│ • TODO: 实时位置匹配（Map Matching）                     │
+│ • TODO: TBT 指令生成                                     │
+│ • TODO: 车道级引导                                       │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 导航数据
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ MutableState<CarrotManFields> 更新                       │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### 当前实现状态
+
+**⚠️ 数据结构就绪，引擎待开发**
+
+**已完成组件**：
+```kotlin
+// 1. 数据模型
+data class ParsedRoute(
+    val distance: Double,
+    val duration: Double,
+    val geometry: List<GeoCoordinate>,
+    val provider: String
+)
+
+data class NavigationInstruction(
+    val distanceToManeuver: Double?,
+    val maneuverType: String?,      // "turn-left", "turn-right" 等
+    val maneuverModifier: String?,  // "slight", "sharp" 等
+    val nextRoadName: String?,
+    val speedLimit: Double?,
+    val distanceRemaining: Double?,
+    val timeRemaining: Double?
+)
+
+// 2. 车道级导航
+object LaneLevelNavigator {
+    enum class LaneChangeDirection {
+        NONE, LEFT, RIGHT, MULTIPLE_LEFT, MULTIPLE_RIGHT
+    }
+
+    data class LaneGuidance(
+        val needLaneChange: Boolean,
+        val laneChangeUrgency: LaneChangeUrgency,
+        val laneChangeDirection: LaneChangeDirection,
+        val message: String,
+        val currentLane: Int,
+        val confidence: Double
+    )
+}
+
+// 3. 路线引擎（存根）
+class RouteEngine {
+    var onRouteCalculated: ((ParsedRoute) -> Unit)? = null
+    var onLaneGuidanceUpdated: ((LaneGuidance) -> Unit)? = null
+    var parsedRoute: ParsedRoute? = null
+}
+
+// 4. 导航管理器（存根）
+class OsmNavigationManager {
+    fun startOsmNavigation(dest: OsmNavDest, routeInfo: RouteInfo) {
+        // TODO: 实现路线规划和导航启动
+    }
+
+    fun updateLocation(location: Location) {
+        // TODO: 实现位置匹配和 TBT 更新
+    }
+}
+```
+
+**待开发组件**：
+- 🔲 路线规划引擎集成（OSRM / Valhalla / GraphHopper）
+- 🔲 Map Matching 算法（GPS 位置 → 路线位置匹配）
+- 🔲 TBT 指令生成器（基于路线几何和位置）
+- 🔲 车道级引导算法（车道识别 + 变道提醒）
+- 🔲 实时导航状态机（开始/引导中/重新规划/到达）
+
+#### 技术选型方案
+
+**路线规划引擎**：
+1. **OSRM (Open Source Routing Machine)**
+   - ✅ 性能极高（C++ 实现）
+   - ✅ 支持自建服务器
+   - ❌ 功能相对基础
+
+2. **Valhalla (Mapbox)**
+   - ✅ 功能全面（多模式路线、高程数据）
+   - ✅ 开源，支持自部署
+   - ❌ 资源占用较高
+
+3. **GraphHopper**
+   - ✅ Java 实现，易集成
+   - ✅ 支持离线路线规划
+   - ❌ 性能低于 OSRM
+
+**推荐方案**：OSRM（性能优先）+ Valhalla（功能备选）
+
+#### 优势与限制
+
+**✅ 优势**：
+- **完全免费**：OSM 数据 + 开源引擎，无任何费用
+- **自主可控**：可自建服务器，无第三方依赖
+- **WGS-84 坐标**：无需坐标转换
+- **全球覆盖**：OSM 数据覆盖全球
+- **可定制**：可自定义路线算法和 UI
+
+**❌ 限制**：
+- **开发成本高**：需要自研导航引擎
+- **数据准确性**：OSM 数据质量参差不齐（中国区域尤其）
+- **维护成本**：需要自行维护服务器和数据更新
+- **功能缺失**：无实时路况、电子眼等商业数据
+
+**适用场景**：
+- 开源项目或社区驱动应用
+- 不希望依赖商业 SDK 的场景
+- 需要完全自主控制导航逻辑
+- 海外地区（OSM 数据质量较好）
+
+---
+
+### 模式切换与互斥机制
+
+#### 三模式互斥设计
+
+为防止多个导航源同时更新 `CarrotManFields` 导致数据冲突，应用实现了**三模式互斥机制**：
+
+```kotlin
+val activeNavMode = mutableStateOf("") // "", "AMAP", "GOOGLE", "TENCENT"
+
+// AmapBroadcastManager 中检查
+if (activeNavMode.value != "AMAP" && activeNavMode.value != "") {
+    return // 跳过处理，避免覆盖其他模式数据
+}
+
+// GoogleNavPage 进入时设置
+DisposableEffect(Unit) {
+    activeNavMode.value = "GOOGLE"
+    onDispose {
+        activeNavMode.value = ""
+    }
+}
+```
+
+#### 模式切换流程
+
+```
+用户点击"导航模式切换"按钮
+    ↓
+NavModeSwitcher 显示模式选择
+    ↓
+用户选择模式 → 设置 activeNavMode.value
+    ↓
+┌────────────────┬────────────────┬────────────────┐
+│ AMAP 模式       │ GOOGLE 模式     │ TENCENT 模式   │
+│ • 注册广播接收   │ • 初始化 SDK    │ • 初始化 SDK   │
+│ • 开始监听广播   │ • 启动导航      │ • 启动导航     │
+│ • 其他模式忽略   │ • AMAP 停止处理 │ • AMAP 停止处理│
+└────────────────┴────────────────┴────────────────┘
+```
+
+#### 模式选择建议
+
+| 场景 | 推荐模式 | 理由 |
+|------|---------|------|
+| **日常通勤（国内）** | AMAP | 免费、稳定、无需配置 |
+| **商业车队管理** | Tencent | 商业授权、功能全面 |
+| **海外使用** | Google | 国际化、数据准确 |
+| **开源项目** | OSM | 完全自主、无依赖 |
+| **高精度需求** | Google | WGS-84 原生、无坐标偏移 |
+| **无网络环境** | OSM（未来） | 支持离线路线规划 |
 
 ---
 
