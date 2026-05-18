@@ -338,7 +338,23 @@ fun ModelSwitcherPage(
                     throw visionUpload.exceptionOrNull() ?: Exception("Vision upload failed")
                 }
 
-                // 5. Reboot device
+                // 5. Clean and rebuild models (清理旧文件并重新编译)
+                sshManager.logToUser(localized("清理并重新编译模型", "Clean and rebuild models"))
+                val cleanRebuildResult = sshManager.cleanAndRebuildModels()
+                if (cleanRebuildResult.isFailure) {
+                    val msg = cleanRebuildResult.exceptionOrNull()?.message ?: "unknown"
+                    Log.w("ModelSwitcher", "清理重新编译失败: $msg")
+                    sshManager.logToUser(localized("清理重新编译失败", "Clean and rebuild failed") + ": $msg")
+                    android.widget.Toast.makeText(
+                        context,
+                        localized("上传成功，但清理重新编译失败", "Upload succeeded, but clean and rebuild failed") +
+                            ": $msg",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    // 即使清理失败，仍继续尝试重启
+                }
+
+                // 6. Reboot device
                 sshManager.logToUser(localized("重启设备", "Reboot device"))
                 val rebootResult = sshManager.rebootDevice()
                 if (rebootResult.isFailure) {
