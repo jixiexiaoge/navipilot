@@ -115,6 +115,30 @@ class SshConnectionManager(private val context: Context) {
             }
             keyInputStream.close()
 
+            // 读取私钥内容进行调试和修复
+            val keyContent = tempKeyFile.readText()
+            Log.d(TAG, "私钥文件长度: ${keyContent.length} 字符")
+            Log.d(TAG, "私钥文件前100字符: ${keyContent.take(100)}")
+
+            // 检查是否是 PuTTY 格式 (.ppk)，SSHJ 不支持
+            if (keyContent.contains("PuTTY") || keyContent.contains("PPK")) {
+                tempKeyFile.delete()
+                throw Exception("不支持 PuTTY 格式 (.ppk) 私钥。请使用 OpenSSH 格式私钥（以 '-----BEGIN OPENSSH PRIVATE KEY-----' 或 '-----BEGIN RSA PRIVATE KEY-----' 开头）")
+            }
+
+            // 检查是否是有效的私钥格式
+            if (!keyContent.contains("-----BEGIN") || !keyContent.contains("PRIVATE KEY")) {
+                tempKeyFile.delete()
+                throw Exception("无效的私钥格式。请确保使用 OpenSSH 格式私钥")
+            }
+
+            // 清理私钥文件：移除多余的空格、换行，确保格式正确
+            val cleanedKeyContent = keyContent.trim()
+            if (cleanedKeyContent != keyContent) {
+                tempKeyFile.writeText(cleanedKeyContent)
+                Log.d(TAG, "已清理私钥文件格式")
+            }
+
             // 使用 SSHJ 加载私钥文件
             val keys: KeyProvider = ssh.loadKeys(tempKeyFile.absolutePath)
             ssh.authPublickey(username, keys)
@@ -133,7 +157,24 @@ class SshConnectionManager(private val context: Context) {
             _connectionState.value = SshConnectionState.FAILED
             _errorMessage.value = e.message ?: "SSH 连接失败"
             Log.e(TAG, "SSH 连接失败: ${e.message}")
-            Result.failure(e)
+            Log.e(TAG, "异常类型: ${e.javaClass.simpleName}")
+            e.printStackTrace()
+            
+            // 提供更友好的错误提示
+            val friendlyMessage = when {
+                e.message?.contains("incorrect ending byte") == true ->
+                    "私钥格式错误。请确保使用 OpenSSH 格式私钥（非 PuTTY .ppk 格式），且 Base64 编码正确"
+                e.message?.contains("Auth fail") == true ->
+                    "认证失败。请检查用户名和私钥是否匹配"
+                e.message?.contains("Connection refused") == true ->
+                    "连接被拒绝。请检查 IP 地址和端口是否正确，以及 SSH 服务是否运行"
+                e.message?.contains("timeout") == true ->
+                    "连接超时。请检查网络连接和 IP 地址"
+                else -> e.message ?: "SSH 连接失败"
+            }
+            _errorMessage.value = friendlyMessage
+            
+            Result.failure(Exception(friendlyMessage))
         }
     }
 
