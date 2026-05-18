@@ -69,6 +69,20 @@ class SshConnectionManager(private val context: Context) {
             return value.take(maxChars) + "…(truncated)"
         }
 
+        private fun isBenignStderrOnSuccess(errorOutput: String): Boolean {
+            val lines = errorOutput
+                .lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .toList()
+            if (lines.isEmpty()) return true
+
+            // tmux 在没有 server 的情况下会打印到 stderr，但通常不影响命令语义
+            // 示例: "no server running on /tmp/tmux-1000/default"
+            val tmuxNoServer = Regex("^no server running on /tmp/tmux-\\d+/.*$")
+            return lines.all { tmuxNoServer.matches(it) }
+        }
+
         private fun isLikelyRebootDisconnect(e: Exception): Boolean {
             val msg = (e.message ?: "").lowercase()
             return msg.contains("eof") ||
@@ -112,6 +126,20 @@ class SshConnectionManager(private val context: Context) {
         _userLogs.update { current ->
             val next = (current + line)
             if (next.size <= 200) next else next.takeLast(200)
+        }
+    }
+
+    private fun appendUserLogChunked(
+        title: String,
+        content: String,
+        chunkSize: Int = 700
+    ) {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return
+
+        appendUserLog(title)
+        trimmed.chunked(chunkSize).forEach { chunk ->
+            appendUserLog(chunk)
         }
     }
 
@@ -330,7 +358,7 @@ class SshConnectionManager(private val context: Context) {
                         appendUserLog("命令超时: ${timeoutSec}s")
                         Result.failure(Exception("命令执行超时 (${timeoutSec}s): $cmd"))
                     } else if (exitStatus == 0) {
-                        if (errorOutput.isNotBlank()) {
+                        if (errorOutput.isNotBlank() && !isBenignStderrOnSuccess(errorOutput)) {
                             appendUserLog("stderr: ${truncateForLog(errorOutput)}")
                         }
                         appendUserLog("命令完成: exit 0")
@@ -407,12 +435,21 @@ class SshConnectionManager(private val context: Context) {
             // - 若设备无编译环境（常见于量产/精简系统），则跳过该步骤，不影响模型生效。
             appendUserLog("尝试重建 modeld（可选，可能需要 1-3 分钟）...")
             val rebuildResult = execCommand(
-                "bash -lc 'cd /data/openpilot || exit 1; " +
-                    "if [ -f ./launch_env.sh ]; then source ./launch_env.sh >/dev/null 2>&1 || true; fi; " +
-                    "command -v scons >/dev/null 2>&1 || { echo \"__NAVIPILOT_NO_SCONS__\"; exit 0; }; " +
-                    "rm -f /tmp/navipilot_modeld_rebuild.log; " +
-                    "scons -j4 --cache-disable selfdrive/modeld/ >/tmp/navipilot_modeld_rebuild.log 2>&1 || echo \"__NAVIPILOT_SCONS_FAILED__\"; " +
-                    "tail -n 60 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true; exit 0'",
+                """
+                bash -lc 'cd /data/openpilot || exit 1;
+                  if [ -f ./launch_env.sh ]; then source ./launch_env.sh >/dev/null 2>&1 || true; fi;
+                  if ! command -v scons >/dev/null 2>&1; then echo "__NAVIPILOT_NO_SCONS__"; exit 0; fi;
+                  rm -f /tmp/navipilot_modeld_rebuild.log;
+                  scons -j4 --cache-disable selfdrive/modeld/ >/tmp/navipilot_modeld_rebuild.log 2>&1;
+                  scons_ec=$?;
+                  echo "__NAVIPILOT_SCONS_EXIT__${scons_ec}";
+                  tail -n 120 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true;
+                  if grep -q "Traceback (most recent call last)" /tmp/navipilot_modeld_rebuild.log 2>/dev/null; then
+                    echo "__NAVIPILOT_TRACEBACK__";
+                    awk "/Traceback \\(most recent call last\\)/{p=1} p{print}" /tmp/navipilot_modeld_rebuild.log | tail -n 160 2>/dev/null || true;
+                  fi;
+                  exit 0'
+                """.trimIndent(),
                 timeoutSec = 300L
             )
 
@@ -423,18 +460,51 @@ class SshConnectionManager(private val context: Context) {
                 // 不返回失败，继续后续流程
             } else {
                 val output = rebuildResult.getOrNull().orEmpty()
-                val rebuildLogTail = output
-                    .lineSequence()
-                    .filterNot { it == "__NAVIPILOT_NO_SCONS__" || it == "__NAVIPILOT_SCONS_FAILED__" }
-                    .joinToString("\n")
-                    .trim()
-                if (output.contains("__NAVIPILOT_NO_SCONS__")) {
+                val lines = output.lineSequence().toList()
+                val hasNoScons = lines.any { it == "__NAVIPILOT_NO_SCONS__" }
+                val sconsExitCode = lines.firstOrNull { it.startsWith("__NAVIPILOT_SCONS_EXIT__") }
+                    ?.removePrefix("__NAVIPILOT_SCONS_EXIT__")
+                    ?.trim()
+                    ?.toIntOrNull()
+
+                val (tailLines, tracebackLines) = run {
+                    val tail = mutableListOf<String>()
+                    val traceback = mutableListOf<String>()
+                    var inTraceback = false
+                    for (line in lines) {
+                        when {
+                            line == "__NAVIPILOT_TRACEBACK__" -> inTraceback = true
+                            line.startsWith("__NAVIPILOT_") -> Unit
+                            inTraceback -> traceback.add(line)
+                            else -> tail.add(line)
+                        }
+                    }
+                    tail to traceback
+                }
+
+                if (hasNoScons) {
                     appendUserLog("未检测到 scons，跳过 modeld 重建")
                     appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
-                } else if (output.contains("__NAVIPILOT_SCONS_FAILED__")) {
-                    appendUserLog("scons 执行失败，已跳过重建")
-                    if (rebuildLogTail.isNotBlank()) {
-                        appendUserLog("scons 日志片段: ${truncateForLog(rebuildLogTail)}")
+                } else if (sconsExitCode == null) {
+                    appendUserLog("modeld 预热结果未知（未返回 scons exit code），已跳过预热")
+                    val tailText = tailLines.joinToString("\n").trim()
+                    if (tailText.isNotBlank()) {
+                        appendUserLogChunked("scons 输出（尾部）", tailText)
+                    }
+                    val tracebackText = tracebackLines.joinToString("\n").trim()
+                    if (tracebackText.isNotBlank()) {
+                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
+                    }
+                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
+                } else if (sconsExitCode != null && sconsExitCode != 0) {
+                    appendUserLog("modeld 预热失败（scons exit=$sconsExitCode），已跳过预热")
+                    val tailText = tailLines.joinToString("\n").trim()
+                    if (tailText.isNotBlank()) {
+                        appendUserLogChunked("scons 输出（尾部）", tailText)
+                    }
+                    val tracebackText = tracebackLines.joinToString("\n").trim()
+                    if (tracebackText.isNotBlank()) {
+                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
                     }
                     appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
                 } else {
