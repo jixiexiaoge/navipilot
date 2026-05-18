@@ -163,7 +163,7 @@ fun TencentNavPage(
     }
 
     val navigatorDrive = remember {
-        // 与 Application 中初始化双保险：避免未冷启动过 Application 路径时直接崩溃
+        // 懒初始化：只在用户进入腾讯导航页面时启动 SDK，避免非腾讯用户在冷启动阶段触发 SDK 崩溃风险
         TencentNavSdkBootstrap.ensureInitialized(context.applicationContext as android.app.Application)
         NavigatorZygote.with(context.applicationContext)
             .navigator(NavigatorDrive::class.java)

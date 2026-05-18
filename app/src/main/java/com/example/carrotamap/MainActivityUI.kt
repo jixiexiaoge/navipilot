@@ -118,10 +118,6 @@ class MainActivityUI(
             if (showPrivacyDialog) {
                 PrivacyConsentDialog(
                     onAgree = {
-                        // 同意隐私后再初始化腾讯导航（SDK 要求 setUserAgreedPrivacy + init/start）
-                        TencentNavSdkBootstrap.ensureInitialized(
-                            appContext.applicationContext as android.app.Application
-                        )
                         showPrivacyDialog = false
                         if (!isOnboardingCompleted(appContext)) {
                             showOnboarding = true
