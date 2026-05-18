@@ -307,55 +307,57 @@ class SshConnectionManager(private val context: Context) {
      */
     suspend fun execCommand(cmd: String, timeoutSec: Long = DEFAULT_COMMAND_TIMEOUT_SEC): Result<String> =
         withContext(Dispatchers.IO) {
-        val ssh = sshClient ?: return@withContext Result.failure(Exception("未连接 SSH"))
+            val ssh = sshClient ?: return@withContext Result.failure(Exception("未连接 SSH"))
 
-        try {
-            appendUserLog("执行命令: $cmd")
-            val session: Session = ssh.startSession()
             try {
-                val command = session.exec(cmd)
-                val finished = command.join(timeoutSec, TimeUnit.SECONDS)
-                val exitStatus = command.exitStatus
+                appendUserLog("执行命令: $cmd")
+                val session: Session = ssh.startSession()
+                try {
+                    val command = session.exec(cmd)
+                    // SSHJ 的 join(timeout) 返回 void；通过 exitStatus 是否已产生来判断是否结束
+                    command.join(timeoutSec, TimeUnit.SECONDS)
+                    val exitStatus = command.exitStatus
+                    val finished = exitStatus != null
 
-                val output =
-                    if (finished || exitStatus != null) IOUtils.readFully(command.inputStream).toString() else ""
-                val errorOutput =
-                    if (finished || exitStatus != null) IOUtils.readFully(command.errorStream).toString() else ""
+                    val output =
+                        if (finished) IOUtils.readFully(command.inputStream).decodeToString() else ""
+                    val errorOutput =
+                        if (finished) IOUtils.readFully(command.errorStream).decodeToString() else ""
 
-                Log.i(TAG, "命令执行完成: $cmd, finished=$finished, exitStatus=$exitStatus")
+                    Log.i(TAG, "命令执行完成: $cmd, finished=$finished, exitStatus=$exitStatus")
 
-                if (!finished && exitStatus == null) {
-                    appendUserLog("命令超时: ${timeoutSec}s")
-                    Result.failure(Exception("命令执行超时 (${timeoutSec}s): $cmd"))
-                } else if (exitStatus == 0) {
-                    if (errorOutput.isNotBlank()) {
-                        appendUserLog("stderr: ${truncateForLog(errorOutput)}")
+                    if (!finished) {
+                        appendUserLog("命令超时: ${timeoutSec}s")
+                        Result.failure(Exception("命令执行超时 (${timeoutSec}s): $cmd"))
+                    } else if (exitStatus == 0) {
+                        if (errorOutput.isNotBlank()) {
+                            appendUserLog("stderr: ${truncateForLog(errorOutput)}")
+                        }
+                        appendUserLog("命令完成: exit 0")
+                        Result.success(output)
+                    } else {
+                        if (errorOutput.isNotBlank()) {
+                            appendUserLog("stderr: ${truncateForLog(errorOutput)}")
+                        } else if (output.isNotBlank()) {
+                            // 有些命令会把错误写到 stdout
+                            appendUserLog("stdout: ${truncateForLog(output)}")
+                        }
+                        appendUserLog("命令失败: exit ${exitStatus ?: "?"}")
+                        val details = buildString {
+                            if (errorOutput.isNotBlank()) append(errorOutput)
+                            if (errorOutput.isBlank() && output.isNotBlank()) append(output)
+                        }
+                        Result.failure(Exception("命令执行失败 (exit ${exitStatus ?: "?"}): ${truncateForLog(details)}"))
                     }
-                    appendUserLog("命令完成: exit 0")
-                    Result.success(output)
-                } else {
-                    if (errorOutput.isNotBlank()) {
-                        appendUserLog("stderr: ${truncateForLog(errorOutput)}")
-                    } else if (output.isNotBlank()) {
-                        // 有些命令会把错误写到 stdout
-                        appendUserLog("stdout: ${truncateForLog(output)}")
-                    }
-                    appendUserLog("命令失败: exit ${exitStatus ?: "?"}")
-                    val details = buildString {
-                        if (errorOutput.isNotBlank()) append(errorOutput)
-                        if (errorOutput.isBlank() && output.isNotBlank()) append(output)
-                    }
-                    Result.failure(Exception("命令执行失败 (exit ${exitStatus ?: "?"}): ${truncateForLog(details)}"))
+                } finally {
+                    session.close()
                 }
-            } finally {
-                session.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "命令执行异常: ${e.message}")
+                appendUserLog("命令异常: ${e.message ?: e.javaClass.simpleName}")
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "命令执行异常: ${e.message}")
-            appendUserLog("命令异常: ${e.message ?: e.javaClass.simpleName}")
-            Result.failure(e)
         }
-    }
 
     /**
      * 重启远程设备
