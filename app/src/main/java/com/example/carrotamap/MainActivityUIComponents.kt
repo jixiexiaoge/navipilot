@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.example.carrotamap.navigation.CoordinateConverter
 import com.example.carrotamap.ui.utils.localized
+import com.example.carrotamap.ui.theme.*
 
 /**
  * MainActivity UI组件 - 辅助组件和工具函数
@@ -115,7 +116,7 @@ object MainActivityUIComponents {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 6.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = CardBackground),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
         ) {
@@ -135,14 +136,14 @@ object MainActivityUIComponents {
                     SpeedRing(
                         speed = carrotManFields.vCruiseKph.toInt(),
                         label = localized("巡航", "Cruise"),
-                        color = Color(0xFF3B82F6),
+                        color = SpeedCruise,
                         onClick = { /* 模拟导航 */ }
                     )
                     // 绿色圆环：当前车速
                     SpeedRing(
                         speed = carrotManFields.vEgoKph,
                         label = localized("车速", "Speed"),
-                        color = Color(0xFF22C55E),
+                        color = SpeedCurrent,
                         onClick = { onLaunchAmap() }
                     )
                 }
@@ -154,20 +155,20 @@ object MainActivityUIComponents {
                 ) {
                     // 回家按钮
                     ControlButton(
-                        icon = "🏠",
+                        icon = Icons.Default.Home,
                         label = "",
-                        color = Color(0xFFFFD700),
+                        color = ButtonHome,
                         onClick = {
                             android.util.Log.i("MainActivity", "🏠 主页：用户点击回家按钮")
                             MainActivityUIComponents.sendHomeNavigationToAmap(context)
                         }
                     )
-                    
+
                     // 高阶按钮
                     ControlButton(
-                        icon = "🔧",
+                        icon = Icons.Default.Settings,
                         label = "",
-                        color = Color(0xFFF59E0B),
+                        color = ButtonAdvanced,
                         onClick = {
                             android.util.Log.i("MainActivity", "🚀 主页：用户点击高阶按钮，用户类型: $userType")
                             if (userType == 3 || userType == 4 || userType == 0) {
@@ -181,12 +182,12 @@ object MainActivityUIComponents {
                             }
                         }
                     )
-                    
+
                     // 公司按钮
                     ControlButton(
-                        icon = "🏢",
+                        icon = Icons.Default.Work,
                         label = "",
-                        color = Color(0xFFFF8C00),
+                        color = ButtonCompany,
                         onClick = {
                             android.util.Log.i("MainActivity", "🏢 主页：用户点击公司按钮")
                             MainActivityUIComponents.sendCompanyNavigationToAmap(context)
@@ -214,64 +215,56 @@ object MainActivityUIComponents {
     }
 
     /**
-     * 控制按钮组件（紧凑版）
+     * 控制按钮组件（优化版 - 使用Material Icons）
      */
     @Composable
     fun ControlButton(
-        icon: String,
+        icon: ImageVector,
         label: String,
         color: Color,
         onClick: () -> Unit
     ) {
         Box(
             modifier = Modifier
-                .width(48.dp)
-                .height(42.dp)
+                .size(48.dp)
                 .clickable(
                     onClick = {
                         android.util.Log.i("MainActivity", "🔍 ControlButton: 检测到点击事件")
                         onClick()
                     }
                 )
+                .shadow(2.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                 .background(
                     color = color,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
-            when {
-                // 情况1: 只有图标，没有文字（图标居中显示）
-                icon.isNotEmpty() && label.isEmpty() -> {
-                    Text(
-                        text = icon,
-                        fontSize = 20.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            if (label.isEmpty()) {
+                // 只有图标，居中显示
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = Color.White
+                )
+            } else {
+                // 图标 + 文字，垂直排列
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color.White
                     )
-                }
-                // 情况2: 既有图标又有文字（垂直排列）
-                icon.isNotEmpty() && label.isNotEmpty() -> {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = icon,
-                            fontSize = 14.sp
-                        )
-                        Text(
-                            text = label,
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-                // 情况3: 只有文字，没有图标（文字居中）
-                else -> {
                     Text(
                         text = label,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        color = Color.White
                     )
                 }
             }
@@ -331,9 +324,9 @@ object MainActivityUIComponents {
         var isOvertakeModeLoading by remember { mutableStateOf(false) }
         
         val coroutineScope = rememberCoroutineScope()
-        // 计算弹窗宽度：九宫格宽度（56dp * 3 + 8dp * 2 = 184dp）+ 左右padding（12dp * 2 = 24dp）= 208dp
-        val dialogWidth = 56.dp * 3 + 8.dp * 2 + 12.dp * 2  // 184dp + 24dp = 208dp
-        
+        // 计算弹窗宽度：九宫格宽度（60dp * 3 + 10dp * 2 = 200dp）+ 左右padding（12dp * 2 = 24dp）= 224dp
+        val dialogWidth = 60.dp * 3 + 10.dp * 2 + 12.dp * 2  // 200dp + 24dp = 224dp
+
         androidx.compose.ui.window.Dialog(
             onDismissRequest = onDismiss
         ) {
@@ -343,21 +336,21 @@ object MainActivityUIComponents {
                     .wrapContentHeight()
                     .padding(0.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1E293B) // 深色背景
+                    containerColor = DialogBackground
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // 标题栏
                     Text(
                         text = localized("高级功能", "Advanced"),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = TextPrimary,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 4.dp),
@@ -366,7 +359,7 @@ object MainActivityUIComponents {
                     // 3x3 九宫格按钮
                     for (row in 0..2) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             for (col in 0..2) {
                                 val buttonNumber = row * 3 + col + 1
@@ -380,22 +373,31 @@ object MainActivityUIComponents {
                                                 onDismiss()
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF0EA5E9)
+                                                containerColor = ButtonHelp
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "❓\n" + localized("帮助", "Help"),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.HelpOutline,
+                                                    contentDescription = "帮助",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("帮助", "Help"),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 2号按钮 - 加速（绿色）
@@ -406,40 +408,49 @@ object MainActivityUIComponents {
                                         } else {
                                             50
                                         }
-                                        
+
                                         Button(
                                             onClick = {
                                                 android.util.Log.i("MainActivity", "🎮 高阶弹窗：用户点击加速按钮")
                                                 onSendCommand("SPEED", newSpeed.toString())
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF10B981) // 更亮的绿色
+                                                containerColor = ButtonAccel
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "⬆️\n" + localized("加速", "Accel"),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                                    contentDescription = "加速",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("加速", "Accel"),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 3号按钮 - 超车模式切换
                                     3 -> {
                                         val overtakeModeNames = arrayOf(localized("禁止\n超车", "No\nOvertake"), localized("拨杆\n超车", "Signal\nOvertake"), localized("自动\n超车", "Auto\nOvertake"))
                                         val overtakeModeColors = arrayOf(
-                                            Color(0xFF94A3B8),
-                                            Color(0xFF3B82F6),
-                                            Color(0xFF22C55E)
+                                            OvertakeDisabled,
+                                            OvertakeManual,
+                                            OvertakeAuto
                                         )
-                                        
+
                                         Button(
                                             onClick = {
                                                 if (!isOvertakeModeLoading) {
@@ -448,9 +459,9 @@ object MainActivityUIComponents {
                                                         // 从正确的SharedPreferences读取用户类型
                                                         val devicePrefs = context.getSharedPreferences("device_prefs", android.content.Context.MODE_PRIVATE)
                                                         val userType = devicePrefs.getInt("user_type", 0)
-                                                        
+
                                                         android.util.Log.d("MainActivity", "🔧 超车模式切换：用户类型=$userType, 当前模式=$overtakeMode")
-                                                        
+
                                                     val nextMode = if (userType == 4 || userType == 0) {
                                                             // 用户类型4（铁粉）和先锋用户（0）：可以在 0、1、2 之间循环切换
                                                         (overtakeMode + 1) % 3
@@ -458,15 +469,15 @@ object MainActivityUIComponents {
                                                             // 其他用户类型：只在 0 和 1 之间切换
                                                         if (overtakeMode == 0) 1 else 0
                                                     }
-                                                        
+
                                                         android.util.Log.d("MainActivity", "🔧 超车模式切换：下一模式=$nextMode")
-                                                        
+
                                                         // 保存到CarrotAmap SharedPreferences
                                                         val prefs = context.getSharedPreferences("CarrotAmap", android.content.Context.MODE_PRIVATE)
                                                         prefs.edit()
                                                             .putInt("overtake_mode", nextMode)
                                                             .apply()
-                                                        
+
                                                         kotlinx.coroutines.delay(300)
                                                         overtakeMode = nextMode
                                                         isOvertakeModeLoading = false
@@ -474,17 +485,17 @@ object MainActivityUIComponents {
                                                 }
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isOvertakeModeLoading) {
-                                                    Color(0xFF6B7280)
+                                                    Surface500
                                                 } else {
                                                     overtakeModeColors[overtakeMode]
                                                 }
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                                             enabled = !isOvertakeModeLoading
                                         ) {
                                             Text(
@@ -510,22 +521,31 @@ object MainActivityUIComponents {
                                                 onDismiss()
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF3B82F6)
+                                                containerColor = ButtonLaneChange
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "⬅️\n" + localized("变道", "Lane"),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowLeft,
+                                                    contentDescription = "左变道",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("变道", "Lane"),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 5号按钮 - 已移除（智能控速）
@@ -533,23 +553,32 @@ object MainActivityUIComponents {
                                         Button(
                                             onClick = { },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF64748B).copy(alpha = 0.3f)
+                                                containerColor = Surface500.copy(alpha = 0.3f)
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                                             enabled = false
                                         ) {
-                                            Text(
-                                                text = "🎛️\n" + localized("控速", "Speed"),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White.copy(alpha = 0.5f),
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Speed,
+                                                    contentDescription = "控速",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White.copy(alpha = 0.5f)
+                                                )
+                                                Text(
+                                                    text = localized("控速", "Speed"),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White.copy(alpha = 0.5f)
+                                                )
+                                            }
                                         }
                                     }
                                     // 6号按钮 - 右变道
@@ -561,22 +590,31 @@ object MainActivityUIComponents {
                                                 onDismiss()
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF3B82F6)
+                                                containerColor = ButtonLaneChange
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "➡️\n" + localized("变道", "Lane"),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowRight,
+                                                    contentDescription = "右变道",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("变道", "Lane"),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 7号按钮 - 驾驶报告（MainActivityUI currentPage = 7 → DrivingReportScreen）
@@ -587,22 +625,31 @@ object MainActivityUIComponents {
                                                 onDismiss()
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF8B5CF6)
+                                                containerColor = ButtonReport
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "📊\n" + localized("报告", "Report"),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Assessment,
+                                                    contentDescription = "报告",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("报告", "Report"),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 8号按钮 - 减速
@@ -627,22 +674,31 @@ object MainActivityUIComponents {
                                                 }
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFFEF4444)
+                                                containerColor = ButtonDecel
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "⬇️\n" + localized("减速", "Decel"),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = "减速",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("减速", "Decel"),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 9号按钮 - 自动切换实验
@@ -653,22 +709,31 @@ object MainActivityUIComponents {
                                                 onDismiss()
                                             },
                                             modifier = Modifier
-                                                .size(56.dp)
-                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                                .size(60.dp)
+                                                .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFFF59E0B) // 橙色
+                                                containerColor = ButtonExperiment
                                             ),
                                             contentPadding = PaddingValues(0.dp),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                                         ) {
-                                            Text(
-                                                text = "🧪\n" + localized("实验", "Exp"),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                lineHeight = 12.sp
-                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Science,
+                                                    contentDescription = "实验",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = Color.White
+                                                )
+                                                Text(
+                                                    text = localized("实验", "Exp"),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
                                     // 其他未定义的按钮（应该不会出现，因为1-9都已定义）
@@ -701,7 +766,7 @@ object MainActivityUIComponents {
                     if (overtakeMode != 0) {
                     HorizontalDivider(
                             modifier = Modifier.padding(vertical = 4.dp),
-                        color = Color(0xFF475569), // 深色主题下的分隔线颜色
+                        color = Surface600,
                         thickness = 1.dp
                     )
                     
@@ -775,7 +840,7 @@ object MainActivityUIComponents {
                 text = label,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFFE5E7EB) // 浅灰色，在深色背景下可见
+                color = TextSecondary
             )
             
             // 减号按钮、数值、加号按钮（右侧，更紧凑排列）
@@ -794,7 +859,7 @@ object MainActivityUIComponents {
                     modifier = Modifier.size(24.dp),
                     enabled = currentValue > minValue,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (currentValue > minValue) Color(0xFFEF4444) else Color(0xFF9CA3AF)
+                        containerColor = if (currentValue > minValue) ButtonDecel else Surface400
                     ),
                     contentPadding = PaddingValues(0.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
@@ -806,19 +871,19 @@ object MainActivityUIComponents {
                         color = Color.White
                     )
                 }
-                
+
                 // 当前值显示（移除单位，紧凑宽度）
                 Text(
                     text = "${(currentValue * displayMultiplier).toInt()}${if (unit.isNotEmpty()) " $unit" else ""}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF3B82F6),
+                    color = PrimaryLight,
                     modifier = Modifier.width(35.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Clip
                 )
-                
+
                 // 加号按钮（更小）
                 Button(
                     onClick = {
@@ -830,7 +895,7 @@ object MainActivityUIComponents {
                     modifier = Modifier.size(24.dp),
                     enabled = currentValue < maxValue,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (currentValue < maxValue) Color(0xFF22C55E) else Color(0xFF9CA3AF)
+                        containerColor = if (currentValue < maxValue) ButtonAccel else Surface400
                     ),
                     contentPadding = PaddingValues(0.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
@@ -1148,7 +1213,7 @@ object MainActivityUIComponents {
 }
 
 /**
- * 速度圆环Compose组件（紧凑版）
+ * 速度圆环Compose组件（紧凑版，优化字体）
  */
 @Composable
 fun SpeedIndicatorCompose(
@@ -1182,7 +1247,7 @@ fun SpeedIndicatorCompose(
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx())
                 )
             }
-            
+
             Text(
                 text = value.toString(),
                 fontSize = 15.sp,
@@ -1190,14 +1255,14 @@ fun SpeedIndicatorCompose(
                 color = color
             )
         }
-        
+
         if (label.isNotEmpty()) {
             Text(
                 text = label,
-                fontSize = 7.sp,
-                color = Color(0xFF64748B),
+                fontSize = 10.sp,
+                color = TextTertiary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                lineHeight = 9.sp,
+                lineHeight = 12.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
@@ -1207,7 +1272,7 @@ fun SpeedIndicatorCompose(
 
 
 /**
- * 速度圆环组件
+ * 速度圆环组件（优化版）
  */
 @Composable
 fun SpeedRing(
@@ -1236,7 +1301,7 @@ fun SpeedRing(
             )
             Text(
                 text = label,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 color = color.copy(alpha = 0.8f)
             )
         }
