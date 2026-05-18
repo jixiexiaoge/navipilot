@@ -417,27 +417,9 @@ class SshConnectionManager(private val context: Context) {
             }
 
             // 2. 执行清理编译（scons -c）
-            // 说明：
-            // - 使用 scons -c 清理编译输出
-            // - 非交互式 SSH 会话的 PATH 可能不完整；优先 source launch_env.sh 再执行 scons。
-            // - 若设备无编译环境（常见于量产/精简系统），则跳过该步骤，不影响模型生效。
             appendUserLog("执行清理编译（scons -c）...")
             val rebuildResult = execCommand(
-                """
-                bash -lc 'cd /data/openpilot || exit 1;
-                  if [ -f ./launch_env.sh ]; then source ./launch_env.sh >/dev/null 2>&1 || true; fi;
-                  if ! command -v scons >/dev/null 2>&1; then echo "__NAVIPILOT_NO_SCONS__"; exit 0; fi;
-                  rm -f /tmp/navipilot_modeld_rebuild.log;
-                  scons -c >/tmp/navipilot_modeld_rebuild.log 2>&1;
-                  scons_ec=${'$'}?;
-                  echo "__NAVIPILOT_SCONS_EXIT__${'$'}{scons_ec}";
-                  tail -n 120 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true;
-                  if grep -q "Traceback (most recent call last)" /tmp/navipilot_modeld_rebuild.log 2>/dev/null; then
-                    echo "__NAVIPILOT_TRACEBACK__";
-                    awk "/Traceback \\(most recent call last\\)/{p=1} p{print}" /tmp/navipilot_modeld_rebuild.log | tail -n 160 2>/dev/null || true;
-                  fi;
-                  exit 0'
-                """.trimIndent(),
+                "cd /data/openpilot && scons -c",
                 timeoutSec = 300L
             )
 
@@ -447,57 +429,7 @@ class SshConnectionManager(private val context: Context) {
                 appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
                 // 不返回失败，继续后续流程
             } else {
-                val output = rebuildResult.getOrNull().orEmpty()
-                val lines = output.lineSequence().toList()
-                val hasNoScons = lines.any { it == "__NAVIPILOT_NO_SCONS__" }
-                val sconsExitCode = lines.firstOrNull { it.startsWith("__NAVIPILOT_SCONS_EXIT__") }
-                    ?.removePrefix("__NAVIPILOT_SCONS_EXIT__")
-                    ?.trim()
-                    ?.toIntOrNull()
-
-                val (tailLines, tracebackLines) = run {
-                    val tail = mutableListOf<String>()
-                    val traceback = mutableListOf<String>()
-                    var inTraceback = false
-                    for (line in lines) {
-                        when {
-                            line == "__NAVIPILOT_TRACEBACK__" -> inTraceback = true
-                            line.startsWith("__NAVIPILOT_") -> Unit
-                            inTraceback -> traceback.add(line)
-                            else -> tail.add(line)
-                        }
-                    }
-                    tail to traceback
-                }
-
-                if (hasNoScons) {
-                    appendUserLog("未检测到 scons，跳过清理编译")
-                    appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
-                } else if (sconsExitCode == null) {
-                    appendUserLog("清理编译结果未知（未返回 scons exit code），已跳过清理")
-                    val tailText = tailLines.joinToString("\n").trim()
-                    if (tailText.isNotBlank()) {
-                        appendUserLogChunked("scons 输出（尾部）", tailText)
-                    }
-                    val tracebackText = tracebackLines.joinToString("\n").trim()
-                    if (tracebackText.isNotBlank()) {
-                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
-                    }
-                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
-                } else if (sconsExitCode != null && sconsExitCode != 0) {
-                    appendUserLog("清理编译失败（scons exit=$sconsExitCode），已跳过清理")
-                    val tailText = tailLines.joinToString("\n").trim()
-                    if (tailText.isNotBlank()) {
-                        appendUserLogChunked("scons 输出（尾部）", tailText)
-                    }
-                    val tracebackText = tracebackLines.joinToString("\n").trim()
-                    if (tracebackText.isNotBlank()) {
-                        appendUserLogChunked("scons Traceback（尾部）", tracebackText)
-                    }
-                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
-                } else {
-                    appendUserLog("清理编译完成")
-                }
+                appendUserLog("清理编译完成")
             }
 
             // 3. 执行重启
