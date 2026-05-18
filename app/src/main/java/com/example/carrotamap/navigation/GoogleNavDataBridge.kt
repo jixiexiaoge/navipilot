@@ -166,7 +166,7 @@ class GoogleNavDataBridge(
     fun updateCurrentRoad(roadName: String) {
         postFieldsMutate { s ->
             s.value = s.value.copy(
-                szCurRoad = roadName,
+                szPosRoadName = roadName,
                 source_last = "google_nav"
             )
         }

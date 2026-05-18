@@ -108,8 +108,7 @@ class MainActivityUI(
     fun SetupUserInterface() {
         NavipilotTheme {
             val appContext = LocalContext.current
-            val googleNavManager = remember { GoogleNavManager(appContext, core.carrotManFields) }
-            
+
             // 🆕 隐私政策 + 新手引导流程
             var showPrivacyDialog by remember { mutableStateOf(!hasPrivacyConsent(appContext)) }
             var showOnboarding by remember { mutableStateOf(
@@ -561,7 +560,6 @@ class MainActivityUI(
                         "GOOGLE" -> {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 GoogleNavPage(
-                                    navManager = googleNavManager,
                                     carrotManFieldsState = core.carrotManFields,
                                     goalLat = core.carrotManFields.value.goalPosY,
                                     goalLon = core.carrotManFields.value.goalPosX,
