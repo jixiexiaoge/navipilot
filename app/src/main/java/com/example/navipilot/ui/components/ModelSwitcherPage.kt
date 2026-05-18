@@ -155,6 +155,7 @@ fun ModelSwitcherPage(
     // SSH 连接状态
     val sshConnectionState by sshManager.connectionState.collectAsState()
     val sshConnectionInfo by sshManager.connectionInfo.collectAsState()
+    val sshUserLogs by sshManager.userLogs.collectAsState()
 
     // 状态管理
     var isLoading by remember { mutableStateOf(true) }
@@ -286,30 +287,39 @@ fun ModelSwitcherPage(
 
         coroutineScope.launch {
             try {
+                sshManager.clearUserLogs()
+                sshManager.logToUser(localized("开始上传模型", "Start uploading model") + ": ${modelInfo.name} ($host)")
                 android.widget.Toast.makeText(
                     context,
                     localized("正在上传...", "Uploading..."),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
 
-                // 1. Kill modeld process
-                val killResult = sshManager.execCommand("pkill -9 modeld")
+                // 1. Stop comma tmux session + clear overlay lock
+                sshManager.logToUser(localized("停止 comma 会话并清理锁文件", "Stop comma session and clear lock"))
+                val killResult = sshManager.execCommand(
+                    "tmux has-session -t comma 2>/dev/null && tmux kill-session -t comma; " +
+                        "rm -f /tmp/safe_staging_overlay.lock; " +
+                        "sleep 1;"
+                )
                 if (killResult.isFailure) {
                     android.widget.Toast.makeText(
                         context,
-                        "Kill modeld failed: ${killResult.exceptionOrNull()?.message}",
+                        "Stop session failed: ${killResult.exceptionOrNull()?.message}",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                     return@launch
                 }
 
                 // 2. Remove old model files
+                sshManager.logToUser(localized("删除旧模型文件", "Remove old model files"))
                 val rmResult = sshManager.execCommand("rm /data/openpilot/selfdrive/modeld/models/driving_*.onnx")
                 if (rmResult.isFailure) {
                     Log.w("ModelSwitcher", "删除旧文件失败: ${rmResult.exceptionOrNull()?.message}")
                 }
 
                 // 3. Upload policy file
+                sshManager.logToUser(localized("上传 policy 文件", "Upload policy file"))
                 val policyUpload = sshManager.uploadFile(
                     downloadedModel.policyFilePath,
                     "/data/openpilot/selfdrive/modeld/models/"
@@ -319,6 +329,7 @@ fun ModelSwitcherPage(
                 }
 
                 // 4. Upload vision file
+                sshManager.logToUser(localized("上传 vision 文件", "Upload vision file"))
                 val visionUpload = sshManager.uploadFile(
                     downloadedModel.visionFilePath,
                     "/data/openpilot/selfdrive/modeld/models/"
@@ -328,7 +339,11 @@ fun ModelSwitcherPage(
                 }
 
                 // 5. Reboot device
-                sshManager.execCommand("reboot")
+                sshManager.logToUser(localized("重启设备", "Reboot device"))
+                val rebootResult = sshManager.execCommand("reboot")
+                if (rebootResult.isFailure) {
+                    Log.w("ModelSwitcher", "重启命令可能未成功返回: ${rebootResult.exceptionOrNull()?.message}")
+                }
 
                 android.widget.Toast.makeText(
                     context,
@@ -338,6 +353,7 @@ fun ModelSwitcherPage(
 
             } catch (e: Exception) {
                 Log.e("ModelSwitcher", "上传失败: ${e.message}")
+                sshManager.logToUser(localized("上传失败", "Upload failed") + ": ${e.message}")
                 android.widget.Toast.makeText(
                     context,
                     "❌ ${localized("上传失败", "Upload failed")}: ${e.message}",
@@ -494,22 +510,33 @@ fun ModelSwitcherPage(
                     }
                 }
                 else -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp)
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(modelList) { model ->
-                            val cardState = getCardState(model.id)
-                            DownloadableModelCard(
-                                model = model,
-                                cardState = cardState,
-                                onDownloadClick = { onDownloadClick(model) },
-                                onDeleteClick = { onDeleteClick(model.id) },
-                                onUploadClick = { onUploadClick(model) }
+                        if (sshUserLogs.isNotEmpty()) {
+                            SshLogPanel(
+                                logs = sshUserLogs,
+                                onClear = { sshManager.clearUserLogs() },
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                             )
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            items(modelList) { model ->
+                                val cardState = getCardState(model.id)
+                                DownloadableModelCard(
+                                    model = model,
+                                    cardState = cardState,
+                                    onDownloadClick = { onDownloadClick(model) },
+                                    onDeleteClick = { onDeleteClick(model.id) },
+                                    onUploadClick = { onUploadClick(model) }
+                                )
+                            }
                         }
                     }
                 }
@@ -524,6 +551,44 @@ fun ModelSwitcherPage(
             discoveredIp = discoveredDeviceIp,
             onDismiss = { showSshDialog = false }
         )
+    }
+}
+
+@Composable
+private fun SshLogPanel(
+    logs: List<String>,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B1220)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = localized("操作日志", "Action log"),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = Color(0xFFE5E7EB),
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClear) {
+                    Text(text = localized("清空", "Clear"))
+                }
+            }
+            logs.takeLast(8).forEach { line ->
+                Text(
+                    text = line,
+                    fontSize = 11.sp,
+                    color = Color(0xFFCBD5E1),
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 

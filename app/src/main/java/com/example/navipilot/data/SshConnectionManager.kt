@@ -2,11 +2,13 @@ package com.example.navipilot.data
 
 import android.content.Context
 import android.net.Uri
+import android.text.format.DateFormat
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.IOUtils
@@ -70,11 +72,32 @@ class SshConnectionManager(private val context: Context) {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _userLogs = MutableStateFlow<List<String>>(emptyList())
+    val userLogs: StateFlow<List<String>> = _userLogs.asStateFlow()
+
     // SSHJ SSH 客户端
     private var sshClient: SSHClient? = null
 
     val isConnected: Boolean
         get() = _connectionState.value == SshConnectionState.CONNECTED
+
+    fun clearUserLogs() {
+        _userLogs.value = emptyList()
+    }
+
+    fun logToUser(message: String) {
+        appendUserLog(message)
+    }
+
+    private fun appendUserLog(message: String) {
+        val timestamp = DateFormat.format("HH:mm:ss", System.currentTimeMillis()).toString()
+        val line = "[$timestamp] $message"
+        Log.i(TAG, line)
+        _userLogs.update { current ->
+            val next = (current + line)
+            if (next.size <= 200) next else next.takeLast(200)
+        }
+    }
 
     /**
      * 格式化 OpenSSH 私钥：确保 Base64 内容每 64 个字符一行
@@ -151,7 +174,7 @@ class SshConnectionManager(private val context: Context) {
         try {
             _connectionState.value = SshConnectionState.CONNECTING
             _errorMessage.value = null
-            Log.i(TAG, "开始 SSH 连接: $host:$port")
+            appendUserLog("开始 SSH 连接: $host:$port")
 
             // 验证参数
             if (host.isBlank()) {
@@ -167,16 +190,16 @@ class SshConnectionManager(private val context: Context) {
             // 配置超时 - 防止连接卡死
             ssh.connectTimeout = 30000  // 30秒连接超时
             ssh.timeout = 15000         // 15秒读写超时
-            Log.d(TAG, "SSH 客户端超时配置: connect=30s, read/write=15s")
+            appendUserLog("SSH 超时配置: connect=30s, read/write=15s")
 
             // 连接
-            Log.d(TAG, "正在建立 TCP 连接...")
+            appendUserLog("正在建立 TCP 连接...")
             ssh.connect(host, port)
-            Log.d(TAG, "TCP 连接已建立，开始密钥交换...")
+            appendUserLog("TCP 连接已建立，开始密钥交换...")
 
             // 配置 keepalive 以检测死连接（连接建立后）
             ssh.connection.keepAlive.keepAliveInterval = 10  // 每 10 秒发送 keepalive
-            Log.d(TAG, "已配置 keepalive 间隔: 10s")
+            appendUserLog("已配置 keepalive: 10s")
 
             // 解析私钥 URI 获取 InputStream，并写入临时文件
             val keyInputStream = context.contentResolver.openInputStream(privateKeyUri)
@@ -214,17 +237,17 @@ class SshConnectionManager(private val context: Context) {
             }
 
             // 使用 SSHJ 加载私钥文件
-            Log.d(TAG, "正在加载私钥文件...")
+            appendUserLog("正在加载私钥文件...")
             val keys: KeyProvider = ssh.loadKeys(tempKeyFile.absolutePath)
-            Log.d(TAG, "私钥加载成功，开始公钥认证...")
+            appendUserLog("私钥加载成功，开始公钥认证...")
             ssh.authPublickey(username, keys)
-            Log.d(TAG, "公钥认证成功")
+            appendUserLog("公钥认证成功")
 
             // 保存连接
             sshClient = ssh
             _connectionState.value = SshConnectionState.CONNECTED
             _connectionInfo.value = SshConnectionInfo(host, port, username, privateKeyUri.toString())
-            Log.i(TAG, "SSH 连接成功: $host")
+            appendUserLog("SSH 连接成功: $host")
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -251,6 +274,7 @@ class SshConnectionManager(private val context: Context) {
                 else -> e.message ?: "SSH 连接失败"
             }
             _errorMessage.value = friendlyMessage
+            appendUserLog("SSH 连接失败: $friendlyMessage")
             
             Result.failure(Exception(friendlyMessage))
         } finally {
@@ -269,6 +293,7 @@ class SshConnectionManager(private val context: Context) {
         val ssh = sshClient ?: return@withContext Result.failure(Exception("未连接 SSH"))
 
         try {
+            appendUserLog("执行命令: $cmd")
             val session: Session = ssh.startSession()
             try {
                 val command = session.exec(cmd)
@@ -278,9 +303,11 @@ class SshConnectionManager(private val context: Context) {
                 Log.i(TAG, "命令执行完成: $cmd, exitStatus: $exitStatus")
 
                 if (exitStatus == 0) {
+                    appendUserLog("命令完成: exit 0")
                     Result.success(output)
                 } else {
                     val errorOutput = IOUtils.readFully(command.errorStream).toString()
+                    appendUserLog("命令失败: exit $exitStatus")
                     Result.failure(Exception("命令执行失败 (exit $exitStatus): $errorOutput"))
                 }
             } finally {
@@ -288,6 +315,7 @@ class SshConnectionManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "命令执行异常: ${e.message}")
+            appendUserLog("命令异常: ${e.message ?: e.javaClass.simpleName}")
             Result.failure(e)
         }
     }
@@ -299,12 +327,13 @@ class SshConnectionManager(private val context: Context) {
         val ssh = sshClient ?: return@withContext Result.failure(Exception("未连接 SSH"))
 
         try {
-            Log.i(TAG, "开始上传文件: $localPath -> $remotePath")
+            appendUserLog("开始上传: ${File(localPath).name} -> $remotePath")
             ssh.newSCPFileTransfer().upload(FileSystemFile(File(localPath)), remotePath)
-            Log.i(TAG, "文件上传成功: $localPath")
+            appendUserLog("上传成功: ${File(localPath).name}")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "文件上传失败: ${e.message}")
+            appendUserLog("上传失败: ${e.message ?: e.javaClass.simpleName}")
             Result.failure(e)
         }
     }
@@ -322,7 +351,7 @@ class SshConnectionManager(private val context: Context) {
         sshClient = null
         _connectionState.value = SshConnectionState.DISCONNECTED
         _connectionInfo.value = null
-        Log.i(TAG, "SSH 连接已断开")
+        appendUserLog("SSH 连接已断开")
     }
 
     /**
