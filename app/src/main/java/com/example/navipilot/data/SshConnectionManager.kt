@@ -135,8 +135,19 @@ class SshConnectionManager(private val context: Context) {
             // 跳过主机密钥验证（适合开发/测试）
             ssh.addHostKeyVerifier(PromiscuousVerifier())
 
+            // 配置超时 - 防止连接卡死
+            ssh.connectTimeout = 30000  // 30秒连接超时
+            ssh.timeout = 15000         // 15秒读写超时
+            Log.d(TAG, "SSH 客户端超时配置: connect=30s, read/write=15s")
+
             // 连接
+            Log.d(TAG, "正在建立 TCP 连接...")
             ssh.connect(host, port)
+            Log.d(TAG, "TCP 连接已建立，开始密钥交换...")
+
+            // 配置 keepalive 以检测死连接（连接建立后）
+            ssh.connection.keepAlive.keepAliveInterval = 10  // 每 10 秒发送 keepalive
+            Log.d(TAG, "已配置 keepalive 间隔: 10s")
 
             // 解析私钥 URI 获取 InputStream，并写入临时文件
             val keyInputStream = context.contentResolver.openInputStream(privateKeyUri)
@@ -175,8 +186,11 @@ class SshConnectionManager(private val context: Context) {
             }
 
             // 使用 SSHJ 加载私钥文件
+            Log.d(TAG, "正在加载私钥文件...")
             val keys: KeyProvider = ssh.loadKeys(tempKeyFile.absolutePath)
+            Log.d(TAG, "私钥加载成功，开始公钥认证...")
             ssh.authPublickey(username, keys)
+            Log.d(TAG, "公钥认证成功")
 
             // 删除临时文件
             tempKeyFile.delete()
@@ -203,8 +217,12 @@ class SshConnectionManager(private val context: Context) {
                     "认证失败。请检查用户名和私钥是否匹配"
                 e.message?.contains("Connection refused") == true ->
                     "连接被拒绝。请检查 IP 地址和端口是否正确，以及 SSH 服务是否运行"
-                e.message?.contains("timeout") == true ->
-                    "连接超时。请检查网络连接和 IP 地址"
+                e.message?.contains("timeout") == true || e.message?.contains("timed out") == true ->
+                    "连接超时。请检查网络连接、IP 地址是否正确，以及设备是否可达"
+                e.message?.contains("Network is unreachable") == true ->
+                    "网络不可达。请检查设备网络连接和 IP 地址"
+                e.message?.contains("No route to host") == true ->
+                    "无法到达主机。请检查 IP 地址是否正确"
                 else -> e.message ?: "SSH 连接失败"
             }
             _errorMessage.value = friendlyMessage
