@@ -129,7 +129,7 @@
         </service>
 
         <receiver
-            android:name="com.example.navipilot.amapAutoStaticReceiver"
+            android:name="com.example.navipilot.AmapAutoStaticReceiver"
             android:exported="true"
             android:enabled="true"
             android:permission="android.permission.INTERNET">
