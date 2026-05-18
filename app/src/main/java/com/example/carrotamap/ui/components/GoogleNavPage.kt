@@ -48,6 +48,7 @@ fun GoogleNavPage(
     goalName: String = "",
     currentLat: Double = 0.0,
     currentLon: Double = 0.0,
+    networkClient: com.example.carrotamap.CarrotManNetworkClient? = null,
     onEnterGoogleMode: () -> Unit = {},
     onExitGoogleMode: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -239,7 +240,8 @@ fun GoogleNavPage(
                 routeError = error
                 isRoutePlanning = false
                 isNavStarted = false
-            }
+            },
+            networkClient = networkClient  // 🆕 传递网络客户端用于发送路线点
         )
     }
 

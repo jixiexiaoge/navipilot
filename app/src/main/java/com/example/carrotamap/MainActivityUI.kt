@@ -568,6 +568,7 @@ class MainActivityUI(
                                     goalName = core.carrotManFields.value.szGoalName,
                                     currentLat = tencentRouteStartLat,
                                     currentLon = tencentRouteStartLon,
+                                    networkClient = core.getNetworkClientSafely(),
                                     onEnterGoogleMode = { core.switchToGoogleMode() },
                                     onExitGoogleMode = { core.exitGoogleMode() },
                                     onBack = {

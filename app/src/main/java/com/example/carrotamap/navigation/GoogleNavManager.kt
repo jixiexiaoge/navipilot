@@ -41,6 +41,10 @@ class GoogleNavManager(
     // 监听器引用（用于清理）
     private var routeChangedListener: Navigator.RouteChangedListener? = null
     private var remainingTimeOrDistanceChangedListener: Navigator.RemainingTimeOrDistanceChangedListener? = null
+    private var locationListener: Navigator.LocationListener? = null
+    private var speedingListener: Navigator.SpeedingUpdatedListener? = null
+    private var routeSegmentListener: Navigator.RouteSegmentChangedListener? = null
+    private var trafficDataListener: Navigator.TrafficDataListener? = null
 
     fun isReady(): Boolean = isInitialized && navigator != null
 
@@ -98,8 +102,117 @@ class GoogleNavManager(
             )
             Log.i(TAG, "✅ 已注册剩余时间/距离监听器")
 
+            // 3. 位置更新监听器（1Hz 高频更新）
+            locationListener = Navigator.LocationListener { location ->
+                try {
+                    dataBridge?.updateLocation(
+                        lat = location.latitude,
+                        lon = location.longitude,
+                        heading = location.bearing,
+                        speed = location.speed
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "更新位置失败: ${e.message}")
+                }
+            }
+            nav.addLocationListener(locationListener)
+            Log.i(TAG, "✅ 已注册位置监听器")
+
+            // 4. 超速监听器
+            speedingListener = Navigator.SpeedingUpdatedListener { speedingInfo ->
+                try {
+                    val speedLimit = speedingInfo.speedLimit // m/s
+                    val currentSpeed = speedingInfo.currentSpeed // m/s
+
+                    dataBridge?.updateSpeedLimit(
+                        speedLimitKmh = (speedLimit * 3.6).toInt(),
+                        currentSpeedKmh = (currentSpeed * 3.6).toInt()
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "更新限速失败: ${e.message}")
+                }
+            }
+            nav.addSpeedingUpdatedListener(speedingListener)
+            Log.i(TAG, "✅ 已注册超速监听器")
+
+            // 5. 路径段变化监听器
+            routeSegmentListener = Navigator.RouteSegmentChangedListener {
+                try {
+                    val segment = nav.currentRouteSegment
+                    segment?.let {
+                        val roadName = it.displayName ?: ""
+                        if (roadName.isNotEmpty()) {
+                            dataBridge?.updateCurrentRoad(roadName)
+                            Log.d(TAG, "当前路段: $roadName")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "更新路段失败: ${e.message}")
+                }
+            }
+            nav.addRouteSegmentChangedListener(routeSegmentListener)
+            Log.i(TAG, "✅ 已注册路径段监听器")
+
+            // 6. 路况数据监听器
+            trafficDataListener = Navigator.TrafficDataListener {
+                try {
+                    // Google SDK 会在后台更新路况，前端自动显示
+                    Log.d(TAG, "路况数据已更新")
+                } catch (e: Exception) {
+                    Log.w(TAG, "路况数据更新失败: ${e.message}")
+                }
+            }
+            nav.setTrafficDataListener(trafficDataListener)
+            Log.i(TAG, "✅ 已注册路况监听器")
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ 注册导航监听器失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 提取当前路线的所有坐标点（WGS-84）
+     * 用于发送至 comma3 设备 (TCP 7709)
+     */
+    fun extractRoutePoints(): List<Pair<Double, Double>> {
+        val nav = navigator ?: return emptyList()
+
+        return try {
+            val routeSegments = nav.routeSegments
+            val points = mutableListOf<Pair<Double, Double>>()
+
+            routeSegments?.forEach { segment ->
+                segment.latLngs?.forEach { latLng ->
+                    points.add(Pair(latLng.longitude, latLng.latitude))
+                }
+            }
+
+            Log.i(TAG, "✅ 提取路线点: ${points.size} 个坐标")
+            points
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 提取路线点失败: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 提取并发送路线点到 comma3 设备
+     * @param networkClient 网络客户端，用于发送数据到设备
+     */
+    fun extractAndSendRoutePoints(networkClient: com.example.carrotamap.CarrotManNetworkClient?) {
+        val points = extractRoutePoints()
+
+        if (points.isNotEmpty()) {
+            networkClient?.sendRoutePointsViaTcp(points)
+
+            // 调试日志（前3个点）
+            points.take(3).forEachIndexed { i, (lon, lat) ->
+                Log.d(TAG, "[$i] lon=${"%.6f".format(lon)}, lat=${"%.6f".format(lat)}")
+            }
+
+            Log.i(TAG, "✅ 路线点已发送至设备 (TCP 7709): ${points.size}个点")
+        } else {
+            Log.w(TAG, "⚠️ 无路线点可发送")
         }
     }
 
@@ -169,6 +282,7 @@ class GoogleNavManager(
      * @param destName 目的地名称
      * @param simulate 是否模拟行程（debug 模式下默认 true）
      * @param onRouteError 路线错误回调
+     * @param networkClient 可选网络客户端，用于发送路线点到设备
      */
     fun startNavigation(
         startLat: Double = 0.0,
@@ -179,7 +293,8 @@ class GoogleNavManager(
         simulate: Boolean = true,
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
-        onRouteError: ((String) -> Unit)? = null
+        onRouteError: ((String) -> Unit)? = null,
+        networkClient: com.example.carrotamap.CarrotManNetworkClient? = null
     ) {
         val nav = navigator ?: run {
             Log.e(TAG, "Navigator 未初始化，无法开始导航")
@@ -255,6 +370,13 @@ class GoogleNavManager(
 
                         // 启用语音播报
                         nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
+
+                        // 🆕 提取并发送路线点到 comma3 设备 (TCP 7709)
+                        if (networkClient != null) {
+                            extractAndSendRoutePoints(networkClient)
+                        } else {
+                            Log.w(TAG, "⚠️ networkClient 为 null，跳过路线点发送")
+                        }
 
                         // 模拟行程（仅 debug 构建）
                         if (simulate) {
@@ -438,10 +560,24 @@ class GoogleNavManager(
                 remainingTimeOrDistanceChangedListener?.let {
                     nav.removeRemainingTimeOrDistanceChangedListener(it)
                 }
+                locationListener?.let {
+                    nav.removeLocationListener(it)
+                }
+                speedingListener?.let {
+                    nav.removeSpeedingUpdatedListener(it)
+                }
+                routeSegmentListener?.let {
+                    nav.removeRouteSegmentChangedListener(it)
+                }
+                // trafficDataListener 不需要移除，setTrafficDataListener(null) 即可
             }
 
             routeChangedListener = null
             remainingTimeOrDistanceChangedListener = null
+            locationListener = null
+            speedingListener = null
+            routeSegmentListener = null
+            trafficDataListener = null
             dataBridge = null
             _navigator = null
             isInitialized = false

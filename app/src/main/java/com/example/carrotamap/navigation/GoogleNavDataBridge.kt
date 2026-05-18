@@ -143,4 +143,32 @@ class GoogleNavDataBridge(
             )
         }
     }
+
+    /**
+     * 更新限速信息
+     * @param speedLimitKmh 道路限速 (km/h)
+     * @param currentSpeedKmh 当前速度 (km/h)
+     */
+    fun updateSpeedLimit(speedLimitKmh: Int, currentSpeedKmh: Int) {
+        postFieldsMutate { s ->
+            s.value = s.value.copy(
+                nRoadLimitSpeed = speedLimitKmh,
+                nPosSpeed = currentSpeedKmh.toDouble(),
+                source_last = "google_nav"
+            )
+        }
+    }
+
+    /**
+     * 更新当前道路名称
+     * @param roadName 当前道路名称
+     */
+    fun updateCurrentRoad(roadName: String) {
+        postFieldsMutate { s ->
+            s.value = s.value.copy(
+                szCurRoad = roadName,
+                source_last = "google_nav"
+            )
+        }
+    }
 }
