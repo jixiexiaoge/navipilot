@@ -320,9 +320,9 @@ class SshConnectionManager(private val context: Context) {
                     val finished = exitStatus != null
 
                     val output =
-                        if (finished) IOUtils.readFully(command.inputStream).decodeToString() else ""
+                        if (finished) IOUtils.readFully(command.inputStream).toString(Charsets.UTF_8) else ""
                     val errorOutput =
-                        if (finished) IOUtils.readFully(command.errorStream).decodeToString() else ""
+                        if (finished) IOUtils.readFully(command.errorStream).toString(Charsets.UTF_8) else ""
 
                     Log.i(TAG, "命令执行完成: $cmd, finished=$finished, exitStatus=$exitStatus")
 
