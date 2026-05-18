@@ -34,19 +34,11 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/ope
 
 # 代码检查
 ./gradlew detekt
-
-## ABI 配置
-
-通过 `navipilot.abis` 属性指定编译架构（默认 `arm64-v8a,armeabi-v7a`）：
-```bash
-./gradlew assembleDebug -Pnavipilot.abis="arm64-v8a"
 ```
 
-## R8/ProGuard
-
-Release 构建使用自定义混淆规则：
-- `app/proguard-rules.pro` — 通用规则
-- `app/security-config.pro` — 安全配置
+**ABI 配置**：通过 `navipilot.abis` 属性指定编译架构（默认 `arm64-v8a,armeabi-v7a`）：
+```bash
+./gradlew assembleDebug -Pnavipilot.abis="arm64-v8a"
 ```
 
 ---
@@ -58,25 +50,85 @@ Release 构建使用自定义混淆规则：
 | 属性 | 说明 |
 |------|------|
 | `sdk.dir` | Android SDK 路径 |
-| `GITHUB_CLIENT_ID` | GitHub OAuth（可选） |
-| `AMAP_WEB_KEY` / `AMAP_WEB_SECRET` | 高德 Web 服务 REST API Key（可选，用于输入提示） |
-| `RELEASE_STORE_PASSWORD` 等 | Release 签名密钥 |
+| `AMAP_WEB_KEY` / `AMAP_WEB_SECRET` | 高德 Web 服务 REST API Key（可选，用于搜索兜底） |
 
 高德 **Android** Key 绑定 SHA1 + 包名，写在 `AndroidManifest.xml` 的 `com.amap.api.v2.apikey`，与 Web Key 无关。
 
 ---
 
-## 架构概览
+## 核心架构模式
 
-### 入口与协调器模式
+### 1. 协调器模式（MainActivity 四文件拆分）
 
-`MainActivity*.kt` 采用协调器模式拆分：
-- `MainActivity.kt` — 入口，协调生命周期
-- `MainActivityCore.kt` — 核心业务逻辑与状态管理
-- `MainActivityUI.kt` — Compose UI 组件
-- `MainActivityLifecycle.kt` — 生命周期与初始化
+`MainActivity*.kt` 采用协调器模式拆分，实现关注点分离：
 
-### 核心模块
+```
+MainActivity.kt          # 入口，协调生命周期
+├── MainActivityCore.kt   # 核心业务逻辑与状态管理（MVVM ViewModel 层）
+├── MainActivityUI.kt    # Compose UI 组件（View 层）
+└── MainActivityLifecycle.kt  # 生命周期与初始化
+```
+
+### 2. Channel 背压控制（防止 20Hz 广播 OOM）
+
+高德广播频率约 20 Hz，直接处理会导致内存溢出。通过 `Channel<Intent>(Channel.BUFFERED)` 实现背压：
+
+```kotlin
+private val intentChannel = Channel<Intent>(Channel.BUFFERED) // 容量 64
+
+override fun onReceive(context: Context?, intent: Intent?) {
+    intentChannel.trySend(intent) // 非阻塞，满时丢弃旧数据
+}
+
+// 单协程顺序处理，防止内存溢出
+receiverScope.launch {
+    for (intent in intentChannel) {
+        processIntent(intent)
+    }
+}
+```
+
+### 3. 三模式导航互斥
+
+防止多个导航源同时更新状态导致数据冲突：
+
+```kotlin
+when (activeNavMode.value) {
+    "AMAP" -> processAmapBroadcast(intent)
+    "GOOGLE" -> processGoogleNavCallback(event)
+    "TENCENT" -> processTencentNavCallback(event)
+    else -> return // 跳过
+}
+```
+
+### 4. 坐标系统适配器
+
+高德/腾讯使用 GCJ-02，Google/OSM 使用 WGS-84。内部统一存储 WGS-84，边界转换：
+
+```kotlin
+object CoordinateConverter {
+    fun gcj02ToWgs84(lat: Double, lon: Double): Pair<Double, Double>
+    fun wgs84ToGcj02(lat: Double, lon: Double): Pair<Double, Double>
+}
+```
+
+### 5. 三帧防抖决策
+
+传感器噪声导致误触发超车，需要连续 3 帧都满足条件：
+
+```kotlin
+private val recentDecisions = ArrayDeque<Boolean>(3)
+
+fun shouldOvertake(): Boolean {
+    recentDecisions.addLast(checkConditions())
+    if (recentDecisions.size > 3) recentDecisions.removeFirst()
+    return recentDecisions.size == 3 && recentDecisions.all { it }
+}
+```
+
+---
+
+## 核心模块
 
 ```
 com.example.carrotamap/
@@ -106,7 +158,26 @@ com.example.carrotamap/
 └── di/AppModule.kt             # Koin 依赖注入
 ```
 
-### 通信协议
+---
+
+## 关键数据流
+
+```
+导航数据源（高德/腾讯/OSM/Google）
+    ↓ 广播/SDK 回调
+广播/SDK 管理器 (AmapBroadcastManager, GoogleNavManager, TencentNaviManager)
+    ↓ 更新中央状态
+MutableState<CarrotManFields> (SSOT 单一数据源)
+    ↓ 订阅状态
+├── NetworkManager → CarrotManNetworkClient → UDP 7706 / TCP 7709 → comma3
+└── Compose UI（响应式渲染）
+
+comma3 设备 → XiaogeDataReceiver（UDP 7705）→ AutoOvertakeManager → ZMQ 7710
+```
+
+---
+
+## 通信协议
 
 | 端口/协议 | 方向 | 用途 |
 |----------|------|------|
@@ -121,12 +192,13 @@ com.example.carrotamap/
 ## 导航模式
 
 应用支持四种导航模式，通过 `NavModeSwitcher` 切换：
-1. **AMAP（默认）** — 高德车机版广播，完全免费
-2. **TENCENT** — 腾讯地图导航 SDK (v7.5.0)，需授权
-3. **OSM** — OpenStreetMap + MapLibre GL，免费但需联网
-4. **GOOGLE** — Google Navigation SDK，通过 `GoogleNavPage` + `GoogleNavManager` 管理生命周期
 
-Google Maps 使用 WGS-84 坐标系，与内部存储一致，无需坐标转换。
+| 模式 | 坐标系 | 集成方式 | 成本 |
+|------|--------|----------|------|
+| **AMAP（默认）** | GCJ-02 | 广播接收器 | 免费 |
+| **TENCENT** | GCJ-02 | 腾讯导航 SDK v7.5.0 | 需授权 |
+| **OSM** | WGS-84 | OpenStreetMap + MapLibre GL | 免费 |
+| **GOOGLE** | WGS-84 | Google Navigation SDK | 需 API Key |
 
 ---
 
@@ -139,23 +211,3 @@ Google Maps 使用 WGS-84 坐标系，与内部存储一致，无需坐标转换
 - **依赖注入**：Koin
 - **安全**：EncryptedSharedPreferences
 - **ML**：Google ML Kit 车道检测
-- **视频**：WebRTC（摄像头流）、ExoPlayer
-
----
-
-## 关键数据流
-
-```
-高德/腾讯/Google导航SDK → AmapBroadcastManager/TencentNaviManager/GoogleNavManager
-    ↓
-CarrotManDataModels（数据模型转换）
-    ↓
-CarrotManNetworkClient → UDP 7706 → comma3 设备
-                      → TCP 7709 → 路线点
-
-comma3 设备 → XiaogeDataReceiver（UDP 7705）
-    ↓
-AutoOvertakeManager（超车决策）
-    ↓
-ZMQ 7710 → 发送控制命令
-```
