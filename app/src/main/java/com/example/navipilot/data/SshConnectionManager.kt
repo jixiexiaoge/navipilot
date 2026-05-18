@@ -79,6 +79,7 @@ class SshConnectionManager(private val context: Context) {
     /**
      * 格式化 OpenSSH 私钥：确保 Base64 内容每 64 个字符一行
      * 修复粘贴或导入时丢失换行符的问题
+     * 注意：只处理完全没有换行符的键（单行粘贴），不处理已有换行的键
      */
     private fun formatOpenSshPrivateKey(keyContent: String): String {
         val trimmedContent = keyContent.trim()
@@ -96,14 +97,22 @@ class SshConnectionManager(private val context: Context) {
         val base64Content = trimmedContent
             .substringAfter(beginMarker)
             .substringBefore(endMarker)
-            .replace(Regex("\\s+"), "") // 移除所有空白字符
+            .trim()
 
         // 如果 Base64 内容为空，返回原内容
         if (base64Content.isEmpty()) {
             return trimmedContent
         }
 
-        // 将 Base64 内容按每 64 个字符分行
+        // 检查是否已经有换行符 - 如果有，说明格式可能已正确，不要重新格式化
+        // 只处理完全单行的情况（用户复制粘贴时丢失了所有换行符）
+        if (base64Content.contains('\n') || base64Content.contains('\r')) {
+            Log.d(TAG, "私钥已包含换行符，保持原格式")
+            return trimmedContent
+        }
+
+        // 只有当 Base64 是单行时才重新分行（用户粘贴错误的情况）
+        Log.d(TAG, "私钥为单行，重新格式化为每行 64 字符")
         val formattedBase64 = base64Content.chunked(64).joinToString("\n")
 
         // 重新组装私钥
@@ -181,8 +190,9 @@ class SshConnectionManager(private val context: Context) {
             val cleanedKeyContent = formatOpenSshPrivateKey(keyContent)
             if (cleanedKeyContent != keyContent) {
                 tempKeyFile.writeText(cleanedKeyContent)
-                Log.d(TAG, "已重新格式化私钥文件")
-                Log.d(TAG, "格式化后长度: ${cleanedKeyContent.length} 字符")
+                Log.d(TAG, "私钥已重新格式化（单行转多行）")
+            } else {
+                Log.d(TAG, "私钥格式正确，无需修改")
             }
 
             // 使用 SSHJ 加载私钥文件
