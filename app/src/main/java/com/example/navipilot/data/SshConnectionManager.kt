@@ -400,34 +400,38 @@ class SshConnectionManager(private val context: Context) {
                 appendUserLog("Tinygrad 文件清理完成")
             }
 
-            // 3. 尝试重新编译模型
-            // 注意：直接执行 scons 命令，而不是先检测 which scons
-            // 因为 SSH 非交互式会话可能无法正确检测到 PATH 中的 scons
-            // 如果 scons 不存在，命令会失败并给出友好提示
-            // 使用 bash -c 确保命令在 shell 环境中执行，以便 $(nproc) 等命令替换能正常工作
-            appendUserLog("尝试重新编译模型（可能需要 1-3 分钟）...")
+            // 3. 尝试重建 modeld（可选）
+            // 说明：
+            // - openpilot 在启动时会自动检测并加载新模型；本步骤仅用于“预热”/加速首次加载。
+            // - 非交互式 SSH 会话的 PATH 可能不完整；优先 source launch_env.sh 再执行 scons。
+            // - 若设备无编译环境（常见于量产/精简系统），则跳过该步骤，不影响模型生效。
+            appendUserLog("尝试重建 modeld（可选，可能需要 1-3 分钟）...")
             val rebuildResult = execCommand(
-                "bash -c 'cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/'",
-                timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
+                "bash -lc 'cd /data/openpilot || exit 1; " +
+                    "if [ -f ./launch_env.sh ]; then source ./launch_env.sh >/dev/null 2>&1 || true; fi; " +
+                    "command -v scons >/dev/null 2>&1 || { echo \"__NAVIPILOT_NO_SCONS__\"; exit 0; }; " +
+                    "rm -f /tmp/navipilot_modeld_rebuild.log; " +
+                    "scons -j4 --cache-disable selfdrive/modeld/ >/tmp/navipilot_modeld_rebuild.log 2>&1 || echo \"__NAVIPILOT_SCONS_FAILED__\"; " +
+                    "tail -n 60 /tmp/navipilot_modeld_rebuild.log 2>/dev/null || true; exit 0'",
+                timeoutSec = 300L
             )
 
             if (rebuildResult.isFailure) {
-                val error = rebuildResult.exceptionOrNull()
-                val errorMsg = error?.message ?: ""
-
-                // 根据错误类型给出不同提示
-                if (errorMsg.contains("scons: not found") ||
-                    errorMsg.contains("command not found") ||
-                    errorMsg.contains("No such file or directory")) {
-                    appendUserLog("scons 不可用，跳过编译步骤")
-                    appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
-                } else {
-                    appendUserLog("模型重新编译失败: $errorMsg")
-                    appendUserLog("提示: 重启后 openpilot 会自动加载新模型")
-                }
+                val errorMsg = rebuildResult.exceptionOrNull()?.message ?: ""
+                appendUserLog("modeld 重建失败: $errorMsg")
+                appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
                 // 不返回失败，继续后续流程
             } else {
-                appendUserLog("模型重新编译成功")
+                val output = rebuildResult.getOrNull().orEmpty()
+                if (output.contains("__NAVIPILOT_NO_SCONS__")) {
+                    appendUserLog("未检测到 scons，跳过 modeld 重建")
+                    appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
+                } else if (output.contains("__NAVIPILOT_SCONS_FAILED__")) {
+                    appendUserLog("scons 执行失败，已跳过重建")
+                    appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
+                } else {
+                    appendUserLog("modeld 重建完成")
+                }
             }
 
             Result.success(Unit)
