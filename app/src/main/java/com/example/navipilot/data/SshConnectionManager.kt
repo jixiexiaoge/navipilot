@@ -107,7 +107,7 @@ class SshConnectionManager(private val context: Context) {
 
         // 清理所有空白字符（空格、换行、制表符等）
         // 这样可以处理各种格式错误：错误的换行位置、多余空格等
-        val cleanedBase64 = base64Content.replace(Regex("\\s"), "")
+        var cleanedBase64 = base64Content.replace(Regex("\\s"), "")
 
         Log.d(TAG, "原始 Base64 长度: ${base64Content.length}, 清理后长度: ${cleanedBase64.length}")
 
@@ -116,6 +116,18 @@ class SshConnectionManager(private val context: Context) {
             Log.e(TAG, "Base64 内容包含非法字符")
             // 返回原内容，让后续的加载失败并给出明确错误
             return trimmedContent
+        }
+
+        // 补齐 Base64 padding（容错：部分来源会省略末尾 '='）
+        // base64 长度 mod 4 == 1 时无法通过 padding 修复，属于内容损坏
+        when (val mod = cleanedBase64.length % 4) {
+            0 -> Unit
+            2 -> cleanedBase64 += "=="
+            3 -> cleanedBase64 += "="
+            else -> {
+                Log.e(TAG, "Base64 长度无效（mod 4 = $mod），私钥内容可能已损坏")
+                return trimmedContent
+            }
         }
 
         // 重新格式化：每 64 个字符一行（OpenSSH 标准格式）
@@ -135,6 +147,7 @@ class SshConnectionManager(private val context: Context) {
         username: String = "comma",
         privateKeyUri: Uri
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        var tempKeyFile: File? = null
         try {
             _connectionState.value = SshConnectionState.CONNECTING
             _errorMessage.value = null
@@ -170,7 +183,7 @@ class SshConnectionManager(private val context: Context) {
                 ?: throw Exception("无法读取私钥文件")
 
             // 创建临时文件存储私钥
-            val tempKeyFile = File(context.cacheDir, "temp_private_key")
+            tempKeyFile = File(context.cacheDir, "temp_private_key")
             FileOutputStream(tempKeyFile).use { fos ->
                 keyInputStream.copyTo(fos)
             }
@@ -179,17 +192,15 @@ class SshConnectionManager(private val context: Context) {
             // 读取私钥内容进行调试和修复
             val keyContent = tempKeyFile.readText()
             Log.d(TAG, "私钥文件长度: ${keyContent.length} 字符")
-            Log.d(TAG, "私钥文件前100字符: ${keyContent.take(100)}")
+            Log.d(TAG, "私钥文件首行: ${keyContent.lineSequence().firstOrNull().orEmpty()}")
 
             // 检查是否是 PuTTY 格式 (.ppk)，SSHJ 不支持
             if (keyContent.contains("PuTTY") || keyContent.contains("PPK")) {
-                tempKeyFile.delete()
                 throw Exception("不支持 PuTTY 格式 (.ppk) 私钥。请使用 OpenSSH 格式私钥（以 '-----BEGIN OPENSSH PRIVATE KEY-----' 或 '-----BEGIN RSA PRIVATE KEY-----' 开头）")
             }
 
             // 检查是否是有效的私钥格式
             if (!keyContent.contains("-----BEGIN") || !keyContent.contains("PRIVATE KEY")) {
-                tempKeyFile.delete()
                 throw Exception("无效的私钥格式。请确保使用 OpenSSH 格式私钥")
             }
 
@@ -208,9 +219,6 @@ class SshConnectionManager(private val context: Context) {
             Log.d(TAG, "私钥加载成功，开始公钥认证...")
             ssh.authPublickey(username, keys)
             Log.d(TAG, "公钥认证成功")
-
-            // 删除临时文件
-            tempKeyFile.delete()
 
             // 保存连接
             sshClient = ssh
@@ -245,6 +253,12 @@ class SshConnectionManager(private val context: Context) {
             _errorMessage.value = friendlyMessage
             
             Result.failure(Exception(friendlyMessage))
+        } finally {
+            try {
+                tempKeyFile?.delete()
+            } catch (_: Exception) {
+                // ignore
+            }
         }
     }
 
