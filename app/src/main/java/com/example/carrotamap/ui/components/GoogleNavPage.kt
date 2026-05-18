@@ -82,12 +82,17 @@ fun GoogleNavPage(
     var isReady by remember { mutableStateOf(false) }
     var navViewRef by remember { mutableStateOf<NavigationView?>(null) }
     var loadingMessage by remember { mutableStateOf("正在初始化 Google 导航...") }
+    var navigatorInitialized by remember { mutableStateOf(false) }
+    var pendingNavigation by remember { mutableStateOf(false) }
 
     // 🔧 修复: Navigator 初始化必须在 navView 创建后立即同步执行
     // 参考官方 NavViewActivity.kt，initializeNavigationApi 在 onCreate 中调用，不使用协程等待
-    LaunchedEffect(navViewRef) {
+    // 使用 navigatorInitialized 标志防止重复初始化
+    LaunchedEffect(navViewRef, navigatorInitialized) {
         val view = navViewRef ?: return@LaunchedEffect
+        if (navigatorInitialized) return@LaunchedEffect  // 防止重复初始化
 
+        navigatorInitialized = true
         Log.i(TAG, "✅ NavigationView 已准备好，开始初始化 Navigator...")
 
         NavigationApi.getNavigator(
@@ -139,30 +144,10 @@ fun GoogleNavPage(
                         Log.w(TAG, "获取地图实例失败: ${e.message}")
                     }
 
-                    // 开始导航（如果提供了有效的目的地坐标）
+                    // 标记有待处理的导航请求（延迟到用户接受 ToS 后）
                     if (goalLat != 0.0 && goalLon != 0.0) {
-                        Log.i(TAG, "🚀 开始导航...")
-
-                        // 解析起点坐标
-                        val startLat = if (currentLat != 0.0) currentLat
-                                      else carrotManFieldsState?.value?.latitude ?: 0.0
-                        val startLon = if (currentLon != 0.0) currentLon
-                                      else carrotManFieldsState?.value?.longitude ?: 0.0
-
-                        // 开始导航（使用真实路线或模拟）
-                        navManager.startNavigation(
-                            startLat = startLat,
-                            startLon = startLon,
-                            destLat = goalLat,
-                            destLon = goalLon,
-                            destName = goalName,
-                            simulate = true,  // Debug 模式下使用模拟
-                            onRouteError = { error ->
-                                Log.e(TAG, "❌ 路线错误: $error")
-                                routeError = error
-                            }
-                        )
-                        isNavStarted = true
+                        pendingNavigation = true
+                        Log.i(TAG, "📌 导航请求已排队，等待 ToS 接受...")
                     } else {
                         Log.w(TAG, "⚠️ 目的地坐标为 0，不自动开始导航")
                     }
@@ -177,10 +162,42 @@ fun GoogleNavPage(
                         else -> "导航错误: $errorCode"
                     }
                     routeError = msg
+                    isReady = false
+                    navigatorInitialized = false  // 允许重试
                     Log.e(TAG, "❌ $msg")
                 }
             }
         )
+    }
+
+    // 🔧 新增: 监听 Navigator 状态并在准备好后自动开始导航
+    // 这会在用户接受 ToS 后触发（ToS 对话框关闭后 isReady 变为 true）
+    LaunchedEffect(isReady, pendingNavigation) {
+        if (!isReady || !pendingNavigation || isNavStarted) return@LaunchedEffect
+
+        Log.i(TAG, "🚀 ToS 已接受，开始导航...")
+        pendingNavigation = false
+
+        // 解析起点坐标
+        val startLat = if (currentLat != 0.0) currentLat
+                      else carrotManFieldsState?.value?.latitude ?: 0.0
+        val startLon = if (currentLon != 0.0) currentLon
+                      else carrotManFieldsState?.value?.longitude ?: 0.0
+
+        // 开始导航（使用真实路线或模拟）
+        navManager.startNavigation(
+            startLat = startLat,
+            startLon = startLon,
+            destLat = goalLat,
+            destLon = goalLon,
+            destName = goalName,
+            simulate = true,  // Debug 模式下使用模拟
+            onRouteError = { error ->
+                Log.e(TAG, "❌ 路线错误: $error")
+                routeError = error
+            }
+        )
+        isNavStarted = true
     }
 
     // 安全退出
@@ -249,8 +266,8 @@ fun GoogleNavPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 加载指示器
-        if (!isReady) {
+        // 加载指示器（区分初始化和等待 ToS）
+        if (!isReady || pendingNavigation) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -268,7 +285,12 @@ fun GoogleNavPage(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = localized("正在加载 Google 导航...", "Loading Google Navigation..."),
+                        text = when {
+                            !isReady && !navigatorInitialized -> localized("正在初始化 Google 导航...", "Initializing Google Navigation...")
+                            !isReady && navigatorInitialized -> localized("请在弹窗中接受服务条款...", "Please accept Terms of Service...")
+                            pendingNavigation -> localized("正在规划路线...", "Planning route...")
+                            else -> localized("正在加载 Google 导航...", "Loading Google Navigation...")
+                        },
                         color = Color.White
                     )
                 }
