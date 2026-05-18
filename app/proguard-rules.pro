@@ -36,6 +36,11 @@
 -keep public class * extends android.content.BroadcastReceiver
 -keep public class * extends android.content.ContentProvider
 
+# 显式保留 Application 类（防止 R8 移除或重命名）
+-keep class com.example.carrotamap.CarrotApplication { *; }
+-keep class com.example.carrotamap.CarrotApplication$* { *; }
+-keepclassmembers class com.example.carrotamap.CarrotApplication { *; }
+
 -keepclassmembers enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);
@@ -203,6 +208,7 @@
 
 # 保留 BroadcastReceiver
 -keep class com.example.carrotamap.XiaogeDataReceiver { *; }
+-keep class com.example.carrotamap.amapAutoStaticReceiver { *; }
 
 # 保留数据模型类（Gson 序列化/反序列化需要字段名）
 -keep class com.example.carrotamap.CarrotManDataModels { *; }
