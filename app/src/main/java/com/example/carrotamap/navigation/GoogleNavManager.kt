@@ -38,7 +38,6 @@ class GoogleNavManager(
     private var dataBridge: GoogleNavDataBridge? = null
 
     // 监听器引用（用于清理）
-    private var roadSnappedLocationCallback: Navigator.RoadSnappedLocationProvider.LocationCallback? = null
     private var routeChangedListener: Navigator.RouteChangedListener? = null
     private var remainingTimeOrDistanceChangedListener: Navigator.RemainingTimeOrDistanceChangedListener? = null
 
@@ -64,44 +63,11 @@ class GoogleNavManager(
     }
 
     /**
-     * 注册导航监听器：位置、路线、剩余时间/距离等
+     * 注册导航监听器：路线变化、剩余时间/距离等
      */
     private fun registerNavigationListeners(nav: Navigator) {
         try {
-            // 1. 路段位置监听器（实时位置和导航指引信息）
-            roadSnappedLocationCallback = Navigator.RoadSnappedLocationProvider.LocationCallback { location ->
-                val bridge = dataBridge ?: return@LocationCallback
-
-                // 更新位置、速度、航向
-                bridge.updateLocation(
-                    lat = location.latitude,
-                    lon = location.longitude,
-                    heading = location.bearing,
-                    speed = location.speed
-                )
-
-                // 如果正在导航，尝试获取当前导航步骤信息
-                try {
-                    val currentStep = nav.currentStepInfo
-                    if (currentStep != null) {
-                        val destInfo = nav.currentRouteSegment
-                        bridge.updateNaviInfo(
-                            turnType = GoogleNavDataBridge.mapManeuverToTurnType(currentStep.maneuver),
-                            distance = currentStep.distanceFromPrevStepMeters.toLong(),
-                            roadName = currentStep.fullRoadName ?: currentStep.simpleRoadName ?: "",
-                            destLat = destInfo?.destinationWaypoint?.position?.latitude ?: 0.0,
-                            destLon = destInfo?.destinationWaypoint?.position?.longitude ?: 0.0,
-                            destName = carrotManFieldsState?.value?.szGoalName ?: ""
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "获取导航步骤信息失败: ${e.message}")
-                }
-            }
-            nav.roadSnappedLocationProvider?.addLocationCallback(roadSnappedLocationCallback)
-            Log.i(TAG, "✅ 已注册路段位置监听器")
-
-            // 2. 路线变化监听器
+            // 1. 路线变化监听器
             routeChangedListener = Navigator.RouteChangedListener {
                 Log.i(TAG, "🔄 路线已变化")
                 // 路线变化时可以重新获取路线信息
@@ -109,7 +75,7 @@ class GoogleNavManager(
             nav.addRouteChangedListener(routeChangedListener)
             Log.i(TAG, "✅ 已注册路线变化监听器")
 
-            // 3. 剩余时间/距离监听器
+            // 2. 剩余时间/距离监听器
             remainingTimeOrDistanceChangedListener = Navigator.RemainingTimeOrDistanceChangedListener {
                 try {
                     val timeInfo = nav.timeAndDistanceList
@@ -391,9 +357,6 @@ class GoogleNavManager(
 
             // 清理监听器
             navigator?.let { nav ->
-                roadSnappedLocationCallback?.let {
-                    nav.roadSnappedLocationProvider?.removeLocationCallback(it)
-                }
                 routeChangedListener?.let {
                     nav.removeRouteChangedListener(it)
                 }
@@ -402,7 +365,6 @@ class GoogleNavManager(
                 }
             }
 
-            roadSnappedLocationCallback = null
             routeChangedListener = null
             remainingTimeOrDistanceChangedListener = null
             dataBridge = null
