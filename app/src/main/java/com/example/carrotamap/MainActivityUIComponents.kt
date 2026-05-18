@@ -722,7 +722,7 @@ object MainActivityUIComponents {
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Science,
+                                                    imageVector = Icons.Default.BugReport,
                                                     contentDescription = "实验",
                                                     modifier = Modifier.size(24.dp),
                                                     tint = Color.White
