@@ -78,8 +78,9 @@ class SshConnectionManager(private val context: Context) {
 
     /**
      * 格式化 OpenSSH 私钥：确保 Base64 内容每 64 个字符一行
-     * 修复粘贴或导入时丢失换行符的问题
-     * 注意：只处理完全没有换行符的键（单行粘贴），不处理已有换行的键
+     * 修复粘贴或导入时丢失换行符或格式错误的问题
+     *
+     * 策略：始终清理并重新格式化 Base64 内容，确保符合 OpenSSH 规范
      */
     private fun formatOpenSshPrivateKey(keyContent: String): String {
         val trimmedContent = keyContent.trim()
@@ -104,16 +105,22 @@ class SshConnectionManager(private val context: Context) {
             return trimmedContent
         }
 
-        // 检查是否已经有换行符 - 如果有，说明格式可能已正确，不要重新格式化
-        // 只处理完全单行的情况（用户复制粘贴时丢失了所有换行符）
-        if (base64Content.contains('\n') || base64Content.contains('\r')) {
-            Log.d(TAG, "私钥已包含换行符，保持原格式")
+        // 清理所有空白字符（空格、换行、制表符等）
+        // 这样可以处理各种格式错误：错误的换行位置、多余空格等
+        val cleanedBase64 = base64Content.replace(Regex("\\s"), "")
+
+        Log.d(TAG, "原始 Base64 长度: ${base64Content.length}, 清理后长度: ${cleanedBase64.length}")
+
+        // 验证 Base64 字符的合法性
+        if (!cleanedBase64.matches(Regex("^[A-Za-z0-9+/=]+$"))) {
+            Log.e(TAG, "Base64 内容包含非法字符")
+            // 返回原内容，让后续的加载失败并给出明确错误
             return trimmedContent
         }
 
-        // 只有当 Base64 是单行时才重新分行（用户粘贴错误的情况）
-        Log.d(TAG, "私钥为单行，重新格式化为每行 64 字符")
-        val formattedBase64 = base64Content.chunked(64).joinToString("\n")
+        // 重新格式化：每 64 个字符一行（OpenSSH 标准格式）
+        val formattedBase64 = cleanedBase64.chunked(64).joinToString("\n")
+        Log.d(TAG, "Base64 已重新格式化为 ${formattedBase64.lines().size} 行")
 
         // 重新组装私钥
         return "$beginMarker\n$formattedBase64\n$endMarker"
@@ -186,13 +193,13 @@ class SshConnectionManager(private val context: Context) {
                 throw Exception("无效的私钥格式。请确保使用 OpenSSH 格式私钥")
             }
 
-            // 修复 OpenSSH 私钥格式：确保 Base64 内容有正确的换行符
+            // 修复 OpenSSH 私钥格式：清理并重新格式化 Base64 内容
             val cleanedKeyContent = formatOpenSshPrivateKey(keyContent)
             if (cleanedKeyContent != keyContent) {
                 tempKeyFile.writeText(cleanedKeyContent)
-                Log.d(TAG, "私钥已重新格式化（单行转多行）")
+                Log.d(TAG, "私钥已清理并重新格式化")
             } else {
-                Log.d(TAG, "私钥格式正确，无需修改")
+                Log.d(TAG, "私钥格式无需修改")
             }
 
             // 使用 SSHJ 加载私钥文件
