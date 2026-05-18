@@ -41,10 +41,11 @@ class GoogleNavManager(
     // 监听器引用（用于清理）
     private var routeChangedListener: Navigator.RouteChangedListener? = null
     private var remainingTimeOrDistanceChangedListener: Navigator.RemainingTimeOrDistanceChangedListener? = null
-    private var locationListener: ((android.location.Location) -> Unit)? = null
-    private var speedingListener: ((com.google.android.libraries.navigation.SpeedingUpdatedInfo) -> Unit)? = null
-    private var routeSegmentListener: (() -> Unit)? = null
-    private var trafficDataListener: (() -> Unit)? = null
+    // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
+    // private var locationListener: ((android.location.Location) -> Unit)? = null
+    // private var speedingListener: ((com.google.android.libraries.navigation.SpeedingUpdatedInfo) -> Unit)? = null
+    // private var routeSegmentListener: (() -> Unit)? = null
+    // private var trafficDataListener: (() -> Unit)? = null
 
     fun isReady(): Boolean = isInitialized && navigator != null
 
@@ -102,68 +103,10 @@ class GoogleNavManager(
             )
             Log.i(TAG, "✅ 已注册剩余时间/距离监听器")
 
-            // 3. 位置更新监听器（1Hz 高频更新）
-            locationListener = { location ->
-                try {
-                    dataBridge?.updateLocation(
-                        lat = location.latitude,
-                        lon = location.longitude,
-                        heading = location.bearing.toDouble(),
-                        speed = location.speed.toDouble()
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "更新位置失败: ${e.message}")
-                }
-            }
-            nav.addLocationListener(locationListener)
-            Log.i(TAG, "✅ 已注册位置监听器")
-
-            // 4. 超速监听器
-            speedingListener = { speedingInfo ->
-                try {
-                    val speedLimit = speedingInfo.speedLimit // m/s
-                    val currentSpeed = speedingInfo.currentSpeed // m/s
-
-                    dataBridge?.updateSpeedLimit(
-                        speedLimitKmh = (speedLimit * 3.6).toInt(),
-                        currentSpeedKmh = (currentSpeed * 3.6).toInt()
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "更新限速失败: ${e.message}")
-                }
-            }
-            nav.addSpeedingUpdatedListener(speedingListener)
-            Log.i(TAG, "✅ 已注册超速监听器")
-
-            // 5. 路径段变化监听器
-            routeSegmentListener = {
-                try {
-                    val segment = nav.currentRouteSegment
-                    segment?.let {
-                        val roadName = it.destinationStreetName ?: ""
-                        if (roadName.isNotEmpty()) {
-                            dataBridge?.updateCurrentRoad(roadName)
-                            Log.d(TAG, "当前路段: $roadName")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "更新路段失败: ${e.message}")
-                }
-            }
-            nav.addRouteSegmentChangedListener(routeSegmentListener)
-            Log.i(TAG, "✅ 已注册路径段监听器")
-
-            // 6. 路况数据监听器
-            trafficDataListener = {
-                try {
-                    // Google SDK 会在后台更新路况，前端自动显示
-                    Log.d(TAG, "路况数据已更新")
-                } catch (e: Exception) {
-                    Log.w(TAG, "路况数据更新失败: ${e.message}")
-                }
-            }
-            nav.setTrafficDataListener(trafficDataListener)
-            Log.i(TAG, "✅ 已注册路况监听器")
+            // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
+            // 位置、超速、路段变化等监听器在 7.0.0 中不再可用
+            // 如需这些功能，请考虑降级到 6.x 版本或使用替代方案
+            Log.i(TAG, "⚠️ Google Navigation SDK 7.0.0 已移除位置/超速/路段监听器 API")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ 注册导航监听器失败: ${e.message}", e)
@@ -560,24 +503,12 @@ class GoogleNavManager(
                 remainingTimeOrDistanceChangedListener?.let {
                     nav.removeRemainingTimeOrDistanceChangedListener(it)
                 }
-                locationListener?.let {
-                    nav.removeLocationListener(it)
-                }
-                speedingListener?.let {
-                    nav.removeSpeedingUpdatedListener(it)
-                }
-                routeSegmentListener?.let {
-                    nav.removeRouteSegmentChangedListener(it)
-                }
-                // trafficDataListener 不需要移除，setTrafficDataListener(null) 即可
+                // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
+                // locationListener, speedingListener, routeSegmentListener 不再需要移除
             }
 
             routeChangedListener = null
             remainingTimeOrDistanceChangedListener = null
-            locationListener = null
-            speedingListener = null
-            routeSegmentListener = null
-            trafficDataListener = null
             dataBridge = null
             _navigator = null
             isInitialized = false

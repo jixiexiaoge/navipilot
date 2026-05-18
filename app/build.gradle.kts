@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.detekt)
 }
@@ -117,6 +118,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
         isCoreLibraryDesugaringEnabled = true
+    }
+    
+    // Kotlin JVM 目标版本（必须与 Java compileOptions 一致）
+    kotlinOptions {
+        jvmTarget = "11"
     }
     
     // Kotlin Compose Compiler配置（Gradle 9.x + Kotlin 2.1）

@@ -20,10 +20,10 @@ object AnimationDuration {
 
 // Standard easing curves
 object AnimationEasing {
-    val FastOutSlowIn = FastOutSlowInEasing
-    val EaseInOut = EaseInOutCubic
-    val EaseOut = EaseOut
-    val EaseIn = EaseIn
+    val FastOutSlowIn: Easing = FastOutSlowInEasing
+    val EaseInOut: Easing = EaseInOutCubic
+    val EaseOut: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+    val EaseIn: Easing = CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
 }
 
 /**
