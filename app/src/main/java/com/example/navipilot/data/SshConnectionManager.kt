@@ -423,11 +423,19 @@ class SshConnectionManager(private val context: Context) {
                 // 不返回失败，继续后续流程
             } else {
                 val output = rebuildResult.getOrNull().orEmpty()
+                val rebuildLogTail = output
+                    .lineSequence()
+                    .filterNot { it == "__NAVIPILOT_NO_SCONS__" || it == "__NAVIPILOT_SCONS_FAILED__" }
+                    .joinToString("\n")
+                    .trim()
                 if (output.contains("__NAVIPILOT_NO_SCONS__")) {
                     appendUserLog("未检测到 scons，跳过 modeld 重建")
                     appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
                 } else if (output.contains("__NAVIPILOT_SCONS_FAILED__")) {
                     appendUserLog("scons 执行失败，已跳过重建")
+                    if (rebuildLogTail.isNotBlank()) {
+                        appendUserLog("scons 日志片段: ${truncateForLog(rebuildLogTail)}")
+                    }
                     appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
                 } else {
                     appendUserLog("modeld 重建完成")
