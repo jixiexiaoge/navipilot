@@ -1,5 +1,8 @@
 package com.example.navipilot.ui.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.speech.tts.TextToSpeech
 import android.util.Log
@@ -81,6 +84,28 @@ private fun resolveStartWgs84ForTencentRoute(
     if (f.latitude != 0.0 && f.longitude != 0.0) return f.latitude to f.longitude
     if (f.xPosLat != 0.0 && f.xPosLon != 0.0) return f.xPosLat to f.xPosLon
     return 0.0 to 0.0
+}
+
+/** 从 [Context] 链向上查找 [Activity]，供腾讯导航 View 使用稳定 UI 上下文。 */
+private tailrec fun findActivityContext(c: Context): Context? {
+    if (c is Activity) return c
+    if (c is ContextWrapper) return findActivityContext(c.baseContext)
+    return null
+}
+
+/**
+ * 为腾讯导航 View 提供合适的 Context：
+ * - 优先使用 Activity Context（最稳定，所有主题属性可用）
+ * - 如无 Activity，使用 [androidx.appcompat.view.ContextThemeWrapper] 包装 Material Components 主题
+ *
+ * 修复：NavigatorLayerViewDrive 内部 inflate navix_ui_navigation.xml 时，
+ * NavInfoView 引用的 drawable (navix_rect_guide_lane_gradient_bg) 需要解析 ?attr 主题属性。
+ * 如果 Context 没有正确的主题，会抛出 "unresolved theme attributes" 异常导致闪退。
+ */
+private fun contextForTencentNavView(base: Context): Context {
+    val act = findActivityContext(base)
+    if (act != null) return act
+    return androidx.appcompat.view.ContextThemeWrapper(base, R.style.Theme_Navipilot)
 }
 
 /**
@@ -511,13 +536,9 @@ fun TencentNavPage(
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
-                // 🔧 修复：使用 ContextThemeWrapper 包装 Context，确保 Material 主题属性可用
-                // NavigatorLayerViewDrive 内部 inflate navix_ui_navigation.xml 时需要 Material 主题
-                val themedContext = androidx.appcompat.view.ContextThemeWrapper(
-                    ctx,
-                    R.style.Theme_Navipilot
-                )
-                val viewLayer = NavigatorLayerViewDrive(themedContext)
+                // 🔧 修复：使用 contextForTencentNavView 优先获取 Activity Context
+                // NavigatorLayerViewDrive 内部 inflate navix_ui_navigation.xml 时需要正确的主题
+                val viewLayer = NavigatorLayerViewDrive(contextForTencentNavView(ctx))
                 layerViewDrive = viewLayer
 
                 @Suppress("UNCHECKED_CAST")
