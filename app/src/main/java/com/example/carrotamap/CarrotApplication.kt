@@ -14,6 +14,7 @@ import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
 import org.koin.core.logger.Level
 import org.maplibre.android.MapLibre
+import com.example.carrotamap.TencentNavSdkBootstrap
 
 /**
  * CarrotMap 应用程序类
