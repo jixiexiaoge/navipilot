@@ -282,7 +282,7 @@ fun SshConfigDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = localized("使用内置默认密钥", "Using built-in default key"),
+                                text = localized("使用内置默认navipilot的密钥", "Using built-in default key"),
                                 color = Color(0xFF4ADE80),
                                 fontSize = 12.sp
                             )
