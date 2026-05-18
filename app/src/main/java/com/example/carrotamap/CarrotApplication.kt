@@ -8,13 +8,11 @@ import com.example.carrotamap.core.ErrorReporterInstance
 import com.example.carrotamap.core.LocalErrorReporter
 import com.amap.api.maps.MapsInitializer
 import com.example.carrotamap.di.appModule
-import com.example.carrotamap.ui.components.hasPrivacyConsent
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
 import org.koin.core.logger.Level
 import org.maplibre.android.MapLibre
-import com.example.carrotamap.TencentNavSdkBootstrap
 
 /**
  * CarrotMap 应用程序类
@@ -77,11 +75,6 @@ class CarrotApplication : Application() {
             MapsInitializer.updatePrivacyAgree(this, true)
         } catch (e: Exception) {
             Log.w(TAG, "高德隐私合规初始化失败: ${e.message}")
-        }
-
-        // 腾讯导航 SDK：须在使用 NavigatorZygote 前 init + start（见 TencentNavSdkBootstrap）
-        if (hasPrivacyConsent(this)) {
-            TencentNavSdkBootstrap.ensureInitialized(this)
         }
 
         Log.i(TAG, "✅ CarrotApplication 初始化完成")
