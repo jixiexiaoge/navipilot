@@ -79,6 +79,7 @@ class SshConnectionManager(private val context: Context) {
     /**
      * 格式化 OpenSSH 私钥：确保 Base64 内容每 64 个字符一行
      * 修复粘贴或导入时丢失换行符的问题
+     * 注意：只处理完全没有换行符的键（单行粘贴），不处理已有换行的键
      */
     private fun formatOpenSshPrivateKey(keyContent: String): String {
         val trimmedContent = keyContent.trim()
@@ -96,14 +97,22 @@ class SshConnectionManager(private val context: Context) {
         val base64Content = trimmedContent
             .substringAfter(beginMarker)
             .substringBefore(endMarker)
-            .replace(Regex("\\s+"), "") // 移除所有空白字符
+            .trim()
 
         // 如果 Base64 内容为空，返回原内容
         if (base64Content.isEmpty()) {
             return trimmedContent
         }
 
-        // 将 Base64 内容按每 64 个字符分行
+        // 检查是否已经有换行符 - 如果有，说明格式可能已正确，不要重新格式化
+        // 只处理完全单行的情况（用户复制粘贴时丢失了所有换行符）
+        if (base64Content.contains('\n') || base64Content.contains('\r')) {
+            Log.d(TAG, "私钥已包含换行符，保持原格式")
+            return trimmedContent
+        }
+
+        // 只有当 Base64 是单行时才重新分行（用户粘贴错误的情况）
+        Log.d(TAG, "私钥为单行，重新格式化为每行 64 字符")
         val formattedBase64 = base64Content.chunked(64).joinToString("\n")
 
         // 重新组装私钥
@@ -135,8 +144,19 @@ class SshConnectionManager(private val context: Context) {
             // 跳过主机密钥验证（适合开发/测试）
             ssh.addHostKeyVerifier(PromiscuousVerifier())
 
+            // 配置超时 - 防止连接卡死
+            ssh.connectTimeout = 30000  // 30秒连接超时
+            ssh.timeout = 15000         // 15秒读写超时
+            Log.d(TAG, "SSH 客户端超时配置: connect=30s, read/write=15s")
+
             // 连接
+            Log.d(TAG, "正在建立 TCP 连接...")
             ssh.connect(host, port)
+            Log.d(TAG, "TCP 连接已建立，开始密钥交换...")
+
+            // 配置 keepalive 以检测死连接（连接建立后）
+            ssh.connection.keepAlive.keepAliveInterval = 10  // 每 10 秒发送 keepalive
+            Log.d(TAG, "已配置 keepalive 间隔: 10s")
 
             // 解析私钥 URI 获取 InputStream，并写入临时文件
             val keyInputStream = context.contentResolver.openInputStream(privateKeyUri)
@@ -170,13 +190,17 @@ class SshConnectionManager(private val context: Context) {
             val cleanedKeyContent = formatOpenSshPrivateKey(keyContent)
             if (cleanedKeyContent != keyContent) {
                 tempKeyFile.writeText(cleanedKeyContent)
-                Log.d(TAG, "已重新格式化私钥文件")
-                Log.d(TAG, "格式化后长度: ${cleanedKeyContent.length} 字符")
+                Log.d(TAG, "私钥已重新格式化（单行转多行）")
+            } else {
+                Log.d(TAG, "私钥格式正确，无需修改")
             }
 
             // 使用 SSHJ 加载私钥文件
+            Log.d(TAG, "正在加载私钥文件...")
             val keys: KeyProvider = ssh.loadKeys(tempKeyFile.absolutePath)
+            Log.d(TAG, "私钥加载成功，开始公钥认证...")
             ssh.authPublickey(username, keys)
+            Log.d(TAG, "公钥认证成功")
 
             // 删除临时文件
             tempKeyFile.delete()
@@ -203,8 +227,12 @@ class SshConnectionManager(private val context: Context) {
                     "认证失败。请检查用户名和私钥是否匹配"
                 e.message?.contains("Connection refused") == true ->
                     "连接被拒绝。请检查 IP 地址和端口是否正确，以及 SSH 服务是否运行"
-                e.message?.contains("timeout") == true ->
-                    "连接超时。请检查网络连接和 IP 地址"
+                e.message?.contains("timeout") == true || e.message?.contains("timed out") == true ->
+                    "连接超时。请检查网络连接、IP 地址是否正确，以及设备是否可达"
+                e.message?.contains("Network is unreachable") == true ->
+                    "网络不可达。请检查设备网络连接和 IP 地址"
+                e.message?.contains("No route to host") == true ->
+                    "无法到达主机。请检查 IP 地址是否正确"
                 else -> e.message ?: "SSH 连接失败"
             }
             _errorMessage.value = friendlyMessage
