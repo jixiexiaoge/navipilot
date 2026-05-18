@@ -511,7 +511,13 @@ fun TencentNavPage(
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
-                val viewLayer = NavigatorLayerViewDrive(ctx)
+                // 🔧 修复：使用 ContextThemeWrapper 包装 Context，确保 Material 主题属性可用
+                // NavigatorLayerViewDrive 内部 inflate navix_ui_navigation.xml 时需要 Material 主题
+                val themedContext = androidx.appcompat.view.ContextThemeWrapper(
+                    ctx,
+                    R.style.Theme_Navipilot
+                )
+                val viewLayer = NavigatorLayerViewDrive(themedContext)
                 layerViewDrive = viewLayer
 
                 @Suppress("UNCHECKED_CAST")
