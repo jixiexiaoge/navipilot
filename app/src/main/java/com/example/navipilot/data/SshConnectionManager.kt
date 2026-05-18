@@ -400,32 +400,34 @@ class SshConnectionManager(private val context: Context) {
                 appendUserLog("Tinygrad 文件清理完成")
             }
 
-            // 3. 检查 scons 是否可用
-            val sconsCheck = execCommand(
-                "which scons",
-                timeoutSec = 10L
+            // 3. 尝试重新编译模型
+            // 注意：直接执行 scons 命令，而不是先检测 which scons
+            // 因为 SSH 非交互式会话可能无法正确检测到 PATH 中的 scons
+            // 如果 scons 不存在，命令会失败并给出友好提示
+            // 使用 bash -c 确保命令在 shell 环境中执行，以便 $(nproc) 等命令替换能正常工作
+            appendUserLog("尝试重新编译模型（可能需要 1-3 分钟）...")
+            val rebuildResult = execCommand(
+                "bash -c 'cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/'",
+                timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
             )
 
-            if (sconsCheck.isSuccess) {
-                // scons 可用，尝试编译
-                appendUserLog("检测到 scons，开始重新编译模型（可能需要 1-3 分钟）...")
-                val rebuildResult = execCommand(
-                    "cd /data/openpilot && scons -j\$(nproc) --cache-disable selfdrive/modeld/",
-                    timeoutSec = 300L  // 5 分钟超时，编译可能需要较长时间
-                )
+            if (rebuildResult.isFailure) {
+                val error = rebuildResult.exceptionOrNull()
+                val errorMsg = error?.message ?: ""
 
-                if (rebuildResult.isFailure) {
-                    val error = rebuildResult.exceptionOrNull()
-                    appendUserLog("模型重新编译失败: ${error?.message}")
-                    appendUserLog("提示: 重启后 openpilot 会自动加载新模型")
-                    // 不返回失败，继续后续流程
+                // 根据错误类型给出不同提示
+                if (errorMsg.contains("scons: not found") ||
+                    errorMsg.contains("command not found") ||
+                    errorMsg.contains("No such file or directory")) {
+                    appendUserLog("scons 不可用，跳过编译步骤")
+                    appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
                 } else {
-                    appendUserLog("模型重新编译成功")
+                    appendUserLog("模型重新编译失败: $errorMsg")
+                    appendUserLog("提示: 重启后 openpilot 会自动加载新模型")
                 }
+                // 不返回失败，继续后续流程
             } else {
-                // scons 不可用，跳过编译步骤
-                appendUserLog("scons 不可用，跳过编译步骤")
-                appendUserLog("提示: 重启后 openpilot 会自动检测并加载新模型")
+                appendUserLog("模型重新编译成功")
             }
 
             Result.success(Unit)
