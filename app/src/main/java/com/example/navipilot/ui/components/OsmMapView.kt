@@ -1024,73 +1024,108 @@ fun OsmMapView(
 
                 // ===== 搜索覆盖层 =====
                 if (showSearch && selectedResult == null) {
-                    Column(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(0.85f).padding(top = 60.dp, start = 16.dp, end = 16.dp)) {
-                        // 根据当前位置预判搜索服务
-                        val expectedService = if (latitude != 0.0 && isInChina(latitude, longitude)) "高德地图" else "Photon"
-                        val placeholderText = if (searchServiceName.isNotEmpty()) {
-                            localized("搜索地点... ($searchServiceName)", "Search places... ($searchServiceName)")
-                        } else {
-                            localized("搜索地点... ($expectedService)", "Search places... ($expectedService)")
-                        }
-                        OutlinedTextField(
-                            value = searchQuery, onValueChange = { searchQuery = it },
-                            placeholder = { Text(placeholderText, fontSize = 13.sp) },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
-                                focusedBorderColor = Color(0xFF3B82F6), unfocusedBorderColor = Color(0xFFCBD5E1)
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = 10.dp, start = 16.dp, end = 16.dp)
+                            .fillMaxWidth()
+                            .widthIn(max = 520.dp)
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
                             ),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = {
-                                keyboardController?.hide()
-                                if (searchQuery.isNotBlank()) {
-                                    isSearching = true
-                                    scope.launch {
-                                        val prox = if (latitude != 0.0) "$longitude,$latitude" else "120.6285,31.2033"
-                                        val response = searchPlaces("", searchQuery, prox, mapNavMode, selectedProvider, context.applicationContext)
-                                        searchResults = response.results
-                                        searchServiceName = response.serviceName
-                                        isSearching = false
-                                    }
-                                }
-                            }),
-                            trailingIcon = {
-                                Row {
-                                    if (searchQuery.isNotEmpty()) IconButton(onClick = { searchQuery = ""; searchResults = emptyList(); selectedResult = null }) {
-                                        Icon(Icons.Default.Clear, localized("清除", "Clear"), modifier = Modifier.size(22.dp))
-                                    }
-                                    IconButton(onClick = { showSearch = false; searchQuery = ""; searchResults = emptyList(); selectedResult = null }) {
-                                        Icon(Icons.Default.Close, localized("关闭", "Close"), modifier = Modifier.size(22.dp))
-                                    }
-                                }
-                            },
-                            leadingIcon = {
-                                if (isSearching) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Search, localized("搜索", "Search"), modifier = Modifier.size(22.dp))
-                            }
-                        )
-                        // 搜索引擎选择器
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
                         ) {
-                            SearchProvider.entries.forEach { provider ->
-                                val isSelected = selectedProvider == provider
-                                Surface(
-                                    color = if (isSelected) Color(0xFF3B82F6) else Color.White,
-                                    shape = RoundedCornerShape(6.dp),
-                                    shadowElevation = if (isSelected) 2.dp else 0.dp,
-                                    modifier = Modifier.clickable { selectedProvider = provider }
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                                // 根据当前位置预判搜索服务
+                                val expectedService = if (latitude != 0.0 && isInChina(latitude, longitude)) "高德地图" else "Photon"
+                                val placeholderText = if (searchServiceName.isNotEmpty()) {
+                                    localized("搜索地点... ($searchServiceName)", "Search places... ($searchServiceName)")
+                                } else {
+                                    localized("搜索地点... ($expectedService)", "Search places... ($expectedService)")
+                                }
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholder = { Text(placeholderText, fontSize = 13.sp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                        focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(
+                                        onSearch = {
+                                            keyboardController?.hide()
+                                            if (searchQuery.isNotBlank()) {
+                                                isSearching = true
+                                                scope.launch {
+                                                    val prox = if (latitude != 0.0) "$longitude,$latitude" else "120.6285,31.2033"
+                                                    val response = searchPlaces(
+                                                        "",
+                                                        searchQuery,
+                                                        prox,
+                                                        mapNavMode,
+                                                        selectedProvider,
+                                                        context.applicationContext
+                                                    )
+                                                    searchResults = response.results
+                                                    searchServiceName = response.serviceName
+                                                    isSearching = false
+                                                }
+                                            }
+                                        }
+                                    ),
+                                    trailingIcon = {
+                                        Row {
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(onClick = { searchQuery = ""; searchResults = emptyList(); selectedResult = null }) {
+                                                    Icon(Icons.Default.Clear, localized("清除", "Clear"), modifier = Modifier.size(22.dp))
+                                                }
+                                            }
+                                            IconButton(onClick = { showSearch = false; searchQuery = ""; searchResults = emptyList(); selectedResult = null }) {
+                                                Icon(Icons.Default.Close, localized("关闭", "Close"), modifier = Modifier.size(22.dp))
+                                            }
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        if (isSearching) {
+                                            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Default.Search, localized("搜索", "Search"), modifier = Modifier.size(22.dp))
+                                        }
+                                    }
+                                )
+                                // 搜索引擎选择器
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = provider.label,
-                                        fontSize = 10.sp,
-                                        color = if (isSelected) Color.White else Color(0xFF64748B),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                                    SearchProvider.entries.forEach { provider ->
+                                        FilterChip(
+                                            selected = selectedProvider == provider,
+                                            onClick = { selectedProvider = provider },
+                                            label = { Text(provider.label, fontSize = 11.sp) },
+                                            leadingIcon = if (selectedProvider == provider) {
+                                                { Icon(Icons.Default.Check, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                                            } else {
+                                                null
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1099,25 +1134,38 @@ fun OsmMapView(
                             val navHistory = remember { loadNavHistory(context) }
                             if (navHistory.isNotEmpty()) {
                                 Spacer(Modifier.height(6.dp))
-                                Surface(color = Color.White, shape = RoundedCornerShape(8.dp), shadowElevation = 4.dp,
-                                    modifier = Modifier.fillMaxWidth()) {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Column {
                                         Text(
                                             localized("🕐 最近导航", "🕐 Recent"),
-                                            fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontWeight = FontWeight.Medium,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                         )
-                                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                                         navHistory.forEach { hist ->
-                                            Column(modifier = Modifier.fillMaxWidth().clickable {
-                                                selectedResult = hist; keyboardController?.hide()
-                                                mapRef?.animateCamera(CameraUpdateFactory.newCameraPosition(
-                                                    CameraPosition.Builder().target(LatLng(hist.lat, hist.lon)).zoom(14.0).build()
-                                                ), 800)
-                                            }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                                Text(hist.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E293B))
-                                            }
-                                            HorizontalDivider(color = Color(0xFFF1F5F9))
+                                            ListItem(
+                                                headlineContent = {
+                                                    Text(hist.name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                },
+                                                modifier = Modifier.clickable {
+                                                    selectedResult = hist
+                                                    keyboardController?.hide()
+                                                    mapRef?.animateCamera(
+                                                        CameraUpdateFactory.newCameraPosition(
+                                                            CameraPosition.Builder().target(LatLng(hist.lat, hist.lon)).zoom(14.0).build()
+                                                        ),
+                                                        800
+                                                    )
+                                                }
+                                            )
+                                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                                         }
                                     }
                                 }
@@ -1149,20 +1197,36 @@ fun OsmMapView(
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
-                            Surface(color = Color.White, shape = RoundedCornerShape(8.dp), shadowElevation = 4.dp,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                            ) {
                                 LazyColumn {
                                     items(searchResults) { result ->
-                                        Column(modifier = Modifier.fillMaxWidth().clickable {
-                                            selectedResult = result; searchResults = emptyList(); keyboardController?.hide()
-                                            mapRef?.animateCamera(CameraUpdateFactory.newCameraPosition(
-                                                CameraPosition.Builder().target(LatLng(result.lat, result.lon)).zoom(14.0).build()
-                                            ), 800)
-                                        }.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                            Text(result.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E293B))
-                                            Text(result.address, fontSize = 10.sp, color = Color(0xFF94A3B8), maxLines = 1)
-                                        }
-                                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                                        ListItem(
+                                            headlineContent = {
+                                                Text(result.name, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            },
+                                            supportingContent = {
+                                                if (result.address.isNotBlank()) {
+                                                    Text(result.address, fontSize = 11.sp, maxLines = 1)
+                                                }
+                                            },
+                                            modifier = Modifier.clickable {
+                                                selectedResult = result
+                                                searchResults = emptyList()
+                                                keyboardController?.hide()
+                                                mapRef?.animateCamera(
+                                                    CameraUpdateFactory.newCameraPosition(
+                                                        CameraPosition.Builder().target(LatLng(result.lat, result.lon)).zoom(14.0).build()
+                                                    ),
+                                                    800
+                                                )
+                                            }
+                                        )
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                                     }
                                 }
                             }
@@ -1173,30 +1237,33 @@ fun OsmMapView(
                 // ===== 选中地点操作面板 =====
                 if (selectedResult != null) {
                     val sel = selectedResult!!
-                    Surface(
+                    ElevatedCard(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth(0.84f),
-                        color = Color(0xFFF8FAFC),
-                        shape = RoundedCornerShape(16.dp),
-                        shadowElevation = 10.dp
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(bottom = 12.dp, start = 16.dp, end = 16.dp)
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                        )
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(sel.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1)
+                                    Text(sel.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     Spacer(Modifier.height(2.dp))
-                                    Text(sel.address, fontSize = 11.sp, color = Color(0xFF64748B), maxLines = 2)
+                                    Text(sel.address, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                                 }
                                 IconButton(onClick = {
                                     selectedResult = null; showSearch = false; searchQuery = ""
                                     // 清除目的地标记
                                     mapRef?.style?.getSourceAs<GeoJsonSource>(DEST_SOURCE)?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                                 }) {
-                                    Icon(Icons.Default.Close, "关闭", modifier = Modifier.size(20.dp), tint = Color(0xFF475569))
+                                    Icon(Icons.Default.Close, "关闭", modifier = Modifier.size(20.dp))
                                 }
                             }
-                            HorizontalDivider(color = Color(0xFFE2E8F0))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
                             Spacer(Modifier.height(10.dp))
 
                             // 根据用户选择的导航模式显示不同按钮
@@ -1221,7 +1288,7 @@ fun OsmMapView(
                                             "AMAP_MOBILE" -> Color(0xFFFF6B00)
                                             "TENCENT" -> Color(0xFF10B981)
                                             "GOOGLE" -> Color(0xFF4285F4)
-                                            else -> Color(0xFF3B82F6)
+                                            else -> MaterialTheme.colorScheme.primary
                                         }
                                     ),
                                     shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth(),
@@ -1255,7 +1322,7 @@ fun OsmMapView(
                                                 selectedResult = null; showSearch = false; searchQuery = ""
                                             },
                                             shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)
-                                        ) { Text(localized("🏠 设为家", "🏠 Set Home"), fontSize = 12.sp, color = Color(0xFF1E293B)) }
+                                        ) { Text(localized("🏠 设为家", "🏠 Set Home"), fontSize = 12.sp) }
                                     }
                                     if (!companyAlreadySet) {
                                         OutlinedButton(
@@ -1265,7 +1332,7 @@ fun OsmMapView(
                                                 selectedResult = null; showSearch = false; searchQuery = ""
                                             },
                                             shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)
-                                        ) { Text(localized("🏢 设为公司", "🏢 Set Work"), fontSize = 12.sp, color = Color(0xFF1E293B)) }
+                                        ) { Text(localized("🏢 设为公司", "🏢 Set Work"), fontSize = 12.sp) }
                                     }
                                 }
                             }
