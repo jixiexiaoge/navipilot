@@ -109,6 +109,7 @@ class GoogleNavDataBridge(
 
     fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float, accuracy: Float = 0f) {
         postFieldsMutate { s ->
+            val cur = s.value
             s.value = s.value.copy(
                 latitude = lat,
                 longitude = lon,
@@ -120,7 +121,7 @@ class GoogleNavDataBridge(
                 xPosLon = lon,
                 xPosAngle = heading.toDouble(),
                 xPosSpeed = speed.toDouble(),
-                nPosAngle = heading.toDouble(),
+                nPosAngle = if (speed > 0.5f && heading > 0f) heading.toDouble() else cur.nPosAngle,
                 source_last = "google_nav"
             )
         }
@@ -150,15 +151,15 @@ class GoogleNavDataBridge(
      * @param nTBTTurnTypeNext 下一转弯类型
      */
     fun updateTbtEnhanced(
-        szFarDirName: String = "",
-        nTBTDistNext: Int = 0,
+        szFarDirName: String? = null,
+        nTBTDistNext: Int = -1,
         nTBTTurnTypeNext: Int = -1
     ) {
         postFieldsMutate { s ->
             val cur = s.value
             s.value = cur.copy(
-                szFarDirName = szFarDirName.ifBlank { cur.szFarDirName },
-                nTBTDistNext = if (nTBTDistNext > 0) nTBTDistNext else cur.nTBTDistNext,
+                szFarDirName = szFarDirName ?: cur.szFarDirName,
+                nTBTDistNext = if (nTBTDistNext >= 0) nTBTDistNext else cur.nTBTDistNext,
                 nTBTTurnTypeNext = if (nTBTTurnTypeNext >= 0) nTBTTurnTypeNext else cur.nTBTTurnTypeNext,
                 source_last = "google_nav"
             )
@@ -185,7 +186,6 @@ class GoogleNavDataBridge(
         // 🆕 P0: 根据限速和路名推断道路类别
         val roadcate = when {
             speedLimitKmh >= 100 -> 10  // 高速
-            speedLimitKmh >= 80 -> 10   // 快速路
             roadName.contains("Highway", ignoreCase = true) -> 10
             roadName.contains("Freeway", ignoreCase = true) -> 10
             roadName.contains("Interstate", ignoreCase = true) -> 10

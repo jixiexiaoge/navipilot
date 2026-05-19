@@ -186,6 +186,22 @@ class AmapNavDataBridge(
         }
     }
 
+    private fun isRoundaboutTurn(turnType: Int): Boolean {
+        return turnType in setOf(131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142)
+    }
+
+    private fun resolveTollRole(tollName: String): Pair<String, String> {
+        if (tollName.isBlank()) return "" to ""
+        val lower = tollName.lowercase()
+        val isEntrance = tollName.contains("入口") || lower.contains("entrance") || lower.contains("entry")
+        val isExit = tollName.contains("出口") || lower.contains("exit")
+        return when {
+            isEntrance && !isExit -> tollName to ""
+            isExit && !isEntrance -> "" to tollName
+            else -> "" to ""
+        }
+    }
+
     fun onNavigationStopped() {
         postFieldsMutate { s ->
             s.value = s.value.copy(
@@ -266,16 +282,15 @@ class AmapNavDataBridge(
             else TurnTypeTextInference.inferTurnTypeFromText(tbtText).takeIf { it >= 0 } ?: turnType
         val curRoad = info.currentRoadName.orEmpty()
 
-        // 🆕 P0: 提取高速出口信息
-        val exitDir = try {
+        // 🆕 P0: 提取高速出口信息（单次反射，避免字段不一致）
+        val (exitDir, exitName) = try {
             val exitInfo = info.javaClass.getMethod("getHighwayExitInfo").invoke(info)
-            exitInfo?.javaClass?.getMethod("getExitDirection")?.invoke(exitInfo) as? String ?: ""
-        } catch (_: Exception) { "" }
-
-        val exitName = try {
-            val exitInfo = info.javaClass.getMethod("getHighwayExitInfo").invoke(info)
-            exitInfo?.javaClass?.getMethod("getExitName")?.invoke(exitInfo) as? String ?: ""
-        } catch (_: Exception) { "" }
+            val dir = exitInfo?.javaClass?.getMethod("getExitDirection")?.invoke(exitInfo) as? String ?: ""
+            val name = exitInfo?.javaClass?.getMethod("getExitName")?.invoke(exitInfo) as? String ?: ""
+            dir to name
+        } catch (_: Exception) {
+            "" to ""
+        }
 
         // 🆕 P0: 提取环岛信息
         val roundAbout = try {
@@ -303,8 +318,16 @@ class AmapNavDataBridge(
                 // 🆕 P0: 补充 NOA 增强字段
                 exitDirectionInfo = exitDir.ifBlank { cur.exitDirectionInfo },
                 exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
-                roundAboutNum = if (roundAbout > 0) roundAbout else cur.roundAboutNum,
-                roundAllNum = if (roundTotal > 0) roundTotal else cur.roundAllNum,
+                roundAboutNum = when {
+                    roundAbout > 0 -> roundAbout
+                    !isRoundaboutTurn(resolvedTurn) -> -1
+                    else -> cur.roundAboutNum
+                },
+                roundAllNum = when {
+                    roundTotal > 0 -> roundTotal
+                    !isRoundaboutTurn(resolvedTurn) -> -1
+                    else -> cur.roundAllNum
+                },
                 isNavigating = true,
                 source_last = "amap_mobile"
             )
@@ -461,6 +484,7 @@ class AmapNavDataBridge(
                 } else ""
             } catch (_: Exception) { "" }
 
+            val (tollEntranceName, tollExitName) = resolveTollRole(tollName)
             val summary = buildString {
                 append("设施×${facilities.size} type=$typ dist=${dist}m")
                 if (lim > 0) append(" limit=${lim}")
@@ -473,9 +497,9 @@ class AmapNavDataBridge(
                 lastTrafficFacilityPostMs = now
                 s.value = cur.copy(
                     trafficDescription = summary,
-                    // 🆕 P0: 收费站信息 (根据类型决定是入口还是出口)
-                    tollEntranceName = if (typ == 4 && dist < 1000) tollName else cur.tollEntranceName,
-                    tollExitName = if (typ == 4 && dist >= 1000) tollName else cur.tollExitName,
+                    // 🆕 P0: 收费站信息（仅在名称中出现入口/出口语义时更新）
+                    tollEntranceName = tollEntranceName.ifBlank { cur.tollEntranceName },
+                    tollExitName = tollExitName.ifBlank { cur.tollExitName },
                     lastUpdateTime = now,
                     source_last = "amap_mobile"
                 )
@@ -538,8 +562,6 @@ class AmapNavDataBridge(
             val cur = s.value
             val crossIcon = info.crossIconType
             val nextTurn = mapAmapIconToTurnType(crossIcon)
-            // 🆕 P0: 通过车道数推断下一道路宽度
-            val nextRoadWidth = if (cur.laneInfoList.isNotEmpty()) cur.laneInfoList.size else 0
             s.value = cur.copy(
                 amapIcon = info.iconType,
                 amapIconNext = crossIcon,
@@ -547,7 +569,6 @@ class AmapNavDataBridge(
                 nTBTDistNext = info.driveDist.coerceAtLeast(0),
                 // 🆕 P0: 补充 TBT 增强字段
                 szFarDirName = farDirName.ifBlank { cur.szFarDirName },
-                nTBTNextRoadWidth = if (nextRoadWidth > 0) nextRoadWidth else cur.nTBTNextRoadWidth,
                 lastUpdateTime = now,
                 source_last = "amap_mobile"
             )
@@ -778,16 +799,6 @@ class AmapNavDataBridge(
             }
 
             if (routePoints.isNotEmpty()) {
-                // 更新 CarrotManFields，标记路线点已准备好
-                postFieldsMutate { s ->
-                    s.value = s.value.copy(
-                        tencentSlice = s.value.tencentSlice.copy(
-                            tencentRoutePoints = routePoints,
-                            tencentRoutePointsReady = true
-                        ),
-                        source_last = "amap_mobile"
-                    )
-                }
                 Log.i(TAG, "✅ 高德路线点提取成功: ${routePoints.size} 个点")
 
                 // 调试：打印前3个点

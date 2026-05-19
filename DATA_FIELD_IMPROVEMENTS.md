@@ -36,20 +36,20 @@ gpsSignalStatus: Int      // 0=正常 1=弱 2=无信号
 #### 4. 收费站信息 (OnUpdateTrafficFacility)
 ```kotlin
 // 行号: 457-478
-tollEntranceName: String  // 收费站入口名（距离 < 1000m）
-tollExitName: String      // 收费站出口名（距离 >= 1000m）
+tollEntranceName: String  // 收费站入口名（名称含入口语义时更新）
+tollExitName: String      // 收费站出口名（名称含出口语义时更新）
 ```
-**实现方式**：根据交通设施类型（type=4）和距离判断入口/出口
+**实现方式**：根据交通设施类型（type=4）和收费站名称中的入口/出口语义判断，避免距离阈值误判
 
 #### 5. TBT 增强字段 (onInnerNaviInfoUpdate)
 ```kotlin
 // 行号: 532-550
 szFarDirName: String       // 远处方向名（第二转弯后的道路）
-nTBTNextRoadWidth: Int     // 下一道路宽度（通过车道数推断）
+nTBTNextRoadWidth: Int     // 下一道路宽度（等待下一道路的专用车道信号再更新）
 ```
 **实现方式**：
 - `szFarDirName`: 反射调用 `InnerNaviInfo.getNextNextRoadName()`
-- `nTBTNextRoadWidth`: 从当前 `laneInfoList.size` 推断
+- `nTBTNextRoadWidth`: 不再使用当前路段车道数做近似，避免误报下一道路宽度
 
 ### P1 改进：路线点提取功能 ✅
 
@@ -65,7 +65,7 @@ fun extractRoutePointsFromAmap(
 **功能**：
 - 提取算路成功后的完整路线坐标点
 - 自动 GCJ-02 → WGS-84 坐标转换
-- 更新 `CarrotManFields.tencentSlice.tencentRoutePoints`
+- 通过函数返回值提供路线点（避免写入 Tencent 专用字段）
 - 支持通过 TCP 7709 发送至 comma3 设备
 
 **使用方式**：
@@ -114,8 +114,8 @@ szNearDirName: String     // 近处方向名（与 szTBTMainText 相同）
 #### 2. 新增 updateTbtEnhanced() 函数
 ```kotlin
 // 行号: 146-166
-szFarDirName: String       // 远处方向名（下一转弯后的道路）
-nTBTDistNext: Int         // 下一转弯距离（米）
+szFarDirName: String?      // 远处方向名（null=不更新, ""=显式清空）
+nTBTDistNext: Int          // 下一转弯距离（-1=不更新, 0=有效值）
 nTBTTurnTypeNext: Int     // 下一转弯类型
 ```
 
@@ -141,7 +141,6 @@ roadType: Int    // 道路类型（与 roadcate 相同）
 **智能推断规则**：
 ```kotlin
 限速 >= 100 km/h → 高速 (10)
-限速 >= 80 km/h  → 快速路 (10)
 路名包含 "Highway/Freeway/Interstate/Expressway/Motorway" → 高速 (10)
 限速 > 0         → 地方道路 (6)
 其他             → 默认 (8)
