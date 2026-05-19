@@ -2,6 +2,7 @@ package com.example.navipilot.ui.components
 
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.WindowManager
 import androidx.compose.animation.core.*
@@ -416,12 +417,16 @@ fun TencentNavPage(
         // 导航地图视图
         AndroidView(
             factory = { ctx ->
-                // 确保使用Activity上下文（防止SDK内部资源解析失败）
+                // 🔧 修复：使用 ContextThemeWrapper 包装主题，解决 "unresolved theme attributes" 错误
+                // 腾讯导航 SDK 内部 drawable 引用了 MaterialComponents 主题属性（?attr/colorPrimary 等）
+                // 必须为 NavigatorLayerViewDrive 提供完整的 Material 主题上下文
                 val activityContext = ctx as? android.app.Activity ?: run {
                     Log.w(TAG, "⚠️ AndroidView未提供Activity上下文，使用LocalContext")
                     context as? android.app.Activity ?: context
                 }
-                val view = LayoutInflater.from(activityContext)
+                // 使用 Theme.Navipilot (基于 Theme.MaterialComponents) 包装上下文
+                val themedContext = ContextThemeWrapper(activityContext, R.style.Theme_Navipilot)
+                val view = LayoutInflater.from(themedContext)
                     .inflate(R.layout.layout_tencent_nav, null)
 
                 val viewStub = view.findViewById<NavigatorViewStub>(
@@ -517,7 +522,7 @@ fun TencentNavPage(
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
-                val viewLayer = NavigatorLayerViewDrive(activityContext)
+                val viewLayer = NavigatorLayerViewDrive(themedContext)
                 layerViewDrive = viewLayer
 
                 @Suppress("UNCHECKED_CAST")
