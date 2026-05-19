@@ -417,18 +417,18 @@ fun TencentNavPage(
         // 导航地图视图
         AndroidView(
             factory = { ctx ->
-                // 🔧 修复：使用 ContextThemeWrapper 包装主题，解决 "unresolved theme attributes" 错误
-                // 腾讯导航 SDK 内部 drawable 引用了 MaterialComponents 主题属性（?attr/colorPrimary 等）
-                // 必须为 NavigatorLayerViewDrive 提供完整的 Material 主题上下文
-                val activityContext = ctx as? android.app.Activity ?: run {
-                    Log.w(TAG, "⚠️ AndroidView未提供Activity上下文，使用LocalContext")
-                    context as? android.app.Activity ?: context
-                }
-                // ✅ 使用官方 AppCompat 主题，确保 SDK 内所有 drawable 都能找到对应的 ?attr/ 属性
-                // Compose 项目的自定义主题可能缺少 XML 解析所需的完整属性集
+                // 🔧 修复：使用 MaterialComponents 主题上下文 inflate 腾讯导航 SDK View
+                // 腾讯导航 SDK 内部 drawable 会引用 MaterialComponents 主题属性（?attr/colorPrimary 等）
+                // AppCompat 主题不包含这些属性，可能在 inflate 时直接崩溃（"unresolved theme attributes"）
+                val activityContext = (ctx as? android.app.Activity)
+                    ?: (context as? android.app.Activity)
+                    ?: run {
+                        Log.w(TAG, "⚠️ AndroidView 未提供 Activity 上下文，回退为当前 ctx")
+                        null
+                    }
                 val themedContext = ContextThemeWrapper(
-                    activityContext,
-                    androidx.appcompat.R.style.Theme_AppCompat_DayNight_NoActionBar
+                    activityContext ?: ctx,
+                    R.style.Theme_Navipilot
                 )
                 val view = LayoutInflater.from(themedContext)
                     .inflate(R.layout.layout_tencent_nav, null)
@@ -496,33 +496,6 @@ fun TencentNavPage(
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "建筑物3D效果设置失败: ${e.message}")
-                }
-
-                // 地图手势回调
-                try {
-                    val mapApi = root.javaClass.getMethod("getMapApi").invoke(root)
-                    if (mapApi != null) {
-                        val listenerClass = Class.forName("com.tencent.navix.api.layer.MapGestureListener")
-                        val proxy = java.lang.reflect.Proxy.newProxyInstance(
-                            listenerClass.classLoader,
-                            arrayOf(listenerClass)
-                        ) { _, method, _ ->
-                            when (method.name) {
-                                "onMapTouchBegin", "onScroll", "onFling" -> {
-                                    // 用户拖动地图
-                                }
-                                "onMapTouchEnd" -> {
-                                    // 用户松手
-                                }
-                            }
-                            null
-                        }
-                        mapApi.javaClass.getMethod("addTencentMapGestureListener", listenerClass)
-                            .invoke(mapApi, proxy)
-                        Log.i(TAG, "✅ 地图手势回调已注册")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "地图手势回调注册失败: ${e.message}")
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
