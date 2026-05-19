@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.MutableState
+import com.example.navipilot.BuildConfig
 import com.example.navipilot.CarrotManFields
 import com.google.android.libraries.navigation.NavigationApi
 import com.google.android.libraries.navigation.Navigator
@@ -223,7 +224,7 @@ class GoogleNavManager(
      * @param destLat 目的地纬度 (WGS-84)
      * @param destLon 目的地经度 (WGS-84)
      * @param destName 目的地名称
-     * @param simulate 是否模拟行程（debug 模式下默认 true）
+     * @param simulate 是否模拟行程（debug 构建默认 true，release 默认 false）
      * @param onRouteError 路线错误回调
      * @param networkClient 可选网络客户端，用于发送路线点到设备
      */
@@ -233,7 +234,7 @@ class GoogleNavManager(
         destLat: Double,
         destLon: Double,
         destName: String,
-        simulate: Boolean = true,
+        simulate: Boolean = BuildConfig.DEBUG,  // 默认：Debug 构建使用模拟，Release 使用真实 GPS
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
         onRouteError: ((String) -> Unit)? = null,
@@ -321,12 +322,14 @@ class GoogleNavManager(
                             Log.w(TAG, "⚠️ networkClient 为 null，跳过路线点发送")
                         }
 
-                        // 模拟行程（仅 debug 构建）
+                        // 模拟行程（参考官方示例：仅在 debug 构建中启用）
                         if (simulate) {
-                            Log.i(TAG, "启动模拟导航（5倍速）")
+                            Log.i(TAG, "✅ 启动模拟导航（5倍速）")
                             nav.simulator.simulateLocationsAlongExistingRoute(
                                 SimulationOptions().speedMultiplier(5f)
                             )
+                        } else {
+                            Log.i(TAG, "✅ 使用真实 GPS 位置进行导航")
                         }
 
                         // 开始导航
@@ -384,7 +387,7 @@ class GoogleNavManager(
     fun startNavigationByPlaceId(
         placeId: String,
         destName: String,
-        simulate: Boolean = true,
+        simulate: Boolean = BuildConfig.DEBUG,  // 默认：Debug 构建使用模拟，Release 使用真实 GPS
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
         onRouteError: ((String) -> Unit)? = null
@@ -434,10 +437,14 @@ class GoogleNavManager(
                     RouteStatus.OK -> {
                         nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
 
+                        // 模拟行程（参考官方示例：仅在 debug 构建中启用）
                         if (simulate) {
+                            Log.i(TAG, "✅ 启动模拟导航（5倍速）- Place ID")
                             nav.simulator.simulateLocationsAlongExistingRoute(
                                 SimulationOptions().speedMultiplier(5f)
                             )
+                        } else {
+                            Log.i(TAG, "✅ 使用真实 GPS 位置进行导航 - Place ID")
                         }
 
                         nav.startGuidance()

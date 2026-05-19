@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.navipilot.BuildConfig
 import com.example.navipilot.CarrotManFields
 import com.example.navipilot.R
 import com.example.navipilot.navigation.GoogleNavManager
@@ -223,14 +224,15 @@ fun GoogleNavPage(
 
         isRoutePlanning = true
 
-        // 开始导航（使用真实路线或模拟）
+        // 开始导航（真实GPS导航 vs 模拟导航）
+        // 仅在 Debug 构建时使用模拟，Release 构建使用真实 GPS
         resolvedNavManager.startNavigation(
             startLat = startLat,
             startLon = startLon,
             destLat = goalLat,
             destLon = goalLon,
             destName = goalName,
-            simulate = true,  // Debug 模式下使用模拟
+            simulate = BuildConfig.DEBUG,  // 仅在 Debug 模式下使用模拟
             onNavigationStarted = {
                 isRoutePlanning = false
                 isNavStarted = true
