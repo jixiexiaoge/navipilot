@@ -590,6 +590,115 @@ class LedMatrixManager(private val context: Context) {
         }
     }
 
+    // ===== 调试：蓝色横线（智驾小蓝灯效果）=====
+
+    /**
+     * 发送蓝色横线效果到 LED 点阵屏
+     * 16x64 的屏幕，点亮中间 6 行（行 5-10），宽度 64 列
+     * 效果：中间一条蓝色横线（智驾小蓝灯）
+     */
+    @SuppressLint("MissingPermission")
+    fun sendDebugBlueLine() {
+        if (!isReadyToSend()) {
+            Log.w(TAG, "设备未就绪，无法发送调试图案")
+            return
+        }
+
+        if (protocolMode == ProtocolMode.IPIXEL) {
+            sendSelectPage(0x65)
+
+            handler.postDelayed({
+                // 创建 6 列蓝色横线位图（中间 6 行点亮）
+                // 每列 = 16 行，需要点亮行 5-10（从 0 开始计数）
+                val colBitmap = ByteArray(32)  // 16 列 * 2 字节 = 32 字节
+
+                // 对于 16 行的屏幕，行 5-10 需要点亮
+                // 行 0-7 在 upper byte，行 8-15 在 lower byte
+                // 行 5-7 在 upper byte 的 bit 5-7
+                // 行 8-10 在 lower byte 的 bit 0-2
+                val upperMask = 0b11100000  // bit 5, 6, 7 (行 5-7)
+                val lowerMask = 0b00000111  // bit 0, 1, 2 (行 8-10)
+
+                // 填充所有 16 列的位图（创建横线）
+                for (col in 0 until 16) {
+                    colBitmap[col * 2] = upperMask.toByte()      // 上半部分 (行 5-7)
+                    colBitmap[col * 2 + 1] = lowerMask.toByte()  // 下半部分 (行 8-10)
+                }
+
+                val charCount = 4  // 使用 4 个字符块覆盖 64 列（每个字符 16 列）
+                val blueColor = android.graphics.Color.rgb(51, 136, 255)  // 蓝色 #3388FF
+                val r = android.graphics.Color.red(blueColor)
+                val g = android.graphics.Color.green(blueColor)
+                val b = android.graphics.Color.blue(blueColor)
+
+                // 构建 4 个字符块（每个 38B）
+                val charPayload = ByteArray(charCount * 38)
+                for (i in 0 until charCount) {
+                    val off = i * 38
+                    charPayload[off] = 0x80.toByte()
+                    charPayload[off + 1] = r.toByte()
+                    charPayload[off + 2] = g.toByte()
+                    charPayload[off + 3] = b.toByte()
+                    charPayload[off + 4] = 16  // 宽度 16 列
+                    charPayload[off + 5] = 16  // 高度 16 行
+                    System.arraycopy(colBitmap, 0, charPayload, off + 6, 32)
+                }
+
+                val headerSize = 29
+                val totalLen = headerSize + charPayload.size
+                val payloadLen = totalLen - 15
+
+                val frame = ByteArray(totalLen)
+                // [0:2] total_len LE16
+                frame[0] = (totalLen and 0xFF).toByte()
+                frame[1] = ((totalLen shr 8) and 0xFF).toByte()
+                // [2:4] frame_type = 0x0001
+                frame[2] = 0x00; frame[3] = 0x01
+                // [4] = 0x00, [5:7] payload_len LE16
+                frame[4] = 0x00
+                frame[5] = (payloadLen and 0xFF).toByte()
+                frame[6] = ((payloadLen shr 8) and 0xFF).toByte()
+                // [7] = 0x00
+                frame[7] = 0x00
+                // [8:13] content_hash
+                frame[8] = 0x00; frame[9] = 0x00; frame[10] = 0x00
+                frame[11] = 0x00; frame[12] = 0x00; frame[13] = 0x00
+                // [14] page, [15] char_count
+                frame[14] = 0x65.toByte()
+                frame[15] = charCount.toByte()
+                // [16:20] params
+                frame[16] = 0x00; frame[17] = 0x01; frame[18] = 0x01
+                frame[19] = AnimationType.STATIC.code.toByte()
+                // [20] marker 'P', [21] color_mode
+                frame[20] = 0x50  // 'P'
+                frame[21] = 0x01  // 彩色模式
+                // [22:25] fg_rgb
+                frame[22] = r.toByte(); frame[23] = g.toByte(); frame[24] = b.toByte()
+                // [25:29] bg
+                frame[25] = 0x00; frame[26] = 0x00; frame[27] = 0x00; frame[28] = 0x00
+
+                System.arraycopy(charPayload, 0, frame, headerSize, charPayload.size)
+
+                // 计算 CRC32
+                val crc = java.util.zip.CRC32()
+                crc.update(frame, 15, frame.size - 15)
+                val hash = crc.value.toInt()
+                frame[8] = 0x00
+                frame[9] = (hash and 0xFF).toByte()
+                frame[10] = ((hash shr 8) and 0xFF).toByte()
+                frame[11] = ((hash shr 16) and 0xFF).toByte()
+                frame[12] = ((hash shr 24) and 0xFF).toByte()
+
+                Log.i(TAG, "📤 调试蓝色横线: ${frame.size}B")
+                updateState(State.SENDING, "发送蓝线...")
+                writeToDevice(frame)
+                handler.postDelayed({ updateState(State.CONNECTED, "已发送蓝线") }, 300)
+            }, 200)
+        } else {
+            Log.w(TAG, "NUS 模式不支持调试图案")
+        }
+    }
+
     // ===== 位图转换 =====
 
     /**
