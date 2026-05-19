@@ -416,7 +416,12 @@ fun TencentNavPage(
         // 导航地图视图
         AndroidView(
             factory = { ctx ->
-                val view = LayoutInflater.from(ctx)
+                // 确保使用Activity上下文（防止SDK内部资源解析失败）
+                val activityContext = ctx as? android.app.Activity ?: run {
+                    Log.w(TAG, "⚠️ AndroidView未提供Activity上下文，使用LocalContext")
+                    context as? android.app.Activity ?: context
+                }
+                val view = LayoutInflater.from(activityContext)
                     .inflate(R.layout.layout_tencent_nav, null)
 
                 val viewStub = view.findViewById<NavigatorViewStub>(
@@ -512,7 +517,7 @@ fun TencentNavPage(
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
-                val viewLayer = NavigatorLayerViewDrive(ctx)
+                val viewLayer = NavigatorLayerViewDrive(activityContext)
                 layerViewDrive = viewLayer
 
                 @Suppress("UNCHECKED_CAST")
