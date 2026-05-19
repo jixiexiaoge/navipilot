@@ -6,7 +6,7 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 
 **核心功能**：接收高德/腾讯导航数据，通过 UDP/TCP/HTTP 协议发送至 openpilot 设备，辅助自动驾驶；同时记录驾驶行为，提供评分报告。
 
-**版本号**：v260308 (versionCode: 260308)
+**版本号**：v260516 (versionCode: 260516)
 
 ---
 
@@ -156,7 +156,86 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 - 车速、导航指令、电子眼信息
 - 车道信息、TBT 提示
 
-### 8. 其他功能
+### 8. LED 点阵屏自动显示引擎
+
+`LedMatrixManager.kt` 内置 20 级优先级自动显示流水线：
+
+| 优先级 | 触发条件 | 显示内容示例 | 颜色 |
+|--------|---------|-------------|------|
+| P1 | 急减速（3秒降>8km/h） | ⚠️ `减速` | 红 |
+| P2 | nGoPosDist < 50m | `到达` | 绿 |
+| P3 | 电子眼/测速 | `前方测速` + 限速值 | 黄 |
+| P4 | 弯道减速（atcType不为空 或 vTurnSpeed < vEgo-5） | `弯道减速` | 橙 |
+| P5 | 方向盘 > 60° 且速度 > 10km/h | `正在左转` / `正在右转` | 蓝/绿 |
+| P6~P15 | TBT 转弯指令 5~300m | `即将左转 解放路` / `掉头` | 按方向 |
+| P16 | 智驾跟车/巡航 | `智驾跟车` / `智驾巡航` | 绿 |
+| P17 | 地图领航中 | `地图领航` / 路名滚动 | 紫 |
+| P18 | 车道保持（上路未导航） | `车道保持` | 蓝 |
+| P19 | 接近限速（vEgo > 限速-5） | `限速120` | 白 |
+| P20 | 默认 | `CP搭子` / 上次内容 | 青 |
+
+自动检测车速变化、导航指令、驾驶状态，选择最高优先级内容推送至 LED。
+
+### 9. 条件实验模式（CEM）
+
+`ConditionalExperimentManager.kt` 根据 7 种驾驶条件自动切换 openpilot 实验/Chill 模式：
+
+| 条件 | 说明 | 数据来源 | 推荐开关 |
+|------|------|---------|---------|
+| 1️⃣ 弯道检测 | ModelV2 曲率 > 阈值（默认0.05）时切换 | Xiaoge TCP 7711 | ✅ 开 |
+| 2️⃣ 前车检测 | 前车慢/停止时切换（默认80m内） | lead0 prob / v / x | ✅ 开 |
+| 3️⃣ 低速条件 | 车速 < 阈值（有前车20/无前车30 km/h） | carState.vEgo | ✅ 开 |
+| 4️⃣ 导航转弯 | 7705 tbtDist < 距离阈值（默认200m） | 7705 JSON | ✅ 开 |
+| 5️⃣ 测速点 | 7705 sdiDist < 距离阈值（默认300m） | 7705 JSON | ⬜ 关 |
+| 6️⃣ 驾驶状态 | xState = 3(停车中)/5(已停车) 时切换 | 7705 JSON | ⬜ 关 |
+| 7️⃣ 巡航调速 | 限速变化时临时切换，速度对齐后自动回退 | 7705 JSON | ⬜ 关 |
+
+所有条件可通过 `AutoSwitchExperimentPage.kt` UI 配置（参数滑块 + 开关），带 5 秒冷却防抖。
+
+### 10. SSH 设备管理
+
+`SshConnectionManager.kt` 基于 SSHJ 库提供完整 SSH 能力：
+
+- **连接**：支持 RSA/ECDSA 私钥认证，内置默认私钥 `default_ssh_key`
+- **执行命令**：`execCommand()` 支持远程 shell 命令执行
+- **文件传输**：`uploadFile()` SCP 上传模型文件到 comma3
+- **设备控制**：`rebootDevice()` 远程重启 comma3
+- **状态管理**：`connectionState` StateFlow 驱动 UI 响应
+- **UI 集成**：`SshConfigDialog.kt` 提供文件选择器 + 表单界面
+
+用于 `ModelSwitcherPage.kt` 中模型文件的 SSH 上传部署。
+
+### 11. 模型下载与管理
+
+`ModelSwitcherPage.kt` 提供 openpilot 驾驶模型的完整管理：
+
+- **模型清单**：从 `jihulab.com/navipilot/openpilot-models` 拉取 JSON（含签名验证）
+- **下载管理**：`ModelDownloadManager.kt` 支持多文件并行下载 + 进度追踪
+- **本地管理**：列表展示已下载/未下载/下载中的模型
+- **SSH 上传**：通过 SSH 将模型文件上传至 comma3 设备
+- **删除清理**：删除已下载的模型文件
+
+### 12. 高德手机 SDK 导航（AMAP_MOBILE 模式）
+
+`AmapMobileNavPage.kt` 内嵌高德 `AMapNaviView` SDK，提供与官方导航 App 一致的路口大图、车道引导、电子眼等功能：
+
+- **算路策略**：避拥堵/避高速/避收费/高速优先（可配置）
+- **显示偏好**：3D 倾斜/鹰眼地图/鹰巢路口大图/实景路口大图/模型路口大图
+- **多路径**：算路结果多条路线选择
+- **数据桥接**：`AmapNaviSdkUiBridge` + `AmapNavDataBridge` → CarrotManFields
+- **模拟导航**：Debug 模式可选 5x 速度模拟（台架调试）
+
+### 13. 驾驶报告与分享
+
+`DrivingReportScreen.kt` 提供可视化驾驶数据展示：
+
+- **五维雷达图**：基于 Canvas 自定义绘制，实时动画
+- **历史列表**：按日/周/全部展示历史行程
+- **驾驶风格标签**：平稳型/激进型/城市型/高速巡航型/均衡型
+- **成就系统**：8 项成就含进度追踪
+- **分享功能**：`DrivingReportShareImage.kt` 生成文本摘要 → 系统分享 Intent
+
+### 14. 其他功能
 
 #### 停车位置记录
 - 自动记录停车坐标
@@ -164,17 +243,26 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 
 #### 设备发现
 `CommaDeviceDiscovery.kt` + `OpenpilotConnectionManager.kt`：
-- 局网自动发现 comma3/openpilot 设备
+- 局网自动发现 comma3/openpilot 设备（mDNS/NSD）
 - 设备在线状态监控
 - 自动重连机制
 
 #### 新手引导
-`OnboardingScreen.kt` 提供首次启动引导流程：
+`OnboardingScreen.kt` 提供首次启动引导流程（5 页）：
 - 导航模式介绍
 - 超车功能说明
 - 评分系统讲解
 - 模型切换指引
 - 实验模式风险提示
+
+#### 帮助中心
+`HelpPage.kt` 内嵌 WebView 管理器浏览器：
+- 一键打开 comma3 Manager Web 界面（http://deviceIP:7000）
+- 内置常见问题 FAQ
+- 支持 URL 回退（加载失败时自动切换到备用地址）
+
+#### 隐私合规
+`PrivacyDialog.kt` 展示隐私声明，符合 GDPR 等法规要求
 
 ---
 
@@ -204,17 +292,26 @@ MainActivity.kt          # 应用入口（协调器）
 #### 📦 核心层（Core Layer）
 
 ```
-com.example.carrotamap/
+com.example.navipilot/
 ├── [应用入口与协调]
 │   ├── MainActivity.kt                  # 入口协调器（191 行）
-│   ├── MainActivityCore.kt             # 核心业务逻辑（1,247 行）
-│   ├── MainActivityUI.kt               # Compose UI 组件（879 行）
+│   ├── MainActivityCore.kt             # 核心业务逻辑（~2,100 行）
+│   ├── MainActivityUI.kt               # Compose UI 主组件（~1,200 行）
+│   ├── MainActivityUIComponents.kt     # UI 组件拆分（1,039 行）
 │   ├── MainActivityLifecycle.kt        # 生命周期管理（413 行）
-│   └── CarrotApplication.kt            # Application 初始化（Koin DI）
+│   ├── CarrotApplication.kt            # Application 初始化（Koin DI – 仅带 PreferenceRepository）
+│   ├── CarrotAmapForegroundService.kt  # 前台服务（保持后台稳定运行）
+│   ├── Constants.kt                     # 全局常量定义
+│   └── AmapAutoStaticReceiver.kt        # 静态广播接收器（未启动时唤醒应用）
 │
 ├── [数据模型与状态]
-│   ├── CarrotManDataModels.kt          # UDP/TCP 协议数据模型（232 行）
-│   └── CarrotManFields.kt              # 中央状态容器（SSOT）
+│   ├── CarrotManDataModels.kt          # UDP/TCP 协议数据模型（~400 行）
+│   │   ├── BroadcastData               # 高德广播缓存
+│   │   ├── CarrotManData               # 发送到 comma3 的导航数据包
+│   │   ├── OpenpilotStatusData         # 7705 端口 JSON 状态
+│   │   ├── LaneInfo                    # 车道信息
+│   │   └── CarrotManTencentSlice       # 腾讯/车道检测尾部字段（防 VerifyError）
+│   └── CarrotManFields.kt              # 中央状态容器（SSOT, ~50+字段）
 │
 ├── [网络通信层]
 │   ├── CarrotManNetworkClient.kt       # UDP 7706 + TCP 7709 发送（578 行）
@@ -294,40 +391,41 @@ navigation/
 ui/
 ├── components/
 │   ├── [导航界面]
-│   │   ├── OsmMapView.kt               # MapLibre OSM 地图组件（824 行）
-│   │   ├── AmapNaviPage.kt             # 高德导航页面
-│   │   ├── AmapMobileNavPage.kt        # 高德手机版导航页
-│   │   ├── TencentNavPage.kt           # 腾讯导航页面
+│   │   ├── OsmMapView.kt               # MapLibre OSM 地图组件（1,367 行）
+│   │   ├── AmapNaviPage.kt             # 高德导航页面（非 SDK，纯广播器）
+│   │   ├── AmapMobileNavPage.kt        # 高德手机 SDK 导航页（内嵌 AMapNaviView，支持路线/显示偏好）
+│   │   │   └── AmapNaviSdkUiBridge     # SDK → Compose 状态桥接
 │   │   ├── GoogleNavPage.kt            # Google NavigationView 嵌入页
 │   │   ├── NavModeSwitcher.kt          # 导航模式切换器
-│   │   └── MapSearchService.kt         # 统一 POI 搜索（高德 SDK/Web REST/腾讯/Photon）
+│   │   └── MapSearchService.kt         # 统一 POI 搜索（高德 SDK → Web REST → 腾讯 → Photon）
 │   │
 │   ├── [硬件集成]
-│   │   ├── LedMatrixManager.kt         # BLE LED 点阵屏控制器（300+ 行）
-│   │   │   ├── 协议：逆向工程 iPixel Color 协议
-│   │   │   ├── 渲染：Text → Bitmap → 列优先字节数组
-│   │   │   └── 动画：静态/滚动/呼吸/激光效果
-│   │   └── LedMatrixPreview.kt         # LED 预览组件
+│   │   ├── LedMatrixManager.kt         # BLE LED 点阵屏控制器（830 行）
+│   │   │   ├── 协议：逆向工程 iPixel Color 协议（Service 0x00FA, Char 0xFA02/0xFA03）
+│   │   │   ├── 渲染：Text → Bitmap → 列优先字节数组（16×16 像素）
+│   │   │   ├── 动画：静态/滚动/呼吸/激光效果
+│   │   │   └── 自动显示流水线：20 级优先级（P1-P20）自动选择内容更新
+│   │   └── LedMatrixPreview.kt         # LED 预览组件（实时显示状态流）
 │   │
 │   ├── [功能页面]
-│   │   ├── ProfilePage.kt              # 个人中心
-│   │   ├── ModelSwitcherPage.kt        # 驾驶模型切换
-│   │   ├── AutoSwitchExperimentPage.kt # 条件实验模式
-│   │   ├── OnboardingScreen.kt         # 新手引导
-│   │   ├── HelpPage.kt                 # 帮助页面
-│   │   ├── Carrot7706JsonDebugOverlay.kt # 调试叠加层
-│   │   ├── SshConfigDialog.kt          # SSH 配置对话框
-│   │   └── PrivacyDialog.kt            # 隐私声明对话框
+│   │   ├── ProfilePage.kt              # 个人中心（评分概览、驾驶风格标签）
+│   │   ├── ModelSwitcherPage.kt        # openpilot 驾驶模型管理器（列表/下载/删除/SSH 上传）
+│   │   │   └── ModelListClient         # 从 JihuLab 拉取模型清单（JSON 签名验证）
+│   │   ├── AutoSwitchExperimentPage.kt # 条件实验模式配置页（7 个触发条件 + 参数滑块）
+│   │   ├── OnboardingScreen.kt         # 新手引导（5 页：导航/超车/评分/模型/实验模式）
+│   │   ├── HelpPage.kt                 # 帮助中心（FAQ + WebView 管理器浏览器）
+│   │   ├── Carrot7706JsonDebugOverlay.kt # UDP 7706 数据调试叠加层
+│   │   ├── SshConfigDialog.kt          # SSH 连接配置弹窗（私钥选择/文件管理器集成）
+│   │   └── PrivacyDialog.kt            # 隐私声明对话框（合规展示）
 │   │
-│   └── [Widget]
-│       └── TencentNavWidgets.kt        # 腾讯导航小部件
+│   └── [Widget]  （无独立 widget 文件）
 │
 ├── driving/
-│   ├── DrivingReportScreen.kt          # 驾驶报告界面（605 行）
-│   └── DrivingReportShareImage.kt      # 分享图片生成
+│   ├── DrivingReportScreen.kt          # 驾驶报告界面（605 行，含五维雷达图 + 历史列表）
+│   └── DrivingReportShareImage.kt      # 分享图片生成（雷达图转 Bitmap + 分享 Intent）
 │
 ├── discovery/
-│   ├── CommaDeviceDiscovery.kt         # comma3 设备发现（局域网扫描）
+│   ├── CommaDeviceDiscovery.kt         # comma3 设备发现（基于 NSD/mDNS 扫描）
 │   └── OpenpilotConnectionManager.kt   # openpilot 连接管理
 │
 ├── theme/
@@ -336,7 +434,8 @@ ui/
 │   └── Type.kt                         # 字体排版
 │
 └── utils/
-    └── LocaleUtils.kt                  # 本地化工具
+    ├── Localization.kt                 # 中英双语本地化（包含多级 fallback）
+    └── localized()                     # `localized("中文","English")` 语法糖
 ```
 
 #### 🔧 基础设施层（Infrastructure Layer）
@@ -368,14 +467,14 @@ ui/
 
 | 模块 | 文件数 | 总行数（估算） | 关键组件行数 |
 |------|--------|---------------|-------------|
-| **核心入口** | 5 | ~2,730 | MainActivityCore (1,247) |
+| **核心入口** | 5 | ~2,730 | MainActivityCore (2,100) |
 | **网络通信** | 4 | ~1,657 | XiaogeDataReceiver (945) |
 | **导航集成** | 10 | ~2,500 | AmapBroadcastManager (632), GoogleNavManager (304) |
 | **决策系统** | 4 | ~2,179 | AutoOvertakeManager (1,649) |
-| **UI 组件** | 23 | ~7,500+ | OsmMapView (824), DrivingReportScreen (605) |
-| **基础设施** | 10 | ~1,800 | - |
-| **其他** | 14 | ~4,750 | - |
-| **总计** | **70+** | **~23,116** | - |
+| **UI 组件** | 25 | ~10,000+ | OsmMapView (1,367), AmapMobileNavPage (1,100+), DrivingReportScreen (605), LedMatrixManager (830) |
+| **基础设施** | 10 | ~1,800 | SshConnectionManager (560) |
+| **其他** | 9 | ~1,500 | CarrotManDataModels (400) |
+| **总计** | **67** | **~22,366** | - |
 
 ---
 
@@ -1273,11 +1372,18 @@ NavModeSwitcher 显示模式选择
 
 - **语言**：Kotlin
 - **UI**：Jetpack Compose + Material 3
-- **地图**：MapLibre（OSM 瓦片）、OSMDroid
-- **导航 / 搜索**：高德合并 SDK JAR（3D 地图 + 导航 + **搜索** + 定位）、腾讯地图导航 SDK
-- **网络**：Kotlin Coroutines、OkHttp
-- **依赖注入**：Koin
-- **存储**：SharedPreferences + EncryptedSharedPreferences
+- **地图**：MapLibre（OSM 瓦片），高德 3D 地图 SDK（JAR 合并包）
+- **导航**：高德导航 SDK（合并 JAR 11.1.200）、Google Navigation SDK (7.0.0)、腾讯地图导航 SDK（待授权）
+- **搜索**：高德搜索 SDK（合并 JAR 内）、高德 Web REST API（备用）、Photon / Nominatim
+- **网络**：Kotlin Coroutines、OkHttp、Gson
+- **依赖注入**：Koin (3.5.3)
+- **存储**：SharedPreferences + EncryptedSharedPreferences + DataStore Preferences
+- **SSH**：SSHJ (0.38.0) + BouncyCastle (1.77) + SLF4J + Logback Android
+- **ZMQ**：JeroMQ (0.6.0) — comma3 命令控制
+- **媒体**：Media3 ExoPlayer (1.2.1) — 视频播放
+- **日志**：Timber (5.0.1)
+- **测试**：JUnit 5、Google Truth、MockK (1.13.8)、kotlinx-coroutines-test
+- **构建**：Gradle（AGP 9.x）、Kotlin 编译 + Compose 插件、ASM（R 类补丁）
 
 ---
 
@@ -1308,15 +1414,16 @@ NavModeSwitcher 显示模式选择
 
 ## 版本信息
 
-**当前版本**：2.6
+**当前版本**：2.6 (versionCode: 260516, versionName: v260516)
 
 **更新历史**：
-- 2.6：引导页更新（导航/超车/评分/模型/实验模式）、移除试用功能；OSM 地图搜索改为高德 Android SDK 优先 + 可选 Web REST / 腾讯 / Photon 链路
-- 2.5：UI 响应式布局优化（竖屏 2/3 地图 + 1/3 控制面板）
+- 2.6：新增高德手机 SDK 导航（AMapMobileNavPage）、驾驶报告系统（DrivingReportScreen）、模型下载与管理（ModelSwitcherPage）、条件实验模式 7 条件（ConditionalExperimentManager）、SSH 文件上传/远程命令（SshConnectionManager）、LED 自动显示引擎（20 级优先级 P1-P20）、新手引导 5 页（OnboardingScreen）、帮助中心/FAQ（HelpPage）、隐私声明（PrivacyDialog）；移除腾讯 SDK（TencentNavPage 删除）；修复 AAPT2 R 类生成 Bug（ASM 字节码注入）
+- 2.5：UI 响应式布局优化（竖屏 2/3 地图 + 1/3 控制面板）；引导页更新；OSM 地图搜索改为高德 Android SDK 优先 + 可选 Web REST / 腾讯 / Photon 链路
 - 2.4：架构重构（协调器模式拆分 MainActivity）
-- 2.3：腾讯导航 SDK 集成
-- 2.2：驾驶评分系统
-- 2.1：LED 点阵屏支持
+- 2.3：Google Navigation SDK 集成
+- 2.2：超车辅助系统、驾驶评分系统
+- 2.1：Ntrip 协议支持；多语言本地化
+- 2.0：初始公开版 — AMAP 广播、Xiaoge 接收器、基础超车、ZMQ、LED 矩阵
 
 ---
 
