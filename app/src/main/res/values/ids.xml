@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 修复 NoSuchFieldError: navix_info_view_normal_bg → AAPT2 R 类生成器在同名资源跨不同类型(drawable+id)时遗漏了 id 条目 -->
+    <item name="navix_info_view_normal_bg" type="id"/>
+</resources>

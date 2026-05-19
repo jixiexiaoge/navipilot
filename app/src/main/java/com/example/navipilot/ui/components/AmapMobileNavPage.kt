@@ -425,8 +425,7 @@ fun AmapMobileNavPage(
     val scope = rememberCoroutineScope()
 
     val wgsStart = resolveStartWgs84(currentLat, currentLon, carrotManFieldsState?.value)
-    val routeRebuildKey =
-        "${stableLatLonKey(wgsStart.first, wgsStart.second)}|${stableLatLonKey(goalLat, goalLon)}"
+    val routeRebuildKey = stableLatLonKey(goalLat, goalLon)
 
     DisposableEffect(Unit) {
         onEnterAmapMobileMode()

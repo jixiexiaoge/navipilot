@@ -1,4 +1,9 @@
 import java.util.Properties
+import java.io.FileOutputStream
+import java.util.jar.JarFile
+import java.util.jar.JarOutputStream
+import java.util.jar.JarEntry
+import org.objectweb.asm.*
 
 plugins {
     alias(libs.plugins.android.application)
@@ -206,6 +211,150 @@ android {
         ignoreAssetsPattern += setOf("!.svn", "!.git", "!.ds_store", "!*.scc", ".*", "<dir>_*", "!CVS", "!thumbs.db", "!picasa.ini", "!*~")
     }
 }
+
+// ────────────────────────────────────────────
+// AAPT2 R 类生成器 Bug 修补：
+// https://issuetracker.google.com/issues/370455086
+// 同名资源跨不同类型（drawable + id）时，AAPT2 跳过 id 条目，
+// 导致 NavInfoView 构造时 NoSuchFieldError: navix_info_view_normal_bg
+//
+// 此任务读取编译后的 R.jar，使用 ASM 将缺失的 R$id 字段注入进去。
+// ────────────────────────────────────────────
+fun findMissingFields(rTxt: File): Map<String, Int> {
+    // 从 R.txt 中提取所有 int id navix_* 资源
+    val pattern = Regex("int id (navix_\\w+) 0x([0-9a-fA-F]+)")
+    val result = mutableMapOf<String, Int>()
+    rTxt.readLines().forEach { line ->
+        pattern.find(line)?.let {
+            result[it.groupValues[1]] = it.groupValues[2].toInt(16)
+        }
+    }
+    return result
+}
+
+fun getExistingFieldNames(classBytes: ByteArray): Set<String> {
+    val reader = ClassReader(classBytes)
+    val fields = mutableSetOf<String>()
+    reader.accept(object : ClassVisitor(Opcodes.ASM9) {
+        override fun visitField(
+            access: Int, name: String?, descriptor: String?,
+            signature: String?, value: Any?
+        ): FieldVisitor? {
+            if (name != null) fields.add(name)
+            return null
+        }
+    }, 0)
+    return fields
+}
+
+fun patchRClassJar(rJar: File, rTxt: File): Boolean {
+    if (!rJar.exists() || !rTxt.exists()) return false
+
+    // 1. 从 R.txt 找到所有 navix_* id 资源
+    val allNavixFields = findMissingFields(rTxt)
+    if (allNavixFields.isEmpty()) return false
+
+    // 读取 R.jar
+    val tmpDir = createTempDir()
+    try {
+        // 解压 R.jar
+        JarFile(rJar).use { jf ->
+            jf.entries().asSequence().forEach { entry ->
+                val outFile = File(tmpDir, entry.name)
+                if (entry.isDirectory) {
+                    outFile.mkdirs()
+                } else {
+                    outFile.parentFile.mkdirs()
+                    jf.getInputStream(entry).use { it.copyTo(FileOutputStream(outFile)) }
+                }
+            }
+        }
+
+        val classFile = File(tmpDir, "com/tencent/navix/publish/R\$id.class")
+        if (!classFile.exists()) {
+            logger.warn("patchRClassJar: com.tencent.navix.publish.R\$id.class not found in R.jar")
+            return false
+        }
+
+        // 2. 读取 R$id.class 中已有的字段
+        val bytes = classFile.readBytes()
+        val existingFields = getExistingFieldNames(bytes)
+
+        // 3. 找出缺失的字段
+        val missingFields = allNavixFields.filter { it.key !in existingFields }
+        if (missingFields.isEmpty()) {
+            logger.info("patchRClassJar: no missing fields in R\$id (${allNavixFields.size} already present)")
+            return false
+        }
+
+        // 4. 使用 ASM 添加所有缺失字段
+        val reader = ClassReader(bytes)
+        val writer = ClassWriter(reader, ClassWriter.COMPUTE_MAXS)
+        reader.accept(object : ClassVisitor(Opcodes.ASM9, writer) {
+            override fun visitEnd() {
+                super.visitEnd()
+                missingFields.forEach { (name, value) ->
+                    visitField(
+                        Opcodes.ACC_PUBLIC or Opcodes.ACC_STATIC or Opcodes.ACC_FINAL,
+                        name, "I", null, value
+                    )?.visitEnd()
+                    logger.info("patchRClass: injected $name = $value (0x${value.toString(16)})")
+                }
+            }
+        }, 0)
+        classFile.writeBytes(writer.toByteArray())
+
+        // 5. 重新打包 R.jar
+        JarOutputStream(FileOutputStream(rJar)).use { jos ->
+            tmpDir.walkTopDown().forEach { file ->
+                if (file.isFile) {
+                    val entryName = file.relativeTo(tmpDir).invariantSeparatorsPath.replace("\\", "/")
+                    jos.putNextEntry(JarEntry(entryName))
+                    file.inputStream().use { it.copyTo(jos) }
+                    jos.closeEntry()
+                }
+            }
+        }
+        logger.lifecycle("patchRClass: injected ${missingFields.size} missing field(s) into R\$id")
+        return true
+    } finally {
+        tmpDir.deleteRecursively()
+    }
+}
+
+val patchRClass by tasks.registering {
+    description = "Patch AAPT2-generated R.jar to inject missing R\$id field (AAPT2 bug workaround)"
+    doLast {
+        val variants = listOf("debug", "release")
+        for (variant in variants) {
+            val processResTaskName = "process${variant.replaceFirstChar { it.uppercase() }}Resources"
+            val rJar = file("${buildDir}/intermediates/compile_and_runtime_not_namespaced_r_class_jar/${variant}/${processResTaskName}/R.jar")
+            val rTxt = file("${buildDir}/intermediates/runtime_symbol_list/${variant}/${processResTaskName}/R.txt")
+            if (rJar.exists() && rTxt.exists()) {
+                if (patchRClassJar(rJar, rTxt)) {
+                    logger.lifecycle("patchRClass: fixed ${rJar.name} for variant '${variant}'")
+                }
+            }
+        }
+    }
+}
+
+// 让 patchRClass 在 process*Resources 之后、compile*Kotlin/Java 之前运行
+afterEvaluate {
+    tasks.matching {
+        (it.name.startsWith("process") && it.name.endsWith("Resources")) ||
+        (it.name.startsWith("compile") && (it.name.endsWith("Kotlin") || it.name.endsWith("JavaWithJavac")))
+    }.forEach { task ->
+        if (task.name.startsWith("process")) {
+            // patchRClass 依赖 process*Resources
+            patchRClass.get().dependsOn(task)
+        } else {
+            // compile*Kotlin/Java 依赖 patchRClass
+            task.dependsOn(patchRClass.get())
+        }
+    }
+}
+
 
 dependencies {
 

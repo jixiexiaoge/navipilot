@@ -2,7 +2,7 @@ package com.example.navipilot.ui.components
 
 import android.speech.tts.TextToSpeech
 import android.util.Log
-import android.view.ContextThemeWrapper
+
 import android.view.LayoutInflater
 import android.view.WindowManager
 import androidx.compose.animation.core.*
@@ -417,20 +417,7 @@ fun TencentNavPage(
         // 导航地图视图
         AndroidView(
             factory = { ctx ->
-                // 🔧 修复：使用 MaterialComponents 主题上下文 inflate 腾讯导航 SDK View
-                // 腾讯导航 SDK 内部 drawable 会引用 MaterialComponents 主题属性（?attr/colorPrimary 等）
-                // AppCompat 主题不包含这些属性，可能在 inflate 时直接崩溃（"unresolved theme attributes"）
-                val activityContext = (ctx as? android.app.Activity)
-                    ?: (context as? android.app.Activity)
-                    ?: run {
-                        Log.w(TAG, "⚠️ AndroidView 未提供 Activity 上下文，回退为当前 ctx")
-                        null
-                    }
-                val themedContext = ContextThemeWrapper(
-                    activityContext ?: ctx,
-                    R.style.Theme_Navipilot
-                )
-                val view = LayoutInflater.from(themedContext)
+                val view = LayoutInflater.from(ctx)
                     .inflate(R.layout.layout_tencent_nav, null)
 
                 val viewStub = view.findViewById<NavigatorViewStub>(
@@ -499,7 +486,13 @@ fun TencentNavPage(
                 }
 
                 // 添加默认UI面板（严格按照官方demo BaseNavActivity）
-                val viewLayer = NavigatorLayerViewDrive(themedContext)
+                // 使用 Activity 上下文创建（Theme.Navipilot → MaterialComponents），
+                // 确保 SDK 内部 NavInfoView 等组件能解析到所需的主题属性
+                var activityCtx: android.content.Context = ctx
+                while (activityCtx is android.content.ContextWrapper && activityCtx !is android.app.Activity) {
+                    activityCtx = activityCtx.baseContext
+                }
+                val viewLayer = NavigatorLayerViewDrive(activityCtx)
                 layerViewDrive = viewLayer
 
                 @Suppress("UNCHECKED_CAST")
