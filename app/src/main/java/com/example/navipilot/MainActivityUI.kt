@@ -1001,8 +1001,6 @@ class MainActivityUI(
         val defaultMode = NavMode.AMAP_AUTO
         val hasValidSelection = rows.any { it.mode == currentMode }
         val effectiveMode = if (hasValidSelection) currentMode else defaultMode
-        val selectedRow = rows.firstOrNull { it.mode == effectiveMode } ?: rows.first()
-        var menuExpanded by remember { mutableStateOf(false) }
 
         Dialog(
             onDismissRequest = onDismiss,
@@ -1051,61 +1049,44 @@ class MainActivityUI(
                         }
                     }
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    // 四个导航源按钮，选中项绿色高亮
+                    rows.forEach { row ->
+                        val isSelected = row.mode == effectiveMode
+                        val bgColor = if (isSelected) Color(0xFF22C55E).copy(alpha = 0.15f) else Color(0xFFF1F5F9)
+                        val borderColor = if (isSelected) Color(0xFF22C55E) else Color(0xFFE2E8F0)
+                        val titleColor = if (isSelected) Color(0xFF166534) else Color(0xFF1E293B)
+                        val subtitleColor = if (isSelected) Color(0xFF22C55E) else Color(0xFF64748B)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .border(1.dp, Color(0xFF22C55E), RoundedCornerShape(10.dp))
-                                .background(Color(0xFFF0FDF4))
-                                .clickable { menuExpanded = true }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+                                .background(bgColor)
+                                .clickable { onSelect(row.mode) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = selectedRow.title,
-                                color = Color(0xFF166534),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = localized("展开选择", "Expand options"),
-                                tint = Color(0xFF16A34A),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
-                            rows.forEach { row ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = row.title,
-                                            fontSize = 13.sp,
-                                            color = if (row.mode == effectiveMode) Color(0xFF166534) else Color(0xFF1E293B),
-                                            fontWeight = if (row.mode == effectiveMode) FontWeight.SemiBold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onSelect(row.mode)
-                                    },
-                                    trailingIcon = {
-                                        if (row.mode == effectiveMode) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = localized("已选择", "Selected"),
-                                                tint = Color(0xFF16A34A),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = row.title,
+                                    color = titleColor,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = row.subtitle,
+                                    color = subtitleColor,
+                                    fontSize = 11.sp,
+                                    maxLines = 1
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = localized("已选择", "Selected"),
+                                    tint = Color(0xFF22C55E),
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
