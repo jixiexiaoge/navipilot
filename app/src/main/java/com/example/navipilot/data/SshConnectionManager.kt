@@ -393,11 +393,10 @@ class SshConnectionManager(private val context: Context) {
      * 在上传模型文件后执行以下操作：
      * 1. 切换到 /data/openpilot 目录
      * 2. 删除所有 pkl 相关文件（*.pkl*）
-     * 3. 执行 scons -c 清理编译（如果 scons 可用）
+     * 3. 执行 scons -c 清理编译（激活 Python 环境）
      * 4. 执行 sudo reboot 重启设备
      *
-     * 注意：部分 comma3 设备可能没有安装 scons，此时跳过编译步骤，
-     * 重启后 openpilot 会自动检测并加载新模型。
+     * 注意：scons 在 openpilot 的 Python 环境中，需要先激活环境
      */
     suspend fun cleanAndRebuildModels(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -417,19 +416,39 @@ class SshConnectionManager(private val context: Context) {
             }
 
             // 2. 执行清理编译（scons -c）
+            // 在 comma3/openpilot 设备上，scons 位于 Python 虚拟环境中
+            // 需要通过以下方式之一执行：
+            // - 方式1: 使用 bash -l 登录 shell（会加载 .bashrc 等配置）
+            // - 方式2: 直接调用 Python 环境中的 scons
             appendUserLog("执行清理编译（scons -c）...")
-            val rebuildResult = execCommand(
-                "cd /data/openpilot && scons -c",
-                timeoutSec = 300L
+
+            // 尝试多种方式执行 scons -c
+            val sconsCommands = listOf(
+                // 方式1: 使用登录 shell（会自动激活 openpilot 环境）
+                "bash -l -c 'cd /data/openpilot && scons -c'",
+                // 方式2: 直接使用 Python 环境中的 scons
+                "cd /data/openpilot && /data/openpilot/.venv/bin/python -m SCons -c",
+                // 方式3: 激活虚拟环境后执行
+                "cd /data/openpilot && source .venv/bin/activate && scons -c"
             )
 
-            if (rebuildResult.isFailure) {
-                val errorMsg = rebuildResult.exceptionOrNull()?.message ?: ""
-                appendUserLog("清理编译失败: $errorMsg")
-                appendUserLog("提示: 重启后 openpilot 仍会自动加载新模型")
-                // 不返回失败，继续后续流程
-            } else {
-                appendUserLog("清理编译完成")
+            var sconsSuccess = false
+            for ((index, cmd) in sconsCommands.withIndex()) {
+                val rebuildResult = execCommand(cmd, timeoutSec = 300L)
+
+                if (rebuildResult.isSuccess) {
+                    appendUserLog("清理编译成功（方式${index + 1}）")
+                    sconsSuccess = true
+                    break
+                } else {
+                    val errorMsg = rebuildResult.exceptionOrNull()?.message ?: ""
+                    if (index < sconsCommands.size - 1) {
+                        Log.d(TAG, "清理编译方式${index + 1}失败，尝试下一种方式: $errorMsg")
+                    } else {
+                        appendUserLog("清理编译失败（已尝试 ${sconsCommands.size} 种方式）")
+                        appendUserLog("提示: 重启后 openpilot 仍会自动编译新模型")
+                    }
+                }
             }
 
             // 3. 执行重启

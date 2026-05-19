@@ -79,6 +79,15 @@ fun SshConfigDialog(
         }
     }
 
+    // 监听连接状态，连接成功后自动关闭弹窗
+    LaunchedEffect(connectionState) {
+        if (connectionState == SshConnectionState.CONNECTED) {
+            // 延迟 500ms 让用户看到"已连接"提示，然后自动关闭
+            kotlinx.coroutines.delay(500)
+            onDismiss()
+        }
+    }
+
     Dialog(onDismissRequest = {
         if (connectionState != SshConnectionState.CONNECTING) {
             onDismiss()
