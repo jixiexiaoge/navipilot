@@ -498,8 +498,10 @@ class AmapNavDataBridge(
                 s.value = cur.copy(
                     trafficDescription = summary,
                     // 🆕 P0: 收费站信息（仅在名称中出现入口/出口语义时更新）
-                    tollEntranceName = tollEntranceName.ifBlank { cur.tollEntranceName },
-                    tollExitName = tollExitName.ifBlank { cur.tollExitName },
+                    tencentSlice = cur.tencentSlice.copy(
+                        tollEntranceName = tollEntranceName.ifBlank { cur.tencentSlice.tollEntranceName },
+                        tollExitName = tollExitName.ifBlank { cur.tencentSlice.tollExitName }
+                    ),
                     lastUpdateTime = now,
                     source_last = "amap_mobile"
                 )
@@ -660,8 +662,11 @@ class AmapNavDataBridge(
         Log.w(TAG, "GPS信号弱: $isWeak")
         // 🆕 P0: 记录 GPS 信号状态
         postFieldsMutate { s ->
-            s.value = s.value.copy(
-                gpsSignalStatus = if (isWeak) 1 else 0,  // 0=正常 1=弱 2=无信号
+            val cur = s.value
+            s.value = cur.copy(
+                tencentSlice = cur.tencentSlice.copy(
+                    gpsSignalStatus = if (isWeak) 1 else 0  // 0=正常 1=弱 2=无信号
+                ),
                 source_last = "amap_mobile"
             )
         }
@@ -764,13 +769,14 @@ class AmapNavDataBridge(
             }
 
             // 提取所有路段的坐标点
-            val allSteps = try {
-                path.allStep
+            val allSteps: List<Any>? = try {
+                @Suppress("UNCHECKED_CAST")
+                path.steps as? List<Any>
             } catch (_: Exception) {
                 null
             }
 
-            if (allSteps.isNullOrEmpty()) {
+            if (allSteps == null || allSteps.isEmpty()) {
                 Log.w(TAG, "⚠️ 路线无步骤数据")
                 return emptyList()
             }
@@ -779,11 +785,12 @@ class AmapNavDataBridge(
 
             allSteps.forEach { step ->
                 try {
-                    val coords = step?.coords
+                    val coords = step.javaClass.getMethod("getCoords").invoke(step) as? List<*>
                     coords?.forEach { coord ->
                         try {
-                            val lat = coord.latitude
-                            val lon = coord.longitude
+                            val coordObj = coord ?: return@forEach
+                            val lat = coordObj.javaClass.getMethod("getLatitude").invoke(coordObj) as? Double ?: 0.0
+                            val lon = coordObj.javaClass.getMethod("getLongitude").invoke(coordObj) as? Double ?: 0.0
                             if (lat != 0.0 && lon != 0.0) {
                                 // GCJ-02 → WGS-84 转换
                                 val (wgsLat, wgsLon) = CoordinateConverter.gcj02ToWgs84(lat, lon)
