@@ -610,7 +610,7 @@ class LedMatrixManager(private val context: Context) {
             handler.postDelayed({
                 // 创建 16 列蓝色横线位图（中间 6 行点亮）
                 // 每列 = 16 行，需要点亮行 5-10（从 0 开始计数）
-                val colBitmap = ByteArray(32)  // 16 列 * 2 字节 = 32 字节
+                val colBitmap = ByteArray(32)  // 16 列 * 2 字节 = 32 字节（iPixel 列优先）
 
                 // 对于 16 行的屏幕，行 5-10 需要点亮
                 // 行 0-7 在 upper byte，行 8-15 在 lower byte
@@ -624,6 +624,9 @@ class LedMatrixManager(private val context: Context) {
                     colBitmap[col * 2] = upperMask.toByte()      // 上半部分 (行 5-7)
                     colBitmap[col * 2 + 1] = lowerMask.toByte()  // 下半部分 (行 8-10)
                 }
+
+                // 设备实际走线/摆放方向与 iPixel 列优先坐标系相差 90°，调试横条需旋转后才是正确显示
+                val rotatedBitmap = rotateColumnMajor16x16Clockwise(colBitmap)
 
                 val charCount = 4  // 使用 4 个字符块覆盖 64 列（每个字符 16 列）
                 val blueColor = android.graphics.Color.rgb(51, 136, 255)  // 蓝色 #3388FF
@@ -641,7 +644,7 @@ class LedMatrixManager(private val context: Context) {
                     charPayload[off + 3] = b.toByte()
                     charPayload[off + 4] = 16  // 宽度 16 列
                     charPayload[off + 5] = 16  // 高度 16 行
-                    System.arraycopy(colBitmap, 0, charPayload, off + 6, 32)
+                    System.arraycopy(rotatedBitmap, 0, charPayload, off + 6, 32)
                 }
 
                 val headerSize = 29
@@ -700,6 +703,45 @@ class LedMatrixManager(private val context: Context) {
     }
 
     // ===== 位图转换 =====
+
+    /**
+     * iPixel 16x16 列优先位图顺时针旋转 90°。
+     * bitmap[col*2] / bitmap[col*2+1] 分别代表该列的上8行/下8行（bit0 对应 row0）。
+     */
+    private fun rotateColumnMajor16x16Clockwise(bitmap: ByteArray): ByteArray {
+        require(bitmap.size == 32) { "Expected 16x16 column-major bitmap (32 bytes), got ${bitmap.size}" }
+
+        val size = 16
+        val src = Array(size) { BooleanArray(size) }
+        for (col in 0 until size) {
+            val upper = bitmap[col * 2].toInt() and 0xFF
+            val lower = bitmap[col * 2 + 1].toInt() and 0xFF
+            for (row in 0 until 8) src[row][col] = ((upper shr row) and 1) == 1
+            for (row in 8 until 16) src[row][col] = ((lower shr (row - 8)) and 1) == 1
+        }
+
+        val rotated = Array(size) { BooleanArray(size) }
+        for (row in 0 until size) {
+            for (col in 0 until size) {
+                rotated[row][col] = src[size - 1 - col][row]
+            }
+        }
+
+        val out = ByteArray(32)
+        for (col in 0 until size) {
+            var upper = 0
+            var lower = 0
+            for (row in 0 until size) {
+                if (rotated[row][col]) {
+                    if (row < 8) upper = upper or (1 shl row)
+                    else lower = lower or (1 shl (row - 8))
+                }
+            }
+            out[col * 2] = upper.toByte()
+            out[col * 2 + 1] = lower.toByte()
+        }
+        return out
+    }
 
     /**
      * HZK16 行优先 → iPixel 列优先位图
