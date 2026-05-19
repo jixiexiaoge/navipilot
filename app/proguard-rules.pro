@@ -151,6 +151,31 @@
 -keep class com.qq.taf.jce.** { *; }
 -dontwarn com.qq.taf.jce.**
 
+# 🚨 关键修复：强制保留腾讯导航 SDK 的所有 R 类及资源 ID
+# 解决 NoSuchFieldError: navix_info_view_normal_bg 崩溃问题
+-keep class com.tencent.navix.publish.R { *; }
+-keep class com.tencent.navix.publish.R$* { *; }
+-keepclassmembers class com.tencent.navix.publish.R$* {
+    public static <fields>;
+}
+-keep class com.tencent.tencentmap.mapsdk.maps.R { *; }
+-keep class com.tencent.tencentmap.mapsdk.maps.R$* { *; }
+-keepclassmembers class com.tencent.tencentmap.mapsdk.maps.R$* {
+    public static <fields>;
+}
+
+# 保留腾讯导航SDK自定义View的所有构造函数（防止XML布局inflate失败）
+-keep public class * extends android.view.View {
+    public <init>(android.content.Context);
+    public <init>(android.content.Context, android.util.AttributeSet);
+    public <init>(android.content.Context, android.util.AttributeSet, int);
+}
+-keep public class * extends android.view.ViewGroup {
+    public <init>(android.content.Context);
+    public <init>(android.content.Context, android.util.AttributeSet);
+    public <init>(android.content.Context, android.util.AttributeSet, int);
+}
+
 # 腾讯SDK的内部类和枚举（反射调用需要）
 -keepattributes InnerClasses,EnclosingMethod
 -keep class com.tencent.navix.api.model.SimulatorConfig { *; }
