@@ -608,7 +608,7 @@ class LedMatrixManager(private val context: Context) {
             sendSelectPage(0x65)
 
             handler.postDelayed({
-                // 创建 6 列蓝色横线位图（中间 6 行点亮）
+                // 创建 16 列蓝色横线位图（中间 6 行点亮）
                 // 每列 = 16 行，需要点亮行 5-10（从 0 开始计数）
                 val colBitmap = ByteArray(32)  // 16 列 * 2 字节 = 32 字节
 

@@ -518,6 +518,7 @@ fun LedMatrixDialog(onDismiss: () -> Unit, ledManagerExternal: LedMatrixManager?
                         onClick = { ledManager.sendDebugBlueLine() },
                         modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3388FF)),
+                        enabled = ledState != LedMatrixManager.State.SENDING,
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3388FF))
                     ) {
                         Text(localized("调试: 蓝色横线", "Debug: Blue Line"), fontSize = 13.sp, color = Color(0xFF3388FF))
