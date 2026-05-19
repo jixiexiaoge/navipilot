@@ -424,8 +424,12 @@ fun TencentNavPage(
                     Log.w(TAG, "⚠️ AndroidView未提供Activity上下文，使用LocalContext")
                     context as? android.app.Activity ?: context
                 }
-                // 使用 Theme.Navipilot (基于 Theme.MaterialComponents) 包装上下文
-                val themedContext = ContextThemeWrapper(activityContext, R.style.Theme_Navipilot)
+                // ✅ 使用官方 AppCompat 主题，确保 SDK 内所有 drawable 都能找到对应的 ?attr/ 属性
+                // Compose 项目的自定义主题可能缺少 XML 解析所需的完整属性集
+                val themedContext = ContextThemeWrapper(
+                    activityContext,
+                    androidx.appcompat.R.style.Theme_AppCompat_DayNight_NoActionBar
+                )
                 val view = LayoutInflater.from(themedContext)
                     .inflate(R.layout.layout_tencent_nav, null)
 

@@ -223,6 +223,9 @@ dependencies {
     // Material View层组件（腾讯导航SDK的NavigatorLayerViewDrive需要Material主题属性）
     implementation("com.google.android.material:material:1.11.0")
 
+    // AppCompat - 提供官方 Theme.AppCompat.DayNight 主题，解决腾讯SDK drawable主题解析
+    implementation("androidx.appcompat:appcompat:1.6.1")
+
     // HTTP客户端 - 用于导航确认API请求和反馈提交
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
