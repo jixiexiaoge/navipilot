@@ -883,32 +883,7 @@ fun TencentNavPage(
             }
         }
 
-        // 底部定位信息面板（始终显示，居中，向上偏移）
-        val sendStats = networkClient?.sendStats
-        val now = System.currentTimeMillis()
-        TencentComma3StatusBadge(
-            ip = fields?.ip ?: "",
-            isOnroad = fields?.isOnroad ?: false,
-            active = fields?.active ?: false,
-            vEgoKph = fields?.vEgoKph ?: 0,
-            carrot2 = fields?.carrot2 ?: "",
-            totalSent = sendStats?.first ?: 0,
-            lastSendAgo = if ((sendStats?.second ?: 0L) > 0) now - (sendStats?.second ?: 0L) else 0L,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, bottom = 75.dp)
-        )
-
-        // 转弯调试信息卡片（右下角，与左侧状态卡片对称）
-        TencentTurnDebugBadge(
-            sdkIntersectionType = fields?.tencentSlice?.tSdkIntersectionType ?: -1,
-            nTBTTurnType = fields?.nTBTTurnType ?: -1,
-            nTBTDist = fields?.nTBTDist ?: 0,
-            szTBTMainText = fields?.szTBTMainText ?: "",
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 75.dp)
-        )
+        // 底部定位信息面板已移除
 
         // 视频功能已移除
 

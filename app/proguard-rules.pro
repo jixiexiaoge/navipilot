@@ -265,7 +265,6 @@
 # 保留 TencentNavPage 中的所有 Composable 函数和 lambda
 -keepclassmembers class com.example.navipilot.ui.components.TencentNavPageKt {
     *** TencentNavPage(...);
-    *** TencentComma3StatusBadge(...);
 }
 
 # 保留 TencentNavPage 中使用的 remember/LaunchedEffect 等 Compose API
