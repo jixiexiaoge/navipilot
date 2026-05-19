@@ -91,9 +91,9 @@ android {
             isJniDebuggable = false
             isPseudoLocalesEnabled = false
             isCrunchPngs = true
-            // 🔧 Gradle 9.x要求：使用proguard-android-optimize.txt
+            // 🔧 使用标准 ProGuard 文件，避免过度优化导致 Kotlin 编译器错误
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                getDefaultProguardFile("proguard-android.txt"),  // 改用标准版本
                 "proguard-rules.pro",
                 "security-config.pro"
             )
@@ -128,6 +128,13 @@ android {
     // Kotlin JVM 目标版本（必须与 Java compileOptions 一致）
     kotlinOptions {
         jvmTarget = "11"
+        // 修复 Kotlin 编译器内部错误
+        freeCompilerArgs += listOf(
+            "-Xjvm-default=all",  // 启用 JVM 默认方法
+            "-Xno-call-assertions",  // 减少编译时断言检查
+            "-Xno-param-assertions",
+            "-Xno-receiver-assertions"
+        )
     }
     
     // Kotlin Compose Compiler配置（Gradle 9.x + Kotlin 2.1）
