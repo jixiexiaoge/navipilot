@@ -164,48 +164,10 @@ fun TencentNavPage(
     }
 
     val navigatorDrive = remember {
-        try {
-            // 懒初始化：只在用户进入腾讯导航页面时启动 SDK，避免非腾讯用户在冷启动阶段触发 SDK 崩溃风险
-            TencentNavSdkBootstrap.ensureInitialized(context.applicationContext as android.app.Application)
-            NavigatorZygote.with(context.applicationContext)
-                .navigator(NavigatorDrive::class.java)
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ NavigatorDrive 创建失败: ${e.message}", e)
-            // 返回 null，下面的代码会通过 routeError 提示用户
-            null
-        }
-    }
-
-    // 🔧 修复：如果 SDK 初始化失败，提前显示错误并返回
-    if (navigatorDrive == null) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(32.dp),
-                color = Color(0xFFEF4444).copy(alpha = 0.9f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        localized(
-                            "腾讯导航SDK初始化失败\n\n可能原因：\n1. 设备不支持（OAID服务缺失）\n2. 网络鉴权失败\n3. SDK版本不兼容\n\n请尝试重启应用或使用其他导航模式",
-                            "Tencent Navigation SDK Init Failed\n\nPossible reasons:\n1. Device not supported (OAID service missing)\n2. Network auth failed\n3. SDK version incompatible\n\nPlease restart app or use other nav mode"
-                        ),
-                        color = Color.White,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = onBack) {
-                        Text(localized("返回", "Back"))
-                    }
-                }
-            }
-        }
-        return
+        // 与 Application 中初始化双保险：避免未冷启动过 Application 路径时直接崩溃
+        TencentNavSdkBootstrap.ensureInitialized(context.applicationContext as android.app.Application)
+        NavigatorZygote.with(context.applicationContext)
+            .navigator(NavigatorDrive::class.java)
     }
 
     // 北斗定位优先设置
