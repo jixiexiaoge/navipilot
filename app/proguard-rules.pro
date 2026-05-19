@@ -9,10 +9,13 @@
 -dontusemixedcaseclassnames
 -verbose
 
-# 降低优化级别，避免过度优化导致反射失败
+# 降低优化级别，避免过度优化导致反射失败和 Kotlin 编译器内部错误
 # 注意：不能使用 -dontoptimize，否则 -assumenosideeffects（日志移除）不生效
 -optimizationpasses 1
 -allowaccessmodification
+
+# 优化选项 - 禁用可能导致 Kotlin 编译错误的优化
+-optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
 
 # 混淆字典（增加反编译难度）
 -obfuscationdictionary dictionary.txt
