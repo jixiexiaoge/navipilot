@@ -107,13 +107,20 @@ class GoogleNavDataBridge(
         }
     }
 
-    fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float) {
+    fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float, accuracy: Float = 0f) {
         postFieldsMutate { s ->
             s.value = s.value.copy(
                 latitude = lat,
                 longitude = lon,
                 heading = heading.toDouble(),
                 gps_speed = speed.toDouble(),
+                // 🆕 P0: 补充 GPS 完整字段
+                accuracy = accuracy.toDouble(),
+                xPosLat = lat,
+                xPosLon = lon,
+                xPosAngle = heading.toDouble(),
+                xPosSpeed = speed.toDouble(),
+                nPosAngle = heading.toDouble(),
                 source_last = "google_nav"
             )
         }
@@ -125,10 +132,34 @@ class GoogleNavDataBridge(
                 nTBTTurnType = turnType,
                 nTBTDist = distance.toInt(),
                 szTBTMainText = roadName,
+                // 🆕 P0: 补充 TBT 增强字段（szNearDirName 与 szTBTMainText 相同）
+                szNearDirName = roadName,
                 goalPosX = destLon,
                 goalPosY = destLat,
                 szGoalName = destName,
                 isNavigating = true,
+                source_last = "google_nav"
+            )
+        }
+    }
+
+    /**
+     * 🆕 P0: 更新 TBT 增强字段（下一转弯信息）
+     * @param szFarDirName 远处方向名（下一转弯后的道路）
+     * @param nTBTDistNext 下一转弯距离
+     * @param nTBTTurnTypeNext 下一转弯类型
+     */
+    fun updateTbtEnhanced(
+        szFarDirName: String = "",
+        nTBTDistNext: Int = 0,
+        nTBTTurnTypeNext: Int = -1
+    ) {
+        postFieldsMutate { s ->
+            val cur = s.value
+            s.value = cur.copy(
+                szFarDirName = szFarDirName.ifBlank { cur.szFarDirName },
+                nTBTDistNext = if (nTBTDistNext > 0) nTBTDistNext else cur.nTBTDistNext,
+                nTBTTurnTypeNext = if (nTBTTurnTypeNext >= 0) nTBTTurnTypeNext else cur.nTBTTurnTypeNext,
                 source_last = "google_nav"
             )
         }
@@ -145,15 +176,32 @@ class GoogleNavDataBridge(
     }
 
     /**
-     * 更新限速信息
+     * 🆕 P0: 更新限速信息（增强版，包含道路分类）
      * @param speedLimitKmh 道路限速 (km/h)
      * @param currentSpeedKmh 当前速度 (km/h)
+     * @param roadName 道路名称（用于推断道路类型）
      */
-    fun updateSpeedLimit(speedLimitKmh: Int, currentSpeedKmh: Int) {
+    fun updateSpeedLimit(speedLimitKmh: Int, currentSpeedKmh: Int, roadName: String = "") {
+        // 🆕 P0: 根据限速和路名推断道路类别
+        val roadcate = when {
+            speedLimitKmh >= 100 -> 10  // 高速
+            speedLimitKmh >= 80 -> 10   // 快速路
+            roadName.contains("Highway", ignoreCase = true) -> 10
+            roadName.contains("Freeway", ignoreCase = true) -> 10
+            roadName.contains("Interstate", ignoreCase = true) -> 10
+            roadName.contains("Expressway", ignoreCase = true) -> 10
+            roadName.contains("Motorway", ignoreCase = true) -> 10
+            speedLimitKmh > 0 -> 6      // 地方道路
+            else -> 8                   // 默认
+        }
+
         postFieldsMutate { s ->
             s.value = s.value.copy(
                 nRoadLimitSpeed = speedLimitKmh,
                 nPosSpeed = currentSpeedKmh.toDouble(),
+                // 🆕 P0: 补充道路分类字段
+                roadcate = roadcate,
+                roadType = roadcate,
                 source_last = "google_nav"
             )
         }

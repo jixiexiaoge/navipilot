@@ -265,6 +265,27 @@ class AmapNavDataBridge(
             if (turnType != 51 || tbtText.isBlank()) turnType
             else TurnTypeTextInference.inferTurnTypeFromText(tbtText).takeIf { it >= 0 } ?: turnType
         val curRoad = info.currentRoadName.orEmpty()
+
+        // 🆕 P0: 提取高速出口信息
+        val exitDir = try {
+            val exitInfo = info.javaClass.getMethod("getHighwayExitInfo").invoke(info)
+            exitInfo?.javaClass?.getMethod("getExitDirection")?.invoke(exitInfo) as? String ?: ""
+        } catch (_: Exception) { "" }
+
+        val exitName = try {
+            val exitInfo = info.javaClass.getMethod("getHighwayExitInfo").invoke(info)
+            exitInfo?.javaClass?.getMethod("getExitName")?.invoke(exitInfo) as? String ?: ""
+        } catch (_: Exception) { "" }
+
+        // 🆕 P0: 提取环岛信息
+        val roundAbout = try {
+            info.javaClass.getMethod("getRoundAboutExitNumber").invoke(info) as? Int ?: -1
+        } catch (_: Exception) { -1 }
+
+        val roundTotal = try {
+            info.javaClass.getMethod("getRoundAboutTotalExit").invoke(info) as? Int ?: -1
+        } catch (_: Exception) { -1 }
+
         postFieldsMutate { s ->
             val cur = s.value
             val limit = cur.nRoadLimitSpeed
@@ -279,6 +300,11 @@ class AmapNavDataBridge(
                 nPosSpeed = info.currentSpeed.toDouble(),
                 vEgoKph = info.currentSpeed,
                 roadcate = if (limit > 0) inferRoadcate(limit, cur.roadcate, curRoad) else cur.roadcate,
+                // 🆕 P0: 补充 NOA 增强字段
+                exitDirectionInfo = exitDir.ifBlank { cur.exitDirectionInfo },
+                exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
+                roundAboutNum = if (roundAbout > 0) roundAbout else cur.roundAboutNum,
+                roundAllNum = if (roundTotal > 0) roundTotal else cur.roundAllNum,
                 isNavigating = true,
                 source_last = "amap_mobile"
             )
@@ -428,9 +454,17 @@ class AmapNavDataBridge(
             } catch (_: Exception) {
                 0
             }
+            // 🆕 P0: 提取收费站信息 (type=4 通常表示收费站)
+            val tollName = try {
+                if (typ == 4) {
+                    f.javaClass.getMethod("getName").invoke(f) as? String ?: ""
+                } else ""
+            } catch (_: Exception) { "" }
+
             val summary = buildString {
                 append("设施×${facilities.size} type=$typ dist=${dist}m")
                 if (lim > 0) append(" limit=${lim}")
+                if (tollName.isNotBlank()) append(" name=$tollName")
             }
             val now = System.currentTimeMillis()
             val skip = summary == lastTrafficFacilitySummary && now - lastTrafficFacilityPostMs < 1800L
@@ -439,6 +473,9 @@ class AmapNavDataBridge(
                 lastTrafficFacilityPostMs = now
                 s.value = cur.copy(
                     trafficDescription = summary,
+                    // 🆕 P0: 收费站信息 (根据类型决定是入口还是出口)
+                    tollEntranceName = if (typ == 4 && dist < 1000) tollName else cur.tollEntranceName,
+                    tollExitName = if (typ == 4 && dist >= 1000) tollName else cur.tollExitName,
                     lastUpdateTime = now,
                     source_last = "amap_mobile"
                 )
@@ -491,15 +528,26 @@ class AmapNavDataBridge(
         }
         lastInnerNaviSig = sig
         lastInnerNaviPostMs = now
+
+        // 🆕 P0: 提取远处方向名（第二转弯）
+        val farDirName = try {
+            info.javaClass.getMethod("getNextNextRoadName").invoke(info) as? String ?: ""
+        } catch (_: Exception) { "" }
+
         postFieldsMutate { s ->
             val cur = s.value
             val crossIcon = info.crossIconType
             val nextTurn = mapAmapIconToTurnType(crossIcon)
+            // 🆕 P0: 通过车道数推断下一道路宽度
+            val nextRoadWidth = if (cur.laneInfoList.isNotEmpty()) cur.laneInfoList.size else 0
             s.value = cur.copy(
                 amapIcon = info.iconType,
                 amapIconNext = crossIcon,
                 nTBTTurnTypeNext = nextTurn,
                 nTBTDistNext = info.driveDist.coerceAtLeast(0),
+                // 🆕 P0: 补充 TBT 增强字段
+                szFarDirName = farDirName.ifBlank { cur.szFarDirName },
+                nTBTNextRoadWidth = if (nextRoadWidth > 0) nextRoadWidth else cur.nTBTNextRoadWidth,
                 lastUpdateTime = now,
                 source_last = "amap_mobile"
             )
@@ -589,6 +637,13 @@ class AmapNavDataBridge(
             userAlert("GPS信号弱，请到空旷地区行驶", "GPS signal weak, please drive in open area")
         }
         Log.w(TAG, "GPS信号弱: $isWeak")
+        // 🆕 P0: 记录 GPS 信号状态
+        postFieldsMutate { s ->
+            s.value = s.value.copy(
+                gpsSignalStatus = if (isWeak) 1 else 0,  // 0=正常 1=弱 2=无信号
+                source_last = "amap_mobile"
+            )
+        }
     }
 
     override fun onReCalculateRouteForYaw() {
@@ -653,5 +708,100 @@ class AmapNavDataBridge(
         val base = localized("算路失败", "Route calculation failed")
         val detail = listOfNotNull(code?.let { "[$it]" }, desc.takeIf { it.isNotBlank() }).joinToString(" ")
         postUserMessage(if (detail.isNotBlank()) "$base $detail" else base)
+    }
+
+    /**
+     * 🆕 P1: 提取高德路线点坐标（WGS-84）
+     * 参考腾讯 TencentNavDataBridge.extractRoutePoints()
+     * 用于发送至 comma3 设备 (TCP 7709)
+     *
+     * @param navi AMapNavi 实例
+     * @param routeId 路线 ID（通常为 0，多路线时可指定）
+     * @return 路线点列表 (lon, lat) WGS-84 坐标
+     */
+    fun extractRoutePointsFromAmap(
+        navi: com.amap.api.navi.AMapNavi?,
+        routeId: Int = 0
+    ): List<Pair<Double, Double>> {
+        if (navi == null || carrotManFieldsState == null) {
+            Log.w(TAG, "⚠️ 无法提取路线点: navi 或 carrotManFieldsState 为 null")
+            return emptyList()
+        }
+
+        return try {
+            @Suppress("DEPRECATION")
+            val paths = navi.naviPaths
+            if (paths.isNullOrEmpty()) {
+                Log.w(TAG, "⚠️ 无路线数据可提取")
+                return emptyList()
+            }
+
+            val path = paths[routeId] ?: paths.values.firstOrNull()
+            if (path == null) {
+                Log.w(TAG, "⚠️ 无法获取路线 ID $routeId")
+                return emptyList()
+            }
+
+            // 提取所有路段的坐标点
+            val allSteps = try {
+                path.allStep
+            } catch (_: Exception) {
+                null
+            }
+
+            if (allSteps.isNullOrEmpty()) {
+                Log.w(TAG, "⚠️ 路线无步骤数据")
+                return emptyList()
+            }
+
+            val routePoints = mutableListOf<Pair<Double, Double>>()
+
+            allSteps.forEach { step ->
+                try {
+                    val coords = step?.coords
+                    coords?.forEach { coord ->
+                        try {
+                            val lat = coord.latitude
+                            val lon = coord.longitude
+                            if (lat != 0.0 && lon != 0.0) {
+                                // GCJ-02 → WGS-84 转换
+                                val (wgsLat, wgsLon) = CoordinateConverter.gcj02ToWgs84(lat, lon)
+                                routePoints.add(wgsLon to wgsLat)  // 注意：存储为 (lon, lat)
+                            }
+                        } catch (e: Exception) {
+                            Log.d(TAG, "跳过坐标点: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "跳过路段: ${e.message}")
+                }
+            }
+
+            if (routePoints.isNotEmpty()) {
+                // 更新 CarrotManFields，标记路线点已准备好
+                postFieldsMutate { s ->
+                    s.value = s.value.copy(
+                        tencentSlice = s.value.tencentSlice.copy(
+                            tencentRoutePoints = routePoints,
+                            tencentRoutePointsReady = true
+                        ),
+                        source_last = "amap_mobile"
+                    )
+                }
+                Log.i(TAG, "✅ 高德路线点提取成功: ${routePoints.size} 个点")
+
+                // 调试：打印前3个点
+                routePoints.take(3).forEachIndexed { i, (lon, lat) ->
+                    Log.d(TAG, "  [$i] lon=${"%.6f".format(lon)}, lat=${"%.6f".format(lat)}")
+                }
+            } else {
+                Log.w(TAG, "⚠️ 未提取到有效路线点")
+            }
+
+            routePoints
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 高德路线点提取失败: ${e.message}", e)
+            emptyList()
+        }
     }
 }
