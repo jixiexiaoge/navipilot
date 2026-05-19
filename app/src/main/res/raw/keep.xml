@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    资源保留规则
+    解决腾讯导航SDK资源压缩问题：NoSuchFieldError: navix_info_view_normal_bg
+    强制保留导航UI所需的所有布局、ID和drawable资源
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@layout/navix_ui_navigation*,@id/navix_info_view_normal_bg*,@drawable/navix_info_view_normal_bg*,@layout/navix_*,@id/navix_*,@drawable/navix_*" />
