@@ -379,18 +379,9 @@
 -keep class com.amap.api.location.R$string { *; }
 
 # ============================================================
-# 反射保护（防止反射调用失败）
+# 反射保护（只保留真正需要反射的类，避免通配规则削弱混淆）
+# 原则：只有通过 Class.forName() / getDeclaredMethod() 调用的类才保留
 # ===========================================================
-# 保留所有通过 Class.forName 加载的类
--keepnames class * {
-    *;
-}
-
-# 保留所有通过反射调用的方法
--keepclassmembers class * {
-    public <methods>;
-    protected <methods>;
-}
 
 # 保留所有枚举类型（反射经常用到）
 -keepclassmembers enum * {
@@ -406,6 +397,6 @@
     public <fields>;
 }
 
-# 保留所有内部类和嵌套类
+# 保留所有内部类和嵌套类（Compose 和 SDK 依赖）
 -keepattributes InnerClasses,EnclosingMethod
 -keep class **$* { *; }

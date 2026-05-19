@@ -298,6 +298,20 @@ class MainActivityUI(
                         "AMAP_MOBILE" -> NavMode.AMAP_MOBILE
                         else -> NavMode.AMAP_AUTO
                     }
+                    // 用户类型 3（赞助者）每日自动回退到高德车机版
+                    if (core.userType.value == 3 &&
+                        (navMode == NavMode.TMAP || navMode == NavMode.AMAP_MOBILE)
+                    ) {
+                        val resetPrefs = ledContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
+                        val today = java.time.LocalDate.now().toString()
+                        val lastReset = resetPrefs.getString("user3_daily_reset", "") ?: ""
+                        if (lastReset != today) {
+                            resetPrefs.edit().putString("user3_daily_reset", today).apply()
+                            core.userSelectedMode = "AMAP"
+                            core.persistUserSelectedNavMode()
+                            navMode = NavMode.AMAP_AUTO
+                        }
+                    }
                 }
 
                 // 地图源选择处理：这里只更新偏好，不立即跳转或拉起地图
@@ -956,10 +970,24 @@ class MainActivityUI(
         }
     }
 
+    /** 将用户类型数字转为可读文本（与 ProfilePage 一致） */
+    private fun userTypeDisplayName(userType: Int): String = when (userType) {
+        -1 -> localized("管理员", "Admin")
+        0 -> localized("未知用户", "Unknown")
+        1 -> localized("新用户", "New User")
+        2 -> localized("支持者", "Supporter")
+        3 -> localized("赞助者", "Sponsor")
+        4 -> localized("铁粉", "Super Fan")
+        else -> localized("未知类型", "Unknown Type")
+    }
+
     /** 地图导航源选择弹窗：车机版优先，其次腾讯/高德手机版与谷歌 */
     @Composable
     private fun MapNavModePickerDialog(
         currentMode: NavMode,
+        userType: Int,
+        restrictedModesUsedToday: Set<NavMode> = emptySet(),
+        onRestrictedModeUsed: (NavMode) -> Unit = {},
         onDismiss: () -> Unit,
         onSelect: (NavMode) -> Unit
     ) {
@@ -1002,6 +1030,22 @@ class MainActivityUI(
         val hasValidSelection = rows.any { it.mode == currentMode }
         val effectiveMode = if (hasValidSelection) currentMode else defaultMode
 
+        /** 判断该导航源对于当前用户是否可用 */
+        fun isModeEnabled(mode: NavMode): Boolean = when (mode) {
+            NavMode.AMAP_AUTO, NavMode.GOOGLE, NavMode.OSM -> true
+            NavMode.TMAP, NavMode.AMAP_MOBILE -> when (userType) {
+                4 -> true
+                3 -> mode !in restrictedModesUsedToday
+                else -> false
+            }
+        }
+
+        /** 不可用时的副标题提示 */
+        fun disabledSubtitle(mode: NavMode): String = when (userType) {
+            3 -> localized("今日额度已用完", "Daily quota used")
+            else -> localized("仅铁粉可用", "Super Fan only")
+        }
+
         Dialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1024,7 +1068,11 @@ class MainActivityUI(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = localized("选择地图导航", "Choose navigation map"),
+                            text = buildString {
+                                append(localized("选择地图导航", "Choose navigation map"))
+                                append(" | ")
+                                append(userTypeDisplayName(userType))
+                            },
                             color = Color(0xFF0F172A),
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
@@ -1049,20 +1097,36 @@ class MainActivityUI(
                         }
                     }
 
-                    // 四个导航源按钮，选中项绿色高亮
+                    // 四个导航源按钮，选中项绿色高亮，不可用项灰色置灰
                     rows.forEach { row ->
                         val isSelected = row.mode == effectiveMode
+                        val enabled = isModeEnabled(row.mode)
+                        val displaySubtitle = if (!enabled && (row.mode == NavMode.TMAP || row.mode == NavMode.AMAP_MOBILE)) {
+                            disabledSubtitle(row.mode)
+                        } else row.subtitle
+
                         val bgColor = if (isSelected) Color(0xFF22C55E).copy(alpha = 0.15f) else Color(0xFFF1F5F9)
                         val borderColor = if (isSelected) Color(0xFF22C55E) else Color(0xFFE2E8F0)
-                        val titleColor = if (isSelected) Color(0xFF166534) else Color(0xFF1E293B)
-                        val subtitleColor = if (isSelected) Color(0xFF22C55E) else Color(0xFF64748B)
+                        val titleColor = if (isSelected) Color(0xFF166534)
+                                        else if (!enabled) Color(0xFF94A3B8)
+                                        else Color(0xFF1E293B)
+                        val subtitleColor = if (isSelected) Color(0xFF22C55E)
+                                           else if (!enabled) Color(0xFFCBD5E1)
+                                           else Color(0xFF64748B)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .border(1.dp, borderColor, RoundedCornerShape(10.dp))
                                 .background(bgColor)
-                                .clickable { onSelect(row.mode) }
+                                .then(
+                                    if (enabled) Modifier.clickable {
+                                        if (userType == 3 && (row.mode == NavMode.TMAP || row.mode == NavMode.AMAP_MOBILE)) {
+                                            onRestrictedModeUsed(row.mode)
+                                        }
+                                        onSelect(row.mode)
+                                    } else Modifier
+                                )
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1075,7 +1139,7 @@ class MainActivityUI(
                                     maxLines = 1
                                 )
                                 Text(
-                                    text = row.subtitle,
+                                    text = displaySubtitle,
                                     color = subtitleColor,
                                     fontSize = 11.sp,
                                     maxLines = 1
@@ -1131,6 +1195,26 @@ class MainActivityUI(
         val panelContext = LocalContext.current
         val scrollState = rememberScrollState()
         var showMapModeDialog by remember { mutableStateOf(false) }
+        var restrictedModesUsedToday by remember { mutableStateOf<Set<NavMode>>(emptySet()) }
+
+        // 弹窗打开时从 SharedPreferences 加载今日已用的受限模式
+        LaunchedEffect(showMapModeDialog) {
+            if (showMapModeDialog) {
+                val prefs = panelContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
+                val today = java.time.LocalDate.now().toString()
+                restrictedModesUsedToday = setOf(
+                    NavMode.TMAP.takeIf { prefs.getString("restricted_used_TMAP", "") == today },
+                    NavMode.AMAP_MOBILE.takeIf { prefs.getString("restricted_used_AMAP_MOBILE", "") == today }
+                ).filterNotNull().toSet()
+            }
+        }
+
+        val onRestrictedModeUsed: (NavMode) -> Unit = { mode ->
+            val prefs = panelContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
+            val today = java.time.LocalDate.now().toString()
+            prefs.edit().putString("restricted_used_${mode.name}", today).apply()
+            restrictedModesUsedToday = restrictedModesUsedToday + mode
+        }
 
         // 解析设备端 ExperimentalMode 参数（与旧 SecondarySection 一致）
         fun parseExperimentalMode(value: Any?): Boolean? {
@@ -1214,6 +1298,9 @@ class MainActivityUI(
         if (showMapModeDialog) {
             MapNavModePickerDialog(
                 currentMode = navMode,
+                userType = userType,
+                restrictedModesUsedToday = restrictedModesUsedToday,
+                onRestrictedModeUsed = onRestrictedModeUsed,
                 onDismiss = { showMapModeDialog = false },
                 onSelect = { mode ->
                     onModeChange(mode)
