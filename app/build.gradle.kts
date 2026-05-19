@@ -249,15 +249,9 @@ dependencies {
     // 🆕 安全存储（EncryptedSharedPreferences）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
-    // ML Kit - 用于左右车道车辆检测（已移除以减小APK体积）
-    // implementation("com.google.mlkit:object-detection:17.0.2")
-
     // MapLibre - OSM 地图显示
     implementation("org.maplibre.gl:android-sdk:11.8.0")
 
-    // WebRTC（org.webrtc）— comma3 摄像头视频流、HUD DataChannel（已移除以减小APK体积）
-    // implementation("io.getstream:stream-webrtc-android:1.3.8")
-    
     // 国内发行：腾讯导航 + 高德合并包（无 Google Navigation SDK）
     implementation("com.tencent.map:tencent-map-nav-sdk-core:7.5.0")
     implementation("com.tencent.openmap:foundation:0.8.0.07a0862-lite")
@@ -286,11 +280,6 @@ dependencies {
     // BouncyCastle - 用于解析 RSA 私钥（SSHJ需要）
     implementation("org.bouncycastle:bcprov-jdk18on:1.77")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
-
-    // Room数据库 - 用于驾驶评分系统 (暂时注释，待修复编译问题)
-    // implementation("androidx.room:room-runtime:2.6.1")
-    // implementation("androidx.room:room-ktx:2.6.1")
-    // ksp("androidx.room:room-compiler:2.6.1")
 
     // 测试框架 - P0 优先级优化
     testImplementation(libs.junit)
