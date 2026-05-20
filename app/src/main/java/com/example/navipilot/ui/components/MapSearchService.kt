@@ -131,10 +131,10 @@ private suspend fun searchPlacesTencent(query: String, lat: Double, lon: Double)
                             val address = item.optString("address", "")
                             val loc = item.optJSONObject("location")
                             if (loc != null && title.isNotEmpty()) {
-                                val gcjLat = loc.optDouble("lat", 0.0)
-                                val gcjLon = loc.optDouble("lng", 0.0)
-                                if (gcjLat != 0.0 && gcjLon != 0.0) {
-                                    val (wgsLat, wgsLon) = gcj02ToWgs84(gcjLat, gcjLon)
+                                // 腾讯 Suggestion API 返回 WGS-84 坐标，无需转换
+                                val wgsLat = loc.optDouble("lat", 0.0)
+                                val wgsLon = loc.optDouble("lng", 0.0)
+                                if (wgsLat != 0.0 && wgsLon != 0.0) {
                                     results.add(SearchResult(title, address, wgsLon, wgsLat))
                                 }
                             }
@@ -398,12 +398,8 @@ suspend fun searchPlaces(
             SearchProvider.TENCENT -> {
                 serviceName = "腾讯地图"
                 if (proxLat != null && proxLon != null) {
-                    val gcjCoords = if (isInChina(proxLat, proxLon)) {
-                        com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
-                    } else {
-                        Pair(proxLat, proxLon)
-                    }
-                    searchPlacesTencent(query, gcjCoords.first, gcjCoords.second)
+                    // 腾讯 Suggestion API 期望 WGS-84 坐标（同 GPS），无需 GCJ-02 转换
+                    searchPlacesTencent(query, proxLat, proxLon)
                 } else {
                     emptyList()
                 }
@@ -433,7 +429,7 @@ suspend fun searchPlaces(
             )
         }
         Log.w(TAG, "高德地图无结果，尝试腾讯")
-        val tencentResults = searchPlacesTencent(query, gcjCoords.first, gcjCoords.second)
+        val tencentResults = searchPlacesTencent(query, proxLat, proxLon)
         if (tencentResults.isNotEmpty()) {
             return@withContext SearchResponse(
                 tencentResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),

@@ -234,7 +234,7 @@ class GoogleNavManager(
         destLat: Double,
         destLon: Double,
         destName: String,
-        simulate: Boolean = BuildConfig.DEBUG,  // 默认：Debug 构建使用模拟，Release 使用真实 GPS
+        simulate: Boolean = false,  // 默认使用真实 GPS 导航
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
         onRouteError: ((String) -> Unit)? = null,
@@ -387,7 +387,7 @@ class GoogleNavManager(
     fun startNavigationByPlaceId(
         placeId: String,
         destName: String,
-        simulate: Boolean = BuildConfig.DEBUG,  // 默认：Debug 构建使用模拟，Release 使用真实 GPS
+        simulate: Boolean = false,  // 默认使用真实 GPS 导航
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
         onRouteError: ((String) -> Unit)? = null
