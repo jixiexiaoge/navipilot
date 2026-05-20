@@ -1,5 +1,6 @@
 package com.example.navipilot.ui.components
 
+import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,6 +30,14 @@ import com.example.navipilot.data.ModelFileInfo
 import com.example.navipilot.data.ModelInfo
 import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.data.SshConnectionState
+import com.example.navipilot.data.SunnyBundle
+import com.example.navipilot.data.SunnyBundleOverrides
+import com.example.navipilot.data.SunnyDownloadState
+import com.example.navipilot.data.SunnyDownloadStatus
+import com.example.navipilot.data.SunnyDownloadedBundle
+import com.example.navipilot.data.SunnyModelDownloadManager
+import com.example.navipilot.data.SunnyModelEntry
+import com.example.navipilot.data.SunnyModelListResponse
 import com.example.navipilot.ui.utils.localized
 import com.example.navipilot.ui.components.SshConfigDialog
 import kotlinx.coroutines.Dispatchers
@@ -135,6 +144,312 @@ class ModelListClient {
 }
 
 // ===============================
+// Sunnypilot UI 组件
+// ===============================
+
+private sealed class SunnyCardState {
+    data class Downloading(val state: SunnyDownloadState) : SunnyCardState()
+    data object Downloaded : SunnyCardState()
+    data class Failed(val error: String?) : SunnyCardState()
+    data object NotDownloaded : SunnyCardState()
+}
+
+@Composable
+private fun SunnySectionHeader(
+    bundleCount: Int,
+    isLoading: Boolean
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF162032),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "☀️ ${localized("Sunnypilot 模型", "Sunnypilot Models")}",
+                color = Color(0xFFE5D093),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFFE5D093)
+                )
+            } else {
+                Text(
+                    text = "$bundleCount",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SunnyBundleCard(
+    bundle: SunnyBundle,
+    cardState: SunnyCardState,
+    onDownloadClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    onUploadClick: () -> Unit = {}
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF1E293B),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 左侧：名称和版本信息
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = bundle.displayName,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    bundle.generation?.let { gen ->
+                        Text(
+                            text = "gen$gen",
+                            color = Color(0xFF64748B),
+                            fontSize = 11.sp
+                        )
+                    }
+                    bundle.runner?.let { runner ->
+                        Text(
+                            text = runner,
+                            color = Color(0xFF64748B),
+                            fontSize = 11.sp
+                        )
+                    }
+                    if (bundle.is20hz) {
+                        Text(
+                            text = "20Hz",
+                            color = Color(0xFFFCD34D),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Text(
+                    text = "${bundle.models.size} ${localized("个文件", "files")}",
+                    color = Color(0xFF475569),
+                    fontSize = 10.sp
+                )
+            }
+
+            // 右侧：根据状态显示不同 UI
+            when (cardState) {
+                is SunnyCardState.Downloading -> {
+                    val state = cardState.state
+                    val totalPct = state.fileProgress.values
+                        .map { it.percentage }
+                        .average()
+                        .toInt()
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1.5f)
+                    ) {
+                        LinearProgressIndicator(
+                            progress = { totalPct / 100f },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp),
+                            color = Color(0xFFE5D093),
+                            trackColor = Color(0xFF334155),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "$totalPct%",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                is SunnyCardState.Downloaded -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "✓",
+                            color = Color(0xFF4ADE80),
+                            fontSize = 16.sp
+                        )
+                        IconButton(
+                            onClick = onDeleteClick,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = localized("删除", "Delete"),
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onUploadClick,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Upload,
+                                contentDescription = localized("上传", "Upload"),
+                                tint = Color(0xFF3B82F6),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                is SunnyCardState.Failed -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "⚠️",
+                            fontSize = 14.sp
+                        )
+                        IconButton(
+                            onClick = onDownloadClick,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = localized("重试", "Retry"),
+                                tint = Color(0xFF3B82F6),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                is SunnyCardState.NotDownloaded -> {
+                    IconButton(
+                        onClick = onDownloadClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = localized("下载", "Download"),
+                            tint = Color(0xFFE5D093),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===============================
+// Sunnypilot 模型列表 HTTP 客户端
+// ===============================
+
+/**
+ * sunnypilot driving_models_v20.json HTTP 客户端
+ */
+class SunnyModelListClient {
+    companion object {
+        private const val TAG = "SunnyModelListClient"
+        private const val SUNNY_MODELS_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v20.json"
+        private const val TIMEOUT_MS = 15000L
+    }
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .build()
+
+    suspend fun fetchSunnyModels(): Result<List<SunnyBundle>> = withContext(Dispatchers.IO) {
+        try {
+            Log.i(TAG, "开始获取 sunnypilot 模型列表: $SUNNY_MODELS_URL")
+
+            val request = Request.Builder()
+                .url(SUNNY_MODELS_URL)
+                .get()
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+
+            if (response.isSuccessful && body != null) {
+                val json = JSONObject(body)
+                val bundlesArray = json.getJSONArray("bundles")
+                val bundles = mutableListOf<SunnyBundle>()
+
+                for (i in 0 until bundlesArray.length()) {
+                    val bundleJson = bundlesArray.getJSONObject(i)
+                    val modelsArray = bundleJson.getJSONArray("models")
+                    val models = mutableListOf<SunnyModelEntry>()
+
+                    for (j in 0 until modelsArray.length()) {
+                        val modelJson = modelsArray.getJSONObject(j)
+                        val type = modelJson.getString("type")
+                        val artifact = parseArtifact(modelJson.getJSONObject("artifact"))
+                        val metadata = if (modelJson.has("metadata")) {
+                            parseArtifact(modelJson.getJSONObject("metadata"))
+                        } else null
+                        models.add(SunnyModelEntry(type = type, artifact = artifact, metadata = metadata))
+                    }
+
+                    val overrides = if (bundleJson.has("overrides")) {
+                        val ov = bundleJson.getJSONObject("overrides")
+                        SunnyBundleOverrides(folder = ov.optString("folder", null))
+                    } else null
+
+                    bundles.add(SunnyBundle(
+                        shortName = bundleJson.getString("short_name"),
+                        displayName = bundleJson.getString("display_name"),
+                        is20hz = bundleJson.optBoolean("is_20hz", false),
+                        generation = bundleJson.optString("generation", null),
+                        minimumSelectorVersion = bundleJson.optString("minimum_selector_version", null),
+                        runner = bundleJson.optString("runner", null),
+                        overrides = overrides,
+                        models = models
+                    ))
+                }
+
+                Log.i(TAG, "sunnypilot 模型列表获取成功: ${bundles.size} 个 bundle")
+                Result.success(bundles)
+            } else {
+                Log.e(TAG, "HTTP ${response.code} 获取 sunnypilot 模型列表失败")
+                Result.failure(Exception("HTTP ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "获取 sunnypilot 模型列表异常: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun parseArtifact(obj: JSONObject): com.example.navipilot.data.SunnyArtifact {
+        val fileName = obj.getString("file_name")
+        val uriObj = obj.getJSONObject("download_uri")
+        val url = uriObj.getString("url")
+        val sha256 = uriObj.getString("sha256")
+        return com.example.navipilot.data.SunnyArtifact(
+            fileName = fileName,
+            downloadUri = com.example.navipilot.data.SunnyDownloadUri(url = url, sha256 = sha256)
+        )
+    }
+}
+
+// ===============================
 // UI 页面
 // ===============================
 
@@ -166,6 +481,13 @@ fun ModelSwitcherPage(
     // 从下载管理器收集状态
     val downloadStates by downloadManager.downloadStates.collectAsState()
     val downloadedModels by downloadManager.downloadedModels.collectAsState()
+
+    // Sunnypilot 状态
+    val sunnyDownloadManager = remember { SunnyModelDownloadManager.getInstance(context, context.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)) }
+    val sunnyDownloadStates by sunnyDownloadManager.downloadStates.collectAsState()
+    val sunnyDownloadedBundles by sunnyDownloadManager.downloadedBundles.collectAsState()
+    var sunnyBundleList by remember { mutableStateOf<List<SunnyBundle>>(emptyList()) }
+    var isLoadingSunny by remember { mutableStateOf(true) }
 
     // 计算总进度百分比
     fun calculateOverallProgress(state: ModelDownloadState): Int {
@@ -203,6 +525,19 @@ fun ModelSwitcherPage(
                 errorMessage = exception.message ?: localized("获取模型列表失败", "Failed to load models")
                 isLoading = false
             }
+        }
+
+        // 同时加载 sunnypilot 模型
+        coroutineScope.launch {
+            isLoadingSunny = true
+            val sunnyClient = SunnyModelListClient()
+            val sunnyResult = sunnyClient.fetchSunnyModels()
+            sunnyResult.onSuccess { bundles ->
+                sunnyBundleList = bundles
+            }.onFailure { e ->
+                Log.w("ModelSwitcher", "加载 sunnypilot 模型失败: ${e.message}")
+            }
+            isLoadingSunny = false
         }
     }
 
@@ -387,6 +722,151 @@ fun ModelSwitcherPage(
         }
     }
 
+    // ========== Sunnypilot 模型操作 ==========
+
+    // sunnypilot 下载点击
+    fun onSunnyDownloadClick(bundle: SunnyBundle) {
+        coroutineScope.launch {
+            sunnyDownloadManager.downloadBundle(bundle) { state ->
+                // StateFlow 自动更新 UI
+            }.onSuccess {
+                android.widget.Toast.makeText(
+                    context,
+                    "✅ ${localized("下载完成", "Download complete")}",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }.onFailure { error ->
+                android.widget.Toast.makeText(
+                    context,
+                    "❌ ${error.message ?: localized("下载失败", "Download failed")}",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    // sunnypilot 删除点击
+    fun onSunnyDeleteClick(shortName: String) {
+        coroutineScope.launch {
+            val success = sunnyDownloadManager.deleteBundle(shortName)
+            if (success) {
+                android.widget.Toast.makeText(
+                    context,
+                    localized("已删除", "Deleted"),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    // sunnypilot 上传点击
+    fun onSunnyUploadClick(bundle: SunnyBundle) {
+        if (sshConnectionState != SshConnectionState.CONNECTED) {
+            android.widget.Toast.makeText(
+                context,
+                localized("请先连接 SSH", "Please connect SSH first"),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            showSshDialog = true
+            return
+        }
+
+        val downloadedBundle = sunnyDownloadedBundles.find { it.shortName == bundle.shortName }
+        if (downloadedBundle == null) {
+            android.widget.Toast.makeText(
+                context,
+                localized("未找到本地模型文件", "Model files not found"),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val host = sshConnectionInfo?.host ?: return
+
+        coroutineScope.launch {
+            try {
+                sshManager.clearUserLogs()
+                sshManager.logToUser(localized("开始上传 Sunnypilot 模型", "Start uploading Sunnypilot model") + ": ${bundle.displayName} ($host)")
+                android.widget.Toast.makeText(
+                    context,
+                    localized("正在上传...", "Uploading..."),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+
+                // 1. Stop comma tmux session + clear overlay lock
+                sshManager.logToUser(localized("停止 comma 会话并清理锁文件", "Stop comma session and clear lock"))
+                val killResult = sshManager.execCommand(
+                    "tmux has-session -t comma 2>/dev/null && tmux kill-session -t comma; " +
+                        "rm -f /tmp/safe_staging_overlay.lock; " +
+                        "sleep 1;"
+                )
+                if (killResult.isFailure) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Stop session failed: ${killResult.exceptionOrNull()?.message}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+
+                // 2. Remove old model files (任意格式：onnx, pkl, thneed)
+                sshManager.logToUser(localized("删除旧模型文件", "Remove old model files"))
+                sshManager.execCommand("rm -f /data/openpilot/selfdrive/modeld/models/driving_*.onnx /data/openpilot/selfdrive/modeld/models/*.pkl /data/openpilot/selfdrive/modeld/models/*.thneed")
+                    .onFailure { Log.w("ModelSwitcher", "删除旧文件失败: ${it.message}") }
+
+                // 3. 上传所有文件
+                for ((remoteFileName, localPath) in downloadedBundle.files) {
+                    sshManager.logToUser(localized("上传文件", "Upload file") + ": $remoteFileName")
+                    val uploadResult = sshManager.uploadFile(
+                        localPath,
+                        "/data/openpilot/selfdrive/modeld/models/"
+                    )
+                    if (uploadResult.isFailure) {
+                        throw uploadResult.exceptionOrNull() ?: Exception("Upload failed: $remoteFileName")
+                    }
+                }
+
+                // 4. Clean and rebuild models
+                sshManager.logToUser(localized("清理并重新编译模型", "Clean and rebuild models"))
+                val cleanRebuildResult = sshManager.cleanAndRebuildModels()
+                if (cleanRebuildResult.isFailure) {
+                    val msg = cleanRebuildResult.exceptionOrNull()?.message ?: "unknown"
+                    Log.w("ModelSwitcher", "清理重新编译失败: $msg")
+                    sshManager.logToUser(localized("清理重新编译失败", "Clean and rebuild failed") + ": $msg")
+                }
+
+                // 5. Reboot device
+                sshManager.logToUser(localized("重启设备", "Reboot device"))
+                val rebootResult = sshManager.rebootDevice()
+                if (rebootResult.isFailure) {
+                    val msg = rebootResult.exceptionOrNull()?.message ?: "unknown"
+                    Log.w("ModelSwitcher", "重启失败: $msg")
+                    sshManager.logToUser(localized("重启失败", "Reboot failed") + ": $msg")
+                    android.widget.Toast.makeText(
+                        context,
+                        localized("上传成功，但重启失败", "Upload succeeded, but reboot failed") + ": $msg",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        localized("上传成功，重启中...", "Upload successful, rebooting..."),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("ModelSwitcher", "Sunny 上传失败: ${e.message}")
+                sshManager.logToUser(localized("上传失败", "Upload failed") + ": ${e.message}")
+                android.widget.Toast.makeText(
+                    context,
+                    "❌ ${localized("上传失败", "Upload failed")}: ${e.message}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     // 首次加载
     LaunchedEffect(Unit) {
         loadModels()
@@ -551,6 +1031,7 @@ fun ModelSwitcherPage(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             contentPadding = PaddingValues(vertical = 8.dp)
                         ) {
+                            // 现有模型列表
                             items(modelList) { model ->
                                 val cardState = getCardState(model.id)
                                 DownloadableModelCard(
@@ -560,6 +1041,33 @@ fun ModelSwitcherPage(
                                     onDeleteClick = { onDeleteClick(model.id) },
                                     onUploadClick = { onUploadClick(model) }
                                 )
+                            }
+
+                            // Sunnypilot 模型分区
+                            if (sunnyBundleList.isNotEmpty()) {
+                                item {
+                                    SunnySectionHeader(
+                                        bundleCount = sunnyBundleList.size,
+                                        isLoading = isLoadingSunny
+                                    )
+                                }
+                                items(sunnyBundleList) { bundle ->
+                                    val sunnyState = sunnyDownloadStates[bundle.shortName]
+                                    val isSunnyDownloaded = sunnyDownloadedBundles.any { it.shortName == bundle.shortName }
+                                    val cardState = when {
+                                        sunnyState?.status == SunnyDownloadStatus.DOWNLOADING -> SunnyCardState.Downloading(sunnyState)
+                                        isSunnyDownloaded -> SunnyCardState.Downloaded
+                                        sunnyState?.status == SunnyDownloadStatus.FAILED -> SunnyCardState.Failed(sunnyState.errorMessage)
+                                        else -> SunnyCardState.NotDownloaded
+                                    }
+                                    SunnyBundleCard(
+                                        bundle = bundle,
+                                        cardState = cardState,
+                                        onDownloadClick = { onSunnyDownloadClick(bundle) },
+                                        onDeleteClick = { onSunnyDeleteClick(bundle.shortName) },
+                                        onUploadClick = { onSunnyUploadClick(bundle) }
+                                    )
+                                }
                             }
                         }
                     }
