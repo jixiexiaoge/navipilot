@@ -743,34 +743,6 @@ class LedMatrixManager(private val context: Context) {
         return out
     }
 
-    /**
-     * HZK16 行优先 → iPixel 列优先位图
-     * HZK16: 16行, 每行2字节(16bit), 共32字节, MSB在左
-     * iPixel: 16列, 每列2字节(上8bit+下8bit), 共32字节
-     *
-     * 转换逻辑: output[col*2] = 上半列8像素, output[col*2+1] = 下半列8像素
-     */
-    private fun convertRowToColumnMajor(rowData: ByteArray, width: Int, height: Int): ByteArray {
-        val cols = width
-        val out = ByteArray(cols * 2) // 16列 × 2字节 = 32字节
-        for (col in 0 until cols) {
-            var upper = 0
-            var lower = 0
-            for (row in 0 until height) {
-                val byteIndex = row * (width / 8) + (col / 8)
-                val bitIndex = 7 - (col % 8)
-                val pixel = if (byteIndex < rowData.size) (rowData[byteIndex].toInt() shr bitIndex) and 1 else 0
-                if (pixel == 1) {
-                    if (row < 8) upper = upper or (1 shl row)
-                    else lower = lower or (1 shl (row - 8))
-                }
-            }
-            out[col * 2] = upper.toByte()
-            out[col * 2 + 1] = lower.toByte()
-        }
-        return out
-    }
-
     // ===== NUS 回退渲染 =====
 
     private fun renderTextToBitmapRowMajor(text: String): ByteArray {
@@ -906,21 +878,17 @@ class LedMatrixManager(private val context: Context) {
         val xState: Int = 0,
         // 车速
         val vEgoKph: Int = 0,
-        val vCruiseKph: Float = 0f,
         // 测速 (7706)
         val nSdiDist: Int = 0,
         val nSdiSpeedLimit: Int = 0,
         val nSdiType: Int = -1,
-        val nSdiBlockType: Int = -1,
-        val nSdiBlockSpeed: Int = 0,
         // 转弯 (7706)
         val nTBTDist: Int = 0,
         val nTBTTurnType: Int = -1,
         val szTBTMainText: String = "",
         // 交通灯 (来自 comma3 7705 端口)
         val trafficState: Int = 0,
-        // 道路
-        val szPosRoadName: String = "",
+        // 道路限速
         val nRoadLimitSpeed: Int = 0,
         // 感知 (7711)
         val leftBlindspot: Boolean = false,
@@ -931,8 +899,8 @@ class LedMatrixManager(private val context: Context) {
         val steeringAngleDeg: Float = 0f,
         // 新增字段
         val nGoPosDist: Int = 0,                // 剩余距离 m
-        val nextRoadNOAOrNot: Boolean = false,   // NOA 地图领航
-        val atcType: String = "",                // ATC 类型 (弯道减速)
+        // ATC 类型 (弯道减速)
+        val atcType: String = "",
         val vTurnSpeed: Double = 0.0,            // 弯道建议速度
     )
 
@@ -1067,10 +1035,8 @@ class LedMatrixManager(private val context: Context) {
         }
 
         // === P6: 弯道减速 (橙) ===
-        if (d.atcType.isNotEmpty() && d.atcType != "none" && d.atcType != "") {
-            return Triple("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
-        }
-        if (d.vTurnSpeed > 0 && d.vEgoKph > 20 && d.vTurnSpeed < d.vEgoKph - 5) {
+        if ((d.atcType.isNotEmpty() && d.atcType != "none" && d.atcType != "") ||
+            (d.vTurnSpeed > 0 && d.vEgoKph > 20 && d.vTurnSpeed < d.vEgoKph - 5)) {
             return Triple("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
         }
 
@@ -1109,18 +1075,32 @@ class LedMatrixManager(private val context: Context) {
             }
         }
 
-        // === P18: 车道保持 — 上路但未导航的默认状态 (蓝) ===
+        // === P18: 车道保持 || 限速提醒 — 上路但未导航的默认状态 (蓝/白) ===
         if (d.isOnroad) {
+            if (d.nRoadLimitSpeed > 0 && d.vEgoKph > d.nRoadLimitSpeed - 5) {
+                return Triple("限速${d.nRoadLimitSpeed}", 0xFFFFFFFF.toInt(), AnimationType.STATIC)
+            }
             return Triple("车道保持", 0xFF3399FF.toInt(), AnimationType.STATIC)
         }
 
-        // === P19: 限速提醒 — 接近道路限速 (白) ===
-        if (d.nRoadLimitSpeed > 0 && d.vEgoKph > d.nRoadLimitSpeed - 5) {
-            return Triple("限速${d.nRoadLimitSpeed}", 0xFFFFFFFF.toInt(), AnimationType.STATIC)
-        }
-
-        // === P20: 默认 — 保持上次内容 ===
+        // === P19(默认): 保持上次内容 ===
         return Triple(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
+    }
+
+    /**
+     * xTurn → 显示文字+颜色映射 (共享方法，避免重复)
+     */
+    private fun turnTypeToDisplayInfo(xTurn: Int): Pair<String, Int>? {
+        return when (xTurn) {
+            7 -> "掉头" to 0xFFFF8800.toInt()
+            1 -> "即将左转" to 0xFF00CCFF.toInt()
+            2 -> "即将右转" to 0xFF33FF66.toInt()
+            3 -> "向左变道" to 0xFF00CCFF.toInt()
+            4 -> "向右变道" to 0xFF33FF66.toInt()
+            5 -> "进入环岛" to 0xFFCC66FF.toInt()
+            8 -> "即将到达" to 0xFF00FF00.toInt()
+            else -> null
+        }
     }
 
     /**
@@ -1129,19 +1109,11 @@ class LedMatrixManager(private val context: Context) {
      * 远距离 151~300m: 显示预告文字
      */
     private fun resolveTurnDisplay(d: AutoDisplayData, xTurn: Int): Triple<String, Int?, AnimationType>? {
+        val info = turnTypeToDisplayInfo(xTurn)
+
         // 近距离 5~150m
-        if (d.nTBTDist in 5..150) {
-            val (text, color) = when (xTurn) {
-                7 -> "掉头" to 0xFFFF8800.toInt()
-                1 -> "即将左转" to 0xFF00CCFF.toInt()
-                2 -> "即将右转" to 0xFF33FF66.toInt()
-                3 -> "向左变道" to 0xFF00CCFF.toInt()
-                4 -> "向右变道" to 0xFF33FF66.toInt()
-                5 -> "进入环岛" to 0xFFCC66FF.toInt()
-                8 -> "即将到达" to 0xFF00FF00.toInt()
-                else -> return null
-            }
-            // 有路名时滚动显示
+        if (d.nTBTDist in 5..150 && info != null) {
+            val (text, color) = info
             return if (d.szTBTMainText.isNotBlank()) {
                 Triple("$text ${d.szTBTMainText}", color, AnimationType.SCROLL_LEFT)
             } else {
@@ -1150,17 +1122,8 @@ class LedMatrixManager(private val context: Context) {
         }
 
         // 远距离 151~300m
-        if (d.nTBTDist in 151..300) {
-            val (text, color) = when (xTurn) {
-                7 -> "掉头" to 0xFFFF8800.toInt()
-                1 -> "即将左转" to 0xFF00CCFF.toInt()
-                2 -> "即将右转" to 0xFF33FF66.toInt()
-                3 -> "向左变道" to 0xFF00CCFF.toInt()
-                4 -> "向右变道" to 0xFF33FF66.toInt()
-                5 -> "进入环岛" to 0xFFCC66FF.toInt()
-                8 -> "即将到达" to 0xFF00FF00.toInt()
-                else -> return null
-            }
+        if (d.nTBTDist in 151..300 && info != null) {
+            val (text, color) = info
             return Triple(text, color, AnimationType.STATIC)
         }
 
