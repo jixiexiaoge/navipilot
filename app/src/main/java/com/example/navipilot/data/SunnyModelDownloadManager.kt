@@ -8,11 +8,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * sunnypilot 模型下载管理器
@@ -37,11 +43,41 @@ class SunnyModelDownloadManager private constructor(
         }
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .build()
+    private val client: OkHttpClient by lazy { buildTolerantOkHttpClient() }
+
+    /**
+     * 为老旧 Android 设备（comma3 等）构建兼容 TLS 1.2 的 OkHttp 客户端。
+     */
+    private fun buildTolerantOkHttpClient(): OkHttpClient {
+        return try {
+            val sslContext = SSLContext.getInstance("TLS")
+            sslContext.init(null, null, SecureRandom())
+
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .sslSocketFactory(sslContext.socketFactory, createTrustAllManager())
+                .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
+                .hostnameVerifier { _, _ -> true }
+                .build()
+        } catch (e: Exception) {
+            Log.w(TAG, "SSL 兼容配置失败，回退到默认 OkHttp: ${e.message}")
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .build()
+        }
+    }
+
+    private fun createTrustAllManager(): X509TrustManager {
+        return object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        }
+    }
 
     // 下载状态（shortName -> SunnyDownloadState）
     private val _downloadStates = MutableStateFlow<Map<String, SunnyDownloadState>>(emptyMap())
