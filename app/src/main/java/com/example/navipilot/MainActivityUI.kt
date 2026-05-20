@@ -74,7 +74,6 @@ import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
 import com.example.navipilot.ui.components.LedMatrixPreview
 import com.example.navipilot.ui.components.ModelSwitcherPage
-import com.example.navipilot.data.ModelDownloadManager
 import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.ui.components.OnboardingScreen
 import com.example.navipilot.ui.components.TencentNavPage
@@ -363,14 +362,11 @@ class MainActivityUI(
                         )
                         11 -> { /* SSH 已移除 */ }
                         13 -> {
-                            val prefs = appContext.getSharedPreferences("CarrotAmap", Context.MODE_PRIVATE)
-                            val downloadManager = ModelDownloadManager.getInstance(appContext, prefs)
                             val sshManager = remember { SshConnectionManager(appContext) }
                             ModelSwitcherPage(
                                 onBack = {
                                     core.currentPage = 0
                                 },
-                                downloadManager = downloadManager,
                                 sshManager = sshManager,
                                 discoveredDeviceIp = null
                             )

@@ -43,6 +43,8 @@ data class SunnyBundle(
     val shortName: String,
     val displayName: String,
     val is20hz: Boolean = false,
+    val index: Int = 0,
+    val buildTime: String? = null,
     val generation: String? = null,
     val minimumSelectorVersion: String? = null,
     val runner: String? = null,
