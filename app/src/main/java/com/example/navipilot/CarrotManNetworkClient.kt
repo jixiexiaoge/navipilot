@@ -2,6 +2,7 @@ package com.example.navipilot
 
 // Android 系统相关导入
 import android.content.Context
+import android.media.MediaPlayer
 import android.net.wifi.WifiManager
 import android.util.Log
 
@@ -537,6 +538,9 @@ class CarrotManNetworkClient(
         //Log.i(TAG, "✅ 更新连接状态: 已连接到设备 ${device.ip}")
         onConnectionStatusChanged?.invoke(true, "")
         Log.i(TAG, "🎉 设备连接建立成功: ${device.ip}")
+        
+        // 播放连接成功音效 sound.mp3
+        playRawSound(R.raw.sound, "设备连接成功")
     }
     
     // 生成设备ID
@@ -791,6 +795,24 @@ class CarrotManNetworkClient(
         build7706Payload(fields, carrotIndex + 1, System.currentTimeMillis())
     
     
+    // 🎵 播放原始资源音效（一次性）
+    private fun playRawSound(resourceId: Int, soundName: String) {
+        try {
+            MediaPlayer.create(context, resourceId)?.apply {
+                setOnCompletionListener { release() }
+                setOnErrorListener { mp, what, extra ->
+                    Log.e(TAG, "❌ 播放音效失败: $soundName (what=$what extra=$extra)")
+                    release()
+                    true
+                }
+                start()
+                Log.i(TAG, "🎵 播放音效: $soundName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 播放音效异常: ${e.message}")
+        }
+    }
+
     // 发送UDP数据包到目标设备
     private suspend fun sendDataPacket(jsonData: JSONObject) = withContext(Dispatchers.IO) {
         val device = currentTargetDevice ?: return@withContext

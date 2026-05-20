@@ -1,5 +1,6 @@
 package com.example.navipilot
 import android.content.Context
+import android.media.MediaPlayer
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
@@ -266,6 +267,11 @@ class NetworkManager(
                 //Log.i(TAG, "🔄 状态变化: 车速 ${oldData.vEgoKph} -> ${statusData.vEgoKph}, 激活 ${oldData.active} -> ${statusData.active}")
             }
             
+            // 检测巡航激活（active: false → true），播放 noo.mp3
+            if (!oldData.active && statusData.active) {
+                playRawSound(R.raw.noo, "巡航激活")
+            }
+            
             // 自动发送逻辑已移除 - 改为手动点击"开地图"按钮触发
 
         } catch (e: JSONException) {
@@ -429,6 +435,30 @@ class NetworkManager(
         Log.d(TAG, "✅ 已设置设备IP更新回调")
     }
 
+    /**
+     * 🎵 播放原始资源音效（一次性）
+     * 使用 MediaPlayer，播放完后自动释放
+     */
+    private fun playRawSound(resourceId: Int, soundName: String) {
+        try {
+            MediaPlayer.create(context, resourceId)?.apply {
+                setOnCompletionListener { release() }
+                setOnErrorListener { mp, what, extra ->
+                    Log.e(TAG, "❌ 播放音效失败: $soundName (what=$what extra=$extra)")
+                    release()
+                    true
+                }
+                start()
+                Log.i(TAG, "🎵 播放音效: $soundName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 播放音效异常: ${e.message}")
+        }
+    }
+
+    /**
+     * 获取当前手机IP地址
+     */
     fun getPhoneIP(): String {
         return if (::carrotNetworkClient.isInitialized) {
             carrotNetworkClient.getPhoneIP()
@@ -438,7 +468,6 @@ class NetworkManager(
     }
 
     /**
-     * 发送CarrotMan数据到Comma3设备（智能发送）
      * 集成差分优化：只在数据有显著变化时发送，减少网络流量
      */
     fun sendCarrotManDataToComma3() {
