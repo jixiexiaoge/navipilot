@@ -223,6 +223,13 @@ class LocationSensorManager(
         if (compassAngle.isNaN()) compassAngle = bearing
 
         carrotManFields.value = carrotManFields.value.copy(
+            // 🌍 主 GPS 坐标（build7706Payload 发送的字段）
+            latitude = lat,
+            longitude = lon,
+            heading = compassAngle.toDouble(),
+            accuracy = accuracy.toDouble(),
+            gps_speed = speed.toDouble(),
+            // 🔄 兼容字段
             xPosLat = lat,
             xPosLon = lon,
             xPosAngle = compassAngle.toDouble(),
