@@ -614,6 +614,8 @@ class AmapBroadcastHandlers(
                 xPosSpeed = currentSpeed.toDouble(),
                 xPosAngle = carDirection.toDouble(),
                 totalDistance = routeAllDis,
+                routeDistance = routeAllDis,
+                routeTime = remainTime,
 
                 // 转向和导航段信息
                 nTBTDist = segRemainDis,
@@ -1365,6 +1367,9 @@ class AmapBroadcastHandlers(
                 traffic_light_count = intent.getSafeIntExtra("TRAFFIC_LIGHT_COUNT", -1).takeIf { it >= 0 }
                     ?: carrotManFields.value.traffic_light_count,
                 traffic_state = carrotTrafficState,
+                trafficLightState = carrotTrafficState,
+                trafficLightCountdown = leftSec,
+                trafficLightDistance = 0,  // compatibility field, distance not available from 60073 broadcast
                 traffic_light_direction = direction,
                 left_sec = leftSec,
                 max_left_sec = maxOf(leftSec, carrotManFields.value.max_left_sec),
@@ -1983,4 +1988,3 @@ private fun Intent.getSafeDoubleExtra(name: String, defaultValue: Double): Doubl
         else -> defaultValue
     }
 }
-

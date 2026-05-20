@@ -110,18 +110,22 @@ class GoogleNavDataBridge(
     fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float, accuracy: Float = 0f) {
         postFieldsMutate { s ->
             val cur = s.value
+            val headingD = heading.toDouble()
             s.value = s.value.copy(
                 latitude = lat,
                 longitude = lon,
-                heading = heading.toDouble(),
+                heading = headingD,
                 gps_speed = speed.toDouble(),
                 // 🆕 P0: 补充 GPS 完整字段
                 accuracy = accuracy.toDouble(),
                 xPosLat = lat,
                 xPosLon = lon,
-                xPosAngle = heading.toDouble(),
+                xPosAngle = headingD,
                 xPosSpeed = speed.toDouble(),
-                nPosAngle = if (speed > 0.5f && heading > 0f) heading.toDouble() else cur.nPosAngle,
+                nPosAngle = if (speed > 0.5f && heading > 0f) headingD else cur.nPosAngle,
+                // 🆕 补充导航位置字段
+                vpPosPointLat = lat,
+                vpPosPointLon = lon,
                 source_last = "google_nav"
             )
         }

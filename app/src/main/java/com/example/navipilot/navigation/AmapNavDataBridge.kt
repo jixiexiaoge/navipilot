@@ -256,21 +256,27 @@ class AmapNavDataBridge(
         
         postFieldsMutate { s ->
             val cur = s.value
+            val bearing = location.bearing.toDouble()
             s.value = cur.copy(
                 latitude = wgsLat,
                 longitude = wgsLon,
-                heading = location.bearing.toDouble(),
+                heading = bearing,
                 accuracy = location.accuracy.toDouble(),
                 gps_speed = (spd.coerceAtLeast(0f)).toDouble(),
                 xPosLat = wgsLat,
                 xPosLon = wgsLon,
-                xPosAngle = location.bearing.toDouble(),
+                xPosAngle = bearing,
                 nPosSpeed = spd.toDouble(),
+                // 🆕 补充导航位置字段（与 vpPosPointLat/Lon 对齐）
+                vpPosPointLat = wgsLat,
+                vpPosPointLon = wgsLon,
+                nPosAngle = bearing,
                 vEgoKph = kph,
                 isNavigating = true,
                 source_last = "amap_mobile"
             )
         }
+
     }
 
     override fun onNaviInfoUpdate(info: NaviInfo?) {
@@ -398,6 +404,7 @@ class AmapNavDataBridge(
                 nSdiDist = dist,
                 nAmapCameraType = primary?.cameraType ?: cur.nAmapCameraType,
                 nSdiBlockType = sectionFlag,
+                nSdiBlockSpeed = spd,        // 🆕 区间限速
                 nSdiAverageSpeed = avg,
                 nSdiBlockDist = intervalRemain,
                 source_last = "amap_mobile"
