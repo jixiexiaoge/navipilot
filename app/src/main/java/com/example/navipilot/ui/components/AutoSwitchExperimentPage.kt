@@ -160,8 +160,8 @@ fun AutoSwitchExperimentPage(
             
             // 7705 active 状态 + 实时数据
             val isActive = carrotManFields?.value?.active ?: false
-            val currentTbtDist = carrotManFields?.value?.tbtDist ?: 0
-            val currentSdiDist = carrotManFields?.value?.sdiDist ?: 0
+            val currentTbtDist = carrotManFields?.value?.nTBTDist ?: 0
+            val currentSdiDist = carrotManFields?.value?.nSdiDist ?: 0
             val currentXState = carrotManFields?.value?.xState ?: 0
             val currentVEgo = carrotManFields?.value?.vEgoKph ?: 0
             val currentVCruise = carrotManFields?.value?.vCruiseKph ?: 0f

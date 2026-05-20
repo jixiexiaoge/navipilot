@@ -1544,9 +1544,7 @@ class TencentNavDataBridge(
                     }
 
                     // 电子眼限速 < 500m 时覆盖道路限速（仅当未通过时）
-                    if (!shouldClearSdi && cLimit > 0 && cDist in 1..499) {
-                        updated = updated.copy(xSpdLimit = cLimit, desiredSpeed = cLimit)
-                    }
+                    // ⚠️ xSpdLimit/desiredSpeed 字段已删除
                     updated
                 }
             } catch (e: Exception) {
@@ -1900,7 +1898,6 @@ class TencentNavDataBridge(
             Log.i(TAG, "📍 经过途经点: $waypointStr, 红绿灯数=$trafficLightNum")
             if (trafficLightNum >= 0) {
                 updateField { it.copy(
-                    viaPOIdistance = 0,  // 已到达途经点
                     tencentSlice = it.tencentSlice.copy(remainingTrafficLights = trafficLightNum)  // 更新剩余红绿灯
                 ) }
             }
@@ -2790,22 +2787,8 @@ class TencentNavDataBridge(
      * 桥接导航指令到Comma3
      */
     private fun bridgeNavigationCommands(fields: CarrotManFields): CarrotManFields {
-        var updated = fields
-
-        // TBT距离 → xDistToTurn
-        if (fields.nTBTDist > 0 && fields.nTBTDist < 2000) {
-            updated = updated.copy(xDistToTurn = fields.nTBTDist.toDouble())
-        }
-
-        // 限速同步
-        if (fields.nRoadLimitSpeed > 0) {
-            updated = updated.copy(
-                xSpdLimit = fields.nRoadLimitSpeed,
-                desiredSpeed = fields.nRoadLimitSpeed
-            )
-        }
-
-        return updated
+        // xDistToTurn/xSpdLimit/desiredSpeed 字段已删除，不再桥接
+        return fields
     }
 
     private fun updateField(transform: (CarrotManFields) -> CarrotManFields) {

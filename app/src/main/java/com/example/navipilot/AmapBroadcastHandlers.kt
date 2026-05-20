@@ -54,10 +54,7 @@ class AmapBroadcastHandlers(
          * @param remoteIP 远程设备IP地址
          */
         fun updateRemoteIP(carrotManFields: MutableState<CarrotManFields>, remoteIP: String) {
-            carrotManFields.value = carrotManFields.value.copy(
-                remote = remoteIP
-            )
-           // Log.d(TAG, "🌐 远程IP已更新: $remoteIP")
+            // 已移除 -> remote 字段已清理
         }
 
         /**
@@ -70,14 +67,6 @@ class AmapBroadcastHandlers(
 
             parts.add("${fields.nRoadLimitSpeed}")
             // 🎯 navType, navModifier 由Python端计算，Android不发送
-
-            if (fields.vTurnSpeed > 0) {
-                parts.add("route=${fields.vTurnSpeed}")
-            }
-
-            if (fields.xDistToTurn > 0) {
-                parts.add("dist:${fields.xDistToTurn}m")
-            }
 
             return parts.joinToString(",")
         }
@@ -320,10 +309,8 @@ class AmapBroadcastHandlers(
 
                 // 系统状态
                 active_carrot = 0,            // CarrotMan激活状态设为0
-                debugText = "已到达目的地",
                 source_last = "amap",
                 lastUpdateTime = System.currentTimeMillis(),
-                dataQuality = "good"
             )
 
             //Log.i(TAG, "✅ 已更新CarrotMan字段：导航状态=false，转弯类型=201(到达目的地)")
@@ -379,14 +366,6 @@ class AmapBroadcastHandlers(
             val icon = intent.getSafeIntExtra("ICON", -1)
             val newIcon = intent.getSafeIntExtra("NEW_ICON", -1)
             val nextNextTurnIcon = intent.getSafeIntExtra("NEXT_NEXT_TURN_ICON", -1)
-            
-            // ⚠️ 处理高德可能的拼写错误 ROUNG_ABOUT_NUM (G) 或 ROUND_ABOUT_NUM
-            val roundAboutNum = if (intent.hasExtra("ROUND_ABOUT_NUM")) {
-                intent.getSafeIntExtra("ROUND_ABOUT_NUM", -1)
-            } else {
-                intent.getSafeIntExtra("ROUNG_ABOUT_NUM", -1)
-            }
-            val roundAllNum = intent.getSafeIntExtra("ROUND_ALL_NUM", -1)
 
             // 位置信息
             val carLatitude = intent.getSafeDoubleExtra("CAR_LATITUDE", 0.0)
@@ -610,12 +589,6 @@ class AmapBroadcastHandlers(
                 nGoPosTime = remainTime.takeIf { it > 0 } ?: carrotManFields.value.nGoPosTime,
                 nPosSpeed = currentSpeed.toDouble(),
                 nPosAngle = carDirection.toDouble(),
-                // 协议标准字段同步
-                xPosSpeed = currentSpeed.toDouble(),
-                xPosAngle = carDirection.toDouble(),
-                totalDistance = routeAllDis,
-                routeDistance = routeAllDis,
-                routeTime = remainTime,
 
                 // 转向和导航段信息
                 nTBTDist = segRemainDis,
@@ -634,31 +607,11 @@ class AmapBroadcastHandlers(
                 // 🎯 注意：xTurnInfo, navType, navModifier 由Python端计算
                 // Android只发送原始数据：nTBTTurnType, nTBTDist等
 
-                // 计算期望速度和来源 (基于多个速度源)
-                desiredSpeed = when {
-                    correctedSpeedLimit > 0 -> correctedSpeedLimit
-                    carrotManFields.value.nRoadLimitSpeed > 0 -> carrotManFields.value.nRoadLimitSpeed
-                    else -> 0
-                },
-                desiredSource = when {
-                    correctedSpeedLimit > 0 -> "amap"
-                    carrotManFields.value.nRoadLimitSpeed > 0 -> "road"
-                    else -> "none"
-                },
-
-                // 转弯建议速度 (简化版本)
-                vTurnSpeed = carrotManFields.value.vTurnSpeed,
-
                 // 🎯 注意：atcType 由Python端根据nTBTTurnType计算
                 // Android只发送原始数据
 
-                // 导航路径数据 (基于当前位置和目标)
-                naviPaths = carrotManFields.value.naviPaths,
-
                 // 🚀 关键修复：使用effectiveLatitude/effectiveLongitude确保始终有GPS数据
                 // 位置信息 - 高德导航坐标专用于Navi字段，使用有效坐标
-                vpPosPointLatNavi = effectiveLatitude,
-                vpPosPointLonNavi = effectiveLongitude,
 
                 // 🆕 高德道路吸附坐标 (GCJ-02→WGS-84) 写入 vpPosPointLat/Lon
                 // 高德的道路吸附坐标比原始GPS更精确（已投射到道路上），
@@ -766,40 +719,16 @@ class AmapBroadcastHandlers(
                 } else {
                     carrotManFields.value.nSdiBlockDist  // 保留之前的状态
                 },
-                szSdiDescr = carrotManFields.value.szSdiDescr,
-
-                // 红绿灯数量信息
-                traffic_light_count = trafficLightNum.takeIf { it >= 0 } ?: carrotManFields.value.traffic_light_count,
-                routeRemainTrafficLightNum = routeRemainTrafficLightNum,
-                nextRoadNOAOrNot = nextRoadNOAOrNot,
-                curSegNum = curSegNum,
-                curPointNum = curPointNum,
 
                 // 🚀 NOA 增强字段更新
-                exitDirectionInfo = exitDirectionInfo,
+                curSegNum = curSegNum,
+                curPointNum = curPointNum,
                 exitNameInfo = exitNameInfo,
-                roundAboutNum = roundAboutNum,
-                roundAllNum = roundAllNum,
                 segAssistantAction = segAssistantAction,
                 sapaName = sapaName,
                 sapaDist = sapaDist,
                 sapaType = sapaType,
                 sapaNum = sapaNum,
-                nextNextAddIcon = mappedNextNextAddIcon,
-                routeRemainDisAuto = routeRemainDisAuto,
-                routeRemainTimeAuto = routeRemainTimeAuto,
-                nextSegRemainDisAuto = nextSegRemainDisAuto,
-                nextSapaDistAuto = nextSapaDistAuto,
-                sapaDistAuto = sapaDistAuto,
-                nextRoadProgressPercent = nextRoadProgressPercent,
-                cameraID = cameraID,
-                cameraPenalty = cameraPenalty,
-                newCamera = newCamera,
-                viaPOIdistance = viaPOIdistance,
-                viaPOItime = viaPOItime,
-
-                // 导航GPS时间戳更新
-                last_update_gps_time_navi = System.currentTimeMillis(),
 
                 // 时间戳更新
                 lastUpdateTime = currentTime
@@ -810,15 +739,8 @@ class AmapBroadcastHandlers(
             // 🎯 注意：ATC控制由Python端处理，Android只发送原始数据
             Companion.updateDataSource(carrotManFields, "amap_navi")
 
-            // 更新调试文本
-            carrotManFields.value = carrotManFields.value.copy(
-                debugText = Companion.generateDebugText(carrotManFields.value)
-            )
-            
-            // 🔍 验证Navi GPS字段（由LocationSensorManager持续更新主要字段）
-            val updatedFields = carrotManFields.value
-            //Log.v(TAG, "🔍 引导信息处理后GPS状态:")
-            //Log.v(TAG, "  使用effectiveLatitude策略: vpPosPointLat=${updatedFields.vpPosPointLat}, vpPosPointLatNavi=${updatedFields.vpPosPointLatNavi}")
+            //🔍 验证Navi GPS字段（由LocationSensorManager持续更新主要字段）
+            //val updatedFields = carrotManFields.value
 
             // 🚀 修复：移除立即发送，由NetworkManager统一200ms间隔发送避免闪烁
 
@@ -909,18 +831,12 @@ class AmapBroadcastHandlers(
                 
                 // 🚀 关键修复：更新Navi GPS + 转换后的WGS-84坐标写入主字段
                 carrotManFields.value = carrotManFields.value.copy(
-                    vpPosPointLatNavi = latitude,       // 导航GPS纬度（高德提供，GCJ-02）
-                    vpPosPointLonNavi = longitude,      // 导航GPS经度（高德提供，GCJ-02）
                     // 🆕 高德道路吸附坐标转WGS-84后写入主字段
                     vpPosPointLat = wgsLat,
                     vpPosPointLon = wgsLon,
                     // 协议标准位置字段同步（方向和速度）
-                    xPosAngle = bearing,
-                    xPosSpeed = speed,
                     nPosSpeed = speed,
                     nPosAngle = bearing,
-                    gps_valid = true,
-                    last_update_gps_time_navi = System.currentTimeMillis(),
                     lastUpdateTime = currentTime
                 )
                 
@@ -1010,9 +926,6 @@ class AmapBroadcastHandlers(
            // Log.d(TAG, "🛣️ 路线信息: 距离=${routeDistance}m, 时间=${routeTime}s, 类型=$routeType")
             
             carrotManFields.value = carrotManFields.value.copy(
-                routeDistance = routeDistance,
-                routeTime = routeTime,
-                routeType = routeType,
                 lastUpdateTime = System.currentTimeMillis()
             )
             
@@ -1351,8 +1264,8 @@ class AmapBroadcastHandlers(
             var carrotTrafficState = Companion.mapTrafficLightStatus(trafficLightStatus, direction)
             var leftSec = if (trafficLightStatus == 1 || trafficLightStatus == 3 || trafficLightStatus == 2 || trafficLightStatus == 4) redLightCountDown else redLightCountDown
 
-            val previousTrafficState = carrotManFields.value.traffic_state
-            val previousLeftSec = carrotManFields.value.left_sec
+            val previousTrafficState = carrotManFields.value.trafficLightState
+            val previousLeftSec = carrotManFields.value.trafficLightCountdown
 
             if (carrotTrafficState == 0 && leftSec <= 0) {
                 if (previousTrafficState == 1 && previousLeftSec <= 3) {
@@ -1364,16 +1277,9 @@ class AmapBroadcastHandlers(
             val stateChanged = (carrotTrafficState != previousTrafficState) || (leftSec != previousLeftSec)
 
             carrotManFields.value = carrotManFields.value.copy(
-                traffic_light_count = intent.getSafeIntExtra("TRAFFIC_LIGHT_COUNT", -1).takeIf { it >= 0 }
-                    ?: carrotManFields.value.traffic_light_count,
-                traffic_state = carrotTrafficState,
                 trafficLightState = carrotTrafficState,
                 trafficLightCountdown = leftSec,
                 trafficLightDistance = 0,  // compatibility field, distance not available from 60073 broadcast
-                traffic_light_direction = direction,
-                left_sec = leftSec,
-                max_left_sec = maxOf(leftSec, carrotManFields.value.max_left_sec),
-                carrot_left_sec = leftSec,
                 amap_traffic_light_status = trafficLightStatus,
                 amap_traffic_light_dir = direction,
                 amap_green_light_last_second = greenLightCountDown,
@@ -1437,8 +1343,7 @@ class AmapBroadcastHandlers(
                     szGoalName = endPOIName.takeIf { it.isNotEmpty() } ?: destinationName,
                     nGoPosDist = routeRemainDis.takeIf { it > 0 } ?: carrotManFields.value.nGoPosDist,
                     nGoPosTime = routeRemainTime.takeIf { it > 0 } ?: carrotManFields.value.nGoPosTime,
-                    lastUpdateTime = System.currentTimeMillis(),
-                    dataQuality = "good"
+                    lastUpdateTime = System.currentTimeMillis()
                 )
 
                 // 🎯 自动发送目的地信息给comma3（修复坐标顺序：经度，纬度）
@@ -1711,25 +1616,8 @@ class AmapBroadcastHandlers(
      * 处理地理位置信息广播 (KEY_TYPE: 12205)
      */
     fun handleGeolocationInfo(intent: Intent) {
-       // Log.d(TAG, "🌍 处理地理位置信息广播")
-        
-        try {
-            val adminArea = intent.getStringExtra("ADMIN_AREA") ?: ""
-            val cityName = intent.getStringExtra("CITY_NAME") ?: ""
-            val districtName = intent.getStringExtra("DISTRICT_NAME") ?: ""
-            
-            //Log.d(TAG, "🌍 地理位置: 行政区='$adminArea', 城市='$cityName', 区县='$districtName'")
-            
-                carrotManFields.value = carrotManFields.value.copy(
-                adminArea = adminArea,
-                cityName = cityName,
-                districtName = districtName,
-                    lastUpdateTime = System.currentTimeMillis()
-                )
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ 处理地理位置信息失败: ${e.message}", e)
-        }
+        // 地理位置信息已不再写入CarrotManFields（字段已清理）
+        // 如需使用，可从intent读取: ADMIN_AREA, CITY_NAME, DISTRICT_NAME
     }
 
     /**

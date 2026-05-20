@@ -118,10 +118,6 @@ class GoogleNavDataBridge(
                 gps_speed = speed.toDouble(),
                 // 🆕 P0: 补充 GPS 完整字段
                 accuracy = accuracy.toDouble(),
-                xPosLat = lat,
-                xPosLon = lon,
-                xPosAngle = headingD,
-                xPosSpeed = speed.toDouble(),
                 nPosAngle = if (speed > 0.5f && heading > 0f) headingD else cur.nPosAngle,
                 // 🆕 补充导航位置字段
                 vpPosPointLat = lat,

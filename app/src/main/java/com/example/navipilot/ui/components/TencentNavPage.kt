@@ -79,7 +79,7 @@ private fun resolveStartWgs84ForTencentRoute(
     if (currentLat != 0.0 && currentLon != 0.0) return currentLat to currentLon
     val f = fields ?: return 0.0 to 0.0
     if (f.latitude != 0.0 && f.longitude != 0.0) return f.latitude to f.longitude
-    if (f.xPosLat != 0.0 && f.xPosLon != 0.0) return f.xPosLat to f.xPosLon
+    if (f.vpPosPointLat != 0.0 && f.vpPosPointLon != 0.0) return f.vpPosPointLat to f.vpPosPointLon
     return 0.0 to 0.0
 }
 

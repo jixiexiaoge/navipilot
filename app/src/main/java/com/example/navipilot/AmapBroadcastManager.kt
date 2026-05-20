@@ -451,9 +451,6 @@ class AmapBroadcastManager(
                 carrotManFields.value = carrotManFields.value.copy(
                     vpPosPointLat = lat,
                     vpPosPointLon = lon,
-                    // 协议标准位置字段同步
-                    xPosLat = lat,
-                    xPosLon = lon,
                     lastUpdateTime = System.currentTimeMillis()
                 )
                 hasUpdate = true

@@ -136,10 +136,9 @@ class LocationSensorManager(
     fun getGpsRealtimeReport(): String {
         val fields = carrotManFields.value
         return buildString {
-            append("位置: ${fields.xPosLat}, ${fields.xPosLon}\n")
+            append("位置: ${fields.vpPosPointLat}, ${fields.vpPosPointLon}\n")
             append("速度: ${fields.vEgoKph} km/h\n")
-            append("角度: ${fields.xPosAngle}°\n")
-            append("时间: ${fields.gpsAgeMs} ms")
+            append("角度: ${fields.nPosAngle}°\n")
         }
     }
 
@@ -163,12 +162,11 @@ class LocationSensorManager(
     fun getLocationStatus(): Map<String, Any?> {
         val fields = carrotManFields.value
         return mapOf(
-            "latitude" to fields.xPosLat,
-            "longitude" to fields.xPosLon,
+            "latitude" to fields.vpPosPointLat,
+            "longitude" to fields.vpPosPointLon,
             "speed" to fields.vEgoKph,
-            "bearing" to fields.xPosAngle,
-            "accuracy" to fields.positionAccuracy,
-            "provider" to fields.szPosFrom
+            "bearing" to fields.nPosAngle,
+            "accuracy" to fields.accuracy
         )
     }
 
@@ -229,14 +227,7 @@ class LocationSensorManager(
             heading = compassAngle.toDouble(),
             accuracy = accuracy.toDouble(),
             gps_speed = speed.toDouble(),
-            // 🔄 兼容字段
-            xPosLat = lat,
-            xPosLon = lon,
-            xPosAngle = compassAngle.toDouble(),
-            vEgoKph = (speed * 3.6).toInt(),
-            positionAccuracy = accuracy.toDouble(),
-            szPosFrom = location.provider ?: "unknown",
-            gpsAgeMs = 0
+            vEgoKph = (speed * 3.6).toInt()
         )
 
         Log.d(TAG, "📍 位置更新: lat=$lat, lon=$lon, speed=${speed * 3.6}km/h")

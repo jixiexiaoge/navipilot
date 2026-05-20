@@ -490,7 +490,7 @@ class MainActivityUI(
 
         // ===== 地图相关状态 =====
         val mapService = core.userSelectedMode
-        val gpsAccuracy = carrotManFields.gps_accuracy_phone
+        val gpsAccuracy = carrotManFields.accuracy
         val positionMode = when {
             gpsAccuracy < 3.0 -> "GPS"
             gpsAccuracy < 10.0 -> "GPS"
@@ -500,12 +500,12 @@ class MainActivityUI(
         // 腾讯算路起点与 OsmMapView 一致：优先 WGS84 的 latitude/longitude，否则用 X 系列车位（避免 0,0 起点导致「起终点参数错误」）
         val tencentRouteStartLat = when {
             carrotManFields.latitude != 0.0 && carrotManFields.longitude != 0.0 -> carrotManFields.latitude
-            carrotManFields.xPosLat != 0.0 && carrotManFields.xPosLon != 0.0 -> carrotManFields.xPosLat
+            carrotManFields.vpPosPointLat != 0.0 && carrotManFields.vpPosPointLon != 0.0 -> carrotManFields.vpPosPointLat
             else -> 0.0
         }
         val tencentRouteStartLon = when {
             carrotManFields.latitude != 0.0 && carrotManFields.longitude != 0.0 -> carrotManFields.longitude
-            carrotManFields.xPosLat != 0.0 && carrotManFields.xPosLon != 0.0 -> carrotManFields.xPosLon
+            carrotManFields.vpPosPointLat != 0.0 && carrotManFields.vpPosPointLon != 0.0 -> carrotManFields.vpPosPointLon
             else -> 0.0
         }
 
@@ -580,9 +580,9 @@ class MainActivityUI(
                             }
                         }
                         else -> OsmMapView(
-                            latitude = carrotManFields.xPosLat,
-                            longitude = carrotManFields.xPosLon,
-                            bearing = carrotManFields.xPosAngle,
+                            latitude = carrotManFields.vpPosPointLat,
+                            longitude = carrotManFields.vpPosPointLon,
+                            bearing = carrotManFields.nPosAngle,
                             speedKmh = carrotManFields.vEgoKph.toDouble(),
                             isNavigating = carrotManFields.isNavigating,
                             goalLon = carrotManFields.goalPosX,
@@ -594,9 +594,9 @@ class MainActivityUI(
                             nextTurnType = carrotManFields.nTBTTurnType,
                             nextTurnText = carrotManFields.szTBTMainText,
                             laneInfoList = carrotManFields.laneInfoList,
-                            trafficState = carrotManFields.traffic_state,
-                            leftSec = carrotManFields.left_sec,
-                            trafficLightDirection = carrotManFields.traffic_light_direction,
+                            trafficState = carrotManFields.trafficLightState,
+                            leftSec = carrotManFields.trafficLightCountdown,
+                            trafficLightDirection = carrotManFields.amap_traffic_light_dir,
                             isVideoExpanded = isVideoExpanded,
                             onToggleVideo = { isVideoExpanded = !isVideoExpanded },
                             isDataCardExpanded = isDataCardExpanded,
@@ -662,9 +662,9 @@ class MainActivityUI(
                 }
                 // 非导航中：统一显示 OSM 地图
                 else -> OsmMapView(
-                    latitude = carrotManFields.xPosLat,
-                    longitude = carrotManFields.xPosLon,
-                    bearing = carrotManFields.xPosAngle,
+                    latitude = carrotManFields.vpPosPointLat,
+                    longitude = carrotManFields.vpPosPointLon,
+                    bearing = carrotManFields.nPosAngle,
                     speedKmh = carrotManFields.vEgoKph.toDouble(),
                     isNavigating = carrotManFields.isNavigating,
                     goalLon = carrotManFields.goalPosX,
@@ -676,9 +676,9 @@ class MainActivityUI(
                     nextTurnType = carrotManFields.nTBTTurnType,
                     nextTurnText = carrotManFields.szTBTMainText,
                     laneInfoList = carrotManFields.laneInfoList,
-                    trafficState = carrotManFields.traffic_state,
-                    leftSec = carrotManFields.left_sec,
-                    trafficLightDirection = carrotManFields.traffic_light_direction,
+                    trafficState = carrotManFields.trafficLightState,
+                    leftSec = carrotManFields.trafficLightCountdown,
+                    trafficLightDirection = carrotManFields.amap_traffic_light_dir,
                     isVideoExpanded = isVideoExpanded,
                     onToggleVideo = { isVideoExpanded = !isVideoExpanded },
                     isDataCardExpanded = isDataCardExpanded,

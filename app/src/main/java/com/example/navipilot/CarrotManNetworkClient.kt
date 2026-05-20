@@ -57,18 +57,20 @@ class CarrotManNetworkClient(
             packetCarrotIndex: Long,
             currentTimeMs: Long = System.currentTimeMillis(),
         ): JSONObject = JSONObject().apply {
+            // ===== 组1: 基础通信 (3字段) =====
             put("carrotIndex", packetCarrotIndex)
             put("epochTime", currentTimeMs / 1000)
-            put("timestamp", currentTimeMs / 1000.0)
             put("timezone", fields.timezone.ifEmpty { "Asia/Shanghai" })
-            put("heading", fields.heading.takeIf { it != 0.0 } ?: fields.bearing)
 
+            // ===== 组2: 目的地 (3字段) =====
             put("goalPosX", fields.goalPosX)
             put("goalPosY", fields.goalPosY)
             put("szGoalName", fields.szGoalName)
 
+            // ===== 组3: 道路限速 (1字段，触发整个导航数据块) =====
             put("nRoadLimitSpeed", fields.nRoadLimitSpeed)
 
+            // ===== 组4: SDI 电子眼 (11字段) =====
             put("nSdiType", fields.nSdiType)
             put("nSdiSpeedLimit", fields.nSdiSpeedLimit)
             put("nSdiSection", fields.nSdiSection)
@@ -82,28 +84,9 @@ class CarrotManNetworkClient(
             put("nSdiPlusBlockType", fields.nSdiPlusBlockType)
             put("nSdiPlusBlockSpeed", fields.nSdiPlusBlockSpeed)
             put("nSdiPlusBlockDist", fields.nSdiPlusBlockDist)
-            put("nSdiAverageSpeed", fields.nSdiAverageSpeed)
             put("roadcate", fields.roadcate)
-            put("nLaneCount", fields.nLaneCount)
-            put("trafficLevel", fields.trafficLevel)
-            put("trafficDescription", fields.trafficDescription)
-            put("trafficLightState", fields.trafficLightState)
-            put("trafficLightDistance", fields.trafficLightDistance)
-            put("trafficLightCountdown", fields.trafficLightCountdown)
-            put("exitNameInfo", fields.exitNameInfo)
-            put("sapaName", fields.sapaName)
-            put("sapaDist", fields.sapaDist)
-            put("sapaType", fields.sapaType)
-            put("sapaNum", fields.sapaNum)
-            put("adminArea", fields.adminArea)
-            put("cityName", fields.cityName)
-            put("districtName", fields.districtName)
-            put("situationType", fields.situationType)
-            put("situationDistance", fields.situationDistance)
-            put("situationDescription", fields.situationDescription)
-            put("routeDistance", fields.routeDistance)
-            put("routeTime", fields.routeTime)
 
+            // ===== 组5: TBT 转弯导航 (9字段) =====
             put("nTBTDist", fields.nTBTDist)
             put("nTBTTurnType", fields.nTBTTurnType)
             put("szTBTMainText", fields.szTBTMainText)
@@ -114,93 +97,27 @@ class CarrotManNetworkClient(
             put("nTBTTurnTypeNext", fields.nTBTTurnTypeNext)
             put("szTBTMainTextNext", fields.szTBTMainTextNext)
 
+            // ===== 组6: 目的地剩余 (3字段) =====
             put("nGoPosDist", fields.nGoPosDist)
             put("nGoPosTime", fields.nGoPosTime)
             put("szPosRoadName", fields.szPosRoadName)
 
+            // ===== 组7: 导航 GPS 位置 (4字段) =====
+            put("vpPosPointLat", fields.vpPosPointLat)
+            put("vpPosPointLon", fields.vpPosPointLon)
+            put("nPosAngle", fields.nPosAngle)
+            put("nPosSpeed", fields.nPosSpeed)
+
+            // ===== 组8: 手机 GPS 回退 (4字段) =====
             put("latitude", fields.latitude)
             put("longitude", fields.longitude)
             put("heading", fields.heading)
             put("accuracy", fields.accuracy)
             put("gps_speed", fields.gps_speed)
 
-            put("vpPosPointLat", fields.vpPosPointLat)
-            put("vpPosPointLon", fields.vpPosPointLon)
-            put("nPosAngle", fields.nPosAngle)
-            put("nPosSpeed", fields.nPosSpeed)
-
-            put("isNavigating", fields.isNavigating)
-
-            val ts = fields.tencentSlice
-            put("tCameraType", ts.tCameraType)
-            put("tCameraDist", ts.tCameraDist)
-            put("tCameraSpeedLimit", ts.tCameraSpeedLimit)
-            put("remainingTrafficLights", ts.remainingTrafficLights)
-            put("passedDistance", ts.passedDistance)
-            put("passedTime", ts.passedTime)
-            put("isOnMainRoad", ts.isOnMainRoad)
-            put("trafficJamAhead", ts.trafficJamAhead)
-            put("trafficJamDistance", ts.trafficJamDistance)
-            put("trafficJamDuration", ts.trafficJamDuration)
-            put("trafficJamStatus", ts.trafficJamStatus)
-            put("gpsSignalStatus", ts.gpsSignalStatus)
-            put("roadGrade", ts.roadGrade)
-            put("roadKind", ts.roadKind)
-            put("tollEntranceName", ts.tollEntranceName)
-            put("tollExitName", ts.tollExitName)
-            put("tollFee", ts.tollFee)
-
+            // ===== 组9: 命令通道 (2字段) =====
             put("carrotCmd", fields.carrotCmd)
             put("carrotArg", fields.carrotArg)
-            put("carrotCmdIndex", fields.carrotCmdIndex)
-            put("carcruiseSpeed", fields.carcruiseSpeed)
-
-            // === 高德原始 ICON 和 NOA 增强字段 ===
-            put("amapIcon", fields.amapIcon)
-            put("amapIconNext", fields.amapIconNext)
-            put("exitDirectionInfo", fields.exitDirectionInfo)
-            put("roundAboutNum", fields.roundAboutNum)
-            put("roundAllNum", fields.roundAllNum)
-            put("segAssistantAction", fields.segAssistantAction)
-            put("nextNextAddIcon", fields.nextNextAddIcon)
-            put("routeRemainDisAuto", fields.routeRemainDisAuto)
-            put("routeRemainTimeAuto", fields.routeRemainTimeAuto)
-            put("nextSegRemainDisAuto", fields.nextSegRemainDisAuto)
-            put("nextSapaDistAuto", fields.nextSapaDistAuto)
-            put("sapaDistAuto", fields.sapaDistAuto)
-            put("nextRoadProgressPercent", fields.nextRoadProgressPercent)
-            put("cameraID", fields.cameraID)
-            put("cameraPenalty", fields.cameraPenalty)
-            put("newCamera", fields.newCamera)
-            put("viaPOIdistance", fields.viaPOIdistance)
-            put("viaPOItime", fields.viaPOItime)
-
-            // === 地图/导航状态字段 ===
-            put("mapState", fields.mapState)
-            put("extraState", fields.extraState)
-            put("navStatus", fields.navStatus)
-            put("routeType", fields.routeType)
-            put("speedLimitType", fields.speedLimitType)
-
-            // === 高德 SDK 并行路/地图朝向/路口大图状态 ===
-            put("amapParallelElevatedFlag", fields.amapParallelElevatedFlag)
-            put("amapParallelMainSideFlag", fields.amapParallelMainSideFlag)
-            put("amapNaviMapMode", fields.amapNaviMapMode)
-            put("amapSdkCrossVisible", fields.amapSdkCrossVisible)
-            put("amapSdkModeCrossVisible", fields.amapSdkModeCrossVisible)
-
-            put("leftLaneVehicle", ts.leftLaneVehicle)
-            put("rightLaneVehicle", ts.rightLaneVehicle)
-            put("leftLaneVehicleDist", ts.leftLaneVehicleDist)
-            put("rightLaneVehicleDist", ts.rightLaneVehicleDist)
-            put("laneDetectFps", ts.laneDetectFps)
-            put("laneDetectSource", ts.laneDetectSource)
-            put("leftLanePedestrian", ts.leftLanePedestrian)
-            put("rightLanePedestrian", ts.rightLanePedestrian)
-            put("leftLanePedestrianDist", ts.leftLanePedestrianDist)
-            put("rightLanePedestrianDist", ts.rightLanePedestrianDist)
-            put("leftLanePedestrianConfidence", ts.leftLanePedestrianConfidence)
-            put("rightLanePedestrianConfidence", ts.rightLanePedestrianConfidence)
         }
     }
 

@@ -35,7 +35,7 @@ object NetworkPerformanceUtils {
         if (old.nSdiSpeedLimit != new.nSdiSpeedLimit) return true
         
         // 交通灯状态变化
-        if (old.traffic_state != new.traffic_state) return true
+        if (old.trafficLightState != new.trafficLightState) return true
         
         // 命令变化 - 立即发送
         if (old.carrotCmd != new.carrotCmd) return true

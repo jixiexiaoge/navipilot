@@ -296,7 +296,7 @@ class ConditionalExperimentManager(
         if (!prefs.getBoolean("ce_navigation", false)) return false
         
         // 使用7705回传的tbtDist
-        val turnDistance = carrotManFields.tbtDist
+        val turnDistance = carrotManFields.nTBTDist
         
         // tbtDist > 0 表示有有效转弯指令
         if (turnDistance <= 0) return false
@@ -326,7 +326,7 @@ class ConditionalExperimentManager(
     ): Boolean {
         if (!prefs.getBoolean("ce_sdi", false)) return false
         
-        val sdiDistance = carrotManFields.sdiDist
+        val sdiDistance = carrotManFields.nSdiDist
         if (sdiDistance <= 0) return false
         
         val distanceThreshold = prefs.getInt("ce_sdi_distance", 300)

@@ -137,7 +137,7 @@ class MainActivityLifecycle(
             if (core.permissionManager.isLocationPermissionGranted()) {
                 val fields = core.carrotManFields.value
                 // 如果位置数据为空（GPS未启动），立即启动位置更新
-                if (fields.xPosLat == 0.0 && fields.xPosLon == 0.0) {
+                if (fields.latitude == 0.0 && fields.longitude == 0.0) {
                     Log.i(TAG, "📍 检测到位置权限已授予但GPS未启动，立即启动位置更新")
                     core.locationSensorManager.startLocationUpdates()
                 }
@@ -1084,7 +1084,7 @@ class MainActivityLifecycle(
                         Log.i(TAG, "📊 驾驶评分开始采集 (connected=$isConnected, onroad=$isOnroad)")
                         wasCollecting = true
                         val deviceSpd = carrotManFields.vEgoKph.toFloat()
-                        val phoneSpd = carrotManFields.xPosSpeed.toFloat()
+                        val phoneSpd = carrotManFields.gps_speed.toFloat()
                         lastSpeed = if (deviceSpd > 0) deviceSpd else phoneSpd
                         lastUpdateTime = System.currentTimeMillis()
                     } else if (!shouldCollect && wasCollecting) {
@@ -1103,7 +1103,7 @@ class MainActivityLifecycle(
                         
                         // 速度来源：优先使用设备车速，其次使用手机GPS速度
                         val deviceSpeed = carrotManFields.vEgoKph.toFloat()
-                        val phoneGpsSpeed = carrotManFields.xPosSpeed.toFloat() // km/h from phone GPS
+                        val phoneGpsSpeed = carrotManFields.gps_speed.toFloat() // km/h from phone GPS
                         val currentSpeed = if (deviceSpeed > 0) deviceSpeed else phoneGpsSpeed
                         
                         // 计算加速度 (m/s²)

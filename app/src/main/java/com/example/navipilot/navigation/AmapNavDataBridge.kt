@@ -263,15 +263,11 @@ class AmapNavDataBridge(
                 heading = bearing,
                 accuracy = location.accuracy.toDouble(),
                 gps_speed = (spd.coerceAtLeast(0f)).toDouble(),
-                xPosLat = wgsLat,
-                xPosLon = wgsLon,
-                xPosAngle = bearing,
                 nPosSpeed = spd.toDouble(),
                 // 🆕 补充导航位置字段（与 vpPosPointLat/Lon 对齐）
                 vpPosPointLat = wgsLat,
                 vpPosPointLon = wgsLon,
                 nPosAngle = bearing,
-                vEgoKph = kph,
                 isNavigating = true,
                 source_last = "amap_mobile"
             )
@@ -319,21 +315,9 @@ class AmapNavDataBridge(
                 szNearDirName = tbtText,
                 szPosRoadName = curRoad,
                 nPosSpeed = info.currentSpeed.toDouble(),
-                vEgoKph = info.currentSpeed,
                 roadcate = if (limit > 0) inferRoadcate(limit, cur.roadcate, curRoad) else cur.roadcate,
                 // 🆕 P0: 补充 NOA 增强字段
-                exitDirectionInfo = exitDir.ifBlank { cur.exitDirectionInfo },
                 exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
-                roundAboutNum = when {
-                    roundAbout > 0 -> roundAbout
-                    !isRoundaboutTurn(resolvedTurn) -> -1
-                    else -> cur.roundAboutNum
-                },
-                roundAllNum = when {
-                    roundTotal > 0 -> roundTotal
-                    !isRoundaboutTurn(resolvedTurn) -> -1
-                    else -> cur.roundAllNum
-                },
                 isNavigating = true,
                 source_last = "amap_mobile"
             )

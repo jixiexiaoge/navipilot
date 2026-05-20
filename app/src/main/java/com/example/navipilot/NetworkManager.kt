@@ -240,19 +240,12 @@ class NetworkManager(
 
             // 更新CarrotManFields中的接收数据字段
             carrotManFields.value = carrotManFields.value.copy(
-                carrot2 = statusData.carrot2,
-                isOnroad = statusData.isOnroad,
-                carrotRouteActive = statusData.carrotRouteActive,
-                ip = statusData.ip,
-                port = statusData.port,
-                logCarrot = statusData.logCarrot,
-                vCruiseKph = statusData.vCruiseKph,
-                vEgoKph = statusData.vEgoKph,
-                tbtDist = statusData.tbtDist,
-                sdiDist = statusData.sdiDist,
                 active = statusData.active,
+                isOnroad = statusData.isOnroad,
                 xState = statusData.xState,
+                vEgoKph = statusData.vEgoKph,
                 trafficState = statusData.trafficState,
+                vCruiseKph = statusData.vCruiseKph,
                 carcruiseSpeed = statusData.carcruiseSpeed,
                 lastUpdateTime = statusData.lastUpdateTime
             )
@@ -1048,8 +1041,7 @@ class NetworkManager(
                 // 1. 更新 CarrotManFields 中的命令字段（统一数据源）
                 carrotManFields.value = carrotManFields.value.copy(
                     carrotCmd = command,
-                    carrotArg = arg,
-                    carrotCmdIndex = carrotCmdIndex  // 🆕 更新命令索引
+                    carrotArg = arg
                 )
                 
                 Log.d(TAG, "🔄 已更新CarrotManFields: carrotCmd=$command, carrotArg=$arg, carrotCmdIndex=$carrotCmdIndex")
