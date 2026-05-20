@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/openpilot 设备联动，通过 UDP/TCP/HTTP 协议发送导航数据至 openpilot 设备辅助自动驾驶，同时提供驾驶行为评分。
 
 **版本**：v260516 (versionCode: 260516)
-**包名**：com.example.carrotamap / com.example.navipilot
+**包名**：com.example.navipilot（源码命名空间已统一）
 
 ---
 
@@ -36,9 +36,13 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/ope
 ./gradlew detekt
 ```
 
-**ABI 配置**：通过 `navipilot.abis` 属性指定编译架构（默认 `arm64-v8a,armeabi-v7a`）：
+**ABI 配置**：通过 `navipilot.abis` 属性指定编译架构（**默认仅 `arm64-v8a`**，减少 APK 体积 40-50%）：
 ```bash
-./gradlew assembleDebug -Pnavipilot.abis="arm64-v8a"
+# 仅编译 arm64-v8a（默认）
+./gradlew assembleDebug
+
+# 同时编译 armeabi-v7a（增加 APK 体积）
+./gradlew assembleDebug -Pnavipilot.abis="arm64-v8a,armeabi-v7a"
 ```
 
 ---
@@ -131,31 +135,69 @@ fun shouldOvertake(): Boolean {
 ## 核心模块
 
 ```
-com.example.carrotamap/
-├── CarrotManDataModels.kt      # 数据模型（UDP 7706/7705 协议定义）
-├── CarrotParamClient.kt        # HTTP 7000 — comma3 参数读写 REST API
-├── CarrotManNetworkClient.kt   # UDP/TCP 导航数据发送
-├── AmapBroadcastManager.kt     # 高德车机版广播接收
-├── XiaogeDataReceiver.kt       # 设备数据接收（UDP 7705）
-├── AutoOvertakeManager.kt      # 自动超车辅助决策
-├── DrivingScoreEngine.kt       # 驾驶评分引擎（五维评分）
+com.example.navipilot/
+├── CarrotManDataModels.kt          # 数据模型（UDP 7706/TCP 7711 协议定义）
+├── CarrotParamClient.kt            # HTTP 7000 — comma3 参数读写 REST API
+├── CarrotManNetworkClient.kt       # UDP/TCP 导航数据发送
+├── AmapBroadcastManager.kt         # 高德车机版广播接收（Channel 背压控制）
+├── AmapBroadcastHandlers.kt        # 高德广播数据解析器
+├── XiaogeDataReceiver.kt           # 设备数据接收（TCP 7711，心跳 + 自动重连）
+├── AutoOvertakeManager.kt          # 自动超车辅助决策（三帧防抖 + ML Kit）
+├── ConditionalExperimentManager.kt # 条件实验模式管理器（7 种触发条件）
+├── LocationSensorManager.kt        # GPS 定位传感器管理
+├── NetworkManager.kt               # 网络层统一编排器
+├── DeviceManager.kt                # 设备生命周期管理
+├── PermissionManager.kt            # Android 权限管理
 │
 ├── navigation/
-│   ├── OsmNavigationManager.kt     # OSM 导航模式
-│   ├── TencentNaviManager.kt       # 腾讯导航 SDK 模式
 │   ├── AmapNavDataBridge.kt        # 高德导航数据桥接
-│   ├── GoogleNavManager.kt         # Google Navigation SDK 管理器
-│   └── GoogleNavDataBridge.kt      # Google 导航数据桥接到 CarrotManFields
+│   ├── GoogleNavManager.kt         # Google Navigation SDK 管理器（完整实现）
+│   ├── GoogleNavDataBridge.kt      # Google 导航数据桥接到 CarrotManFields
+│   ├── TencentNavDataBridge.kt     # 腾讯导航数据桥接（完整实现）
+│   ├── CoordinateConverter.kt      # GCJ-02 ↔ WGS-84 坐标转换
+│   ├── GeoUtils.kt                 # 地理计算工具
+│   └── TurnTypeTextInference.kt    # 转向类型文本推断
 │
 ├── ui/components/
-│   ├── OsmMapView.kt           # OSM 地图组件
-│   ├── MapSearchService.kt     # 统一地点搜索（高德SDK > 腾讯 > Photon）
-│   ├── NavModeSwitcher.kt      # 导航模式切换
-│   ├── GoogleNavPage.kt        # Google NavigationView 嵌入式导航页面
-│   └── LedMatrixManager.kt     # LED 点阵屏控制（蓝牙）
+│   ├── OsmMapView.kt               # OSM 地图组件（MapLibre GL）
+│   ├── AmapMobileNavPage.kt        # 高德手机 SDK 导航页（AMapNaviView 内嵌）
+│   ├── GoogleNavPage.kt            # Google NavigationView 嵌入式导航页面
+│   ├── TencentNavPage.kt           # 腾讯导航 SDK 页面（完整实现）
+│   ├── MapSearchService.kt         # 统一地点搜索（高德SDK > Web REST > 腾讯 > Photon）
+│   ├── LedMatrixManager.kt         # LED 点阵屏控制（蓝牙 + 20 级优先级引擎）
+│   ├── ModelSwitcherPage.kt        # openpilot 驾驶模型管理器
+│   ├── AutoSwitchExperimentPage.kt # 条件实验模式配置页
+│   ├── OnboardingScreen.kt         # 新手引导（5 页）
+│   ├── HelpPage.kt                 # 帮助中心（FAQ + WebView 管理器）
+│   ├── ProfilePage.kt              # 个人中心（评分概览、驾驶风格标签）
+│   ├── SshConfigDialog.kt          # SSH 连接配置弹窗
+│   └── PrivacyDialog.kt            # 隐私声明对话框
 │
-├── scoring/                     # 驾驶评分系统
-└── di/AppModule.kt             # Koin 依赖注入
+├── scoring/                        # 驾驶评分系统
+│   ├── DrivingScoreEngine.kt       # 五维评分引擎
+│   ├── DrivingDataCollector.kt     # 数据采集器
+│   └── DrivingSession.kt           # 驾驶会话数据模型
+│
+├── data/
+│   ├── PreferenceRepository.kt     # 偏好设置仓库
+│   ├── ModelDownloadManager.kt     # 模型下载管理
+│   ├── ModelDownloadState.kt       # 下载状态
+│   └── SshConnectionManager.kt     # SSH 连接管理（SSHJ）
+│
+├── di/AppModule.kt                 # Koin 依赖注入模块
+│
+└── ui/
+    ├── driving/
+    │   ├── DrivingReportScreen.kt      # 驾驶报告界面（五维雷达图）
+    │   └── DrivingReportShareImage.kt  # 分享图片生成
+    │
+    ├── discovery/
+    │   └── CommaDeviceDiscovery.kt     # comma3 设备发现（NSD/mDNS）
+    │
+    └── theme/
+        ├── Color.kt                    # Material 3 配色
+        ├── Theme.kt                    # 主题定义
+        └── Type.kt                     # 字体排版
 ```
 
 ---
@@ -183,22 +225,23 @@ comma3 设备 → XiaogeDataReceiver（UDP 7705）→ AutoOvertakeManager → ZM
 |----------|------|------|
 | **UDP 7706** | → comma3 | 实时导航数据（GPS、限速、TBT、电子眼） |
 | **TCP 7709** | → comma3 | 路线规划成功后的路线点坐标 |
-| **UDP 7705** | ← comma3 | 接收设备状态（车速、巡航状态） |
-| **HTTP 7000** | ← comma3 | 参数读写 REST API (`/api/param_set`, `/api/params_bulk`) |
+| **TCP 7711** | ← comma3 | 接收设备状态（carState、modelV2、controlsState JSON） |
+| **HTTP 7000** | ↔ comma3 | 参数读写 REST API (`/api/param_set`, `/api/params_bulk`) |
 | **ZMQ 7710** | → comma3 | 控制命令（超车变道指令） |
 
 ---
 
 ## 导航模式
 
-应用支持四种导航模式，通过 `NavModeSwitcher` 切换：
+应用支持多种导航模式，通过 `NavModeSwitcher` 切换：
 
-| 模式 | 坐标系 | 集成方式 | 成本 |
-|------|--------|----------|------|
-| **AMAP（默认）** | GCJ-02 | 广播接收器 | 免费 |
-| **TENCENT** | GCJ-02 | 腾讯导航 SDK v7.5.0 | 需授权 |
-| **OSM** | WGS-84 | OpenStreetMap + MapLibre GL | 免费 |
-| **GOOGLE** | WGS-84 | Google Navigation SDK | 需 API Key |
+| 模式 | 坐标系 | 集成方式 | 成本 | 状态 |
+|------|--------|----------|------|------|
+| **AMAP（高德车机版）** | GCJ-02 | 广播接收器 | 免费 | ✅ 生产就绪（默认） |
+| **AMAP_MOBILE（高德手机 SDK）** | GCJ-02 | AMapNaviView 内嵌 | 免费 | ✅ 生产就绪 |
+| **GOOGLE** | WGS-84 | Google Navigation SDK v7.0.0 | 需 API Key | ✅ 生产就绪 |
+| **TENCENT** | GCJ-02 | 腾讯导航 SDK v7.5.0 | 需授权 | ✅ 完整实现 |
+| **OSM** | WGS-84 | OpenStreetMap + MapLibre GL | 免费 | ⚠️ 框架就绪 |
 
 ---
 

@@ -7,6 +7,7 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 **核心功能**：接收高德/腾讯导航数据，通过 UDP/TCP/HTTP 协议发送至 openpilot 设备，辅助自动驾驶；同时记录驾驶行为，提供评分报告。
 
 **版本号**：v260516 (versionCode: 260516)
+**包名**：com.example.navipilot（源码命名空间已统一为 navipilot）
 
 ---
 
@@ -116,12 +117,13 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，专注于与 c
 #### TCP 7709 - 路线点发送
 路线规划成功后发送路线点坐标，用于 comma3 弯道限速计算
 
-#### UDP 7705 - 设备状态接收
-接收 comma3 设备广播（JSON 格式）：
-- 设备 IP、端口、版本信息
-- 巡航速度、实际车速
-- 自动驾驶激活状态
-- 转弯距离、限速点距离
+#### TCP 7711 - 设备状态接收
+接收 comma3 设备广播（JSON 格式），通过 `XiaogeDataReceiver` 管理：
+- **carState**：设备 IP、端口、版本信息、巡航速度、实际车速、自动驾驶激活状态
+- **modelV2**：前车检测数据（lead0/lead1）、车道线信息、路径曲率
+- **controlsState**：转弯距离、限速点距离、控制状态
+- **心跳机制**：5s 间隔心跳，4s 超时自动重连
+- **指数退避重连**：5s → 10s → 20s → 40s → 60s max
 
 #### HTTP 7000 - 参数读写 REST API
 `CarrotParamClient.kt` 提供毫秒级参数读写：
@@ -467,14 +469,16 @@ ui/
 
 | 模块 | 文件数 | 总行数（估算） | 关键组件行数 |
 |------|--------|---------------|-------------|
-| **核心入口** | 5 | ~2,730 | MainActivityCore (2,100) |
-| **网络通信** | 4 | ~1,657 | XiaogeDataReceiver (945) |
-| **导航集成** | 10 | ~2,500 | AmapBroadcastManager (632), GoogleNavManager (304) |
-| **决策系统** | 4 | ~2,179 | AutoOvertakeManager (1,649) |
-| **UI 组件** | 25 | ~10,000+ | OsmMapView (1,367), AmapMobileNavPage (1,100+), DrivingReportScreen (605), LedMatrixManager (830) |
-| **基础设施** | 10 | ~1,800 | SshConnectionManager (560) |
-| **其他** | 9 | ~1,500 | CarrotManDataModels (400) |
-| **总计** | **67** | **~22,366** | - |
+| **核心入口** | 7 | ~4,000 | MainActivityCore (1,900), MainActivityUI (2,700), MainActivityLifecycle (1,800) |
+| **网络通信** | 5 | ~5,500 | CarrotManNetworkClient (2,100), NetworkManager (1,700), XiaogeDataReceiver (1,400) |
+| **导航集成** | 8 | ~8,000 | AmapBroadcastManager (1,000), AmapBroadcastHandlers (3,500), GoogleNavManager (300), TencentNavPage (1,000) |
+| **决策系统** | 2 | ~3,000 | AutoOvertakeManager (2,300), ConditionalExperimentManager (750) |
+| **UI 组件** | 16 | ~14,000 | OsmMapView (1,367), AmapMobileNavPage (1,200), DrivingReportScreen (600), LedMatrixManager (830), ModelSwitcherPage (900), TencentNavPage (1,000) |
+| **数据与存储** | 4 | ~2,000 | PreferenceRepository, ModelDownloadManager, SshConnectionManager (600), DrivingDataCollector |
+| **评分系统** | 3 | ~1,000 | DrivingScoreEngine (265), DrivingSession, DrivingDataCollector |
+| **基础设施** | 6 | ~1,500 | AppModule, SecurePrefs, ErrorReporter, Result |
+| **其他** | 10 | ~3,000 | CarrotManDataModels (750), Constants (275), PermissionManager (550), LocationSensorManager (315) |
+| **总计** | **67** | **~42,000** | - |
 
 ---
 
@@ -1032,7 +1036,7 @@ DisposableEffect(Unit) {
 
 #### 工作原理
 
-**核心机制**：集成腾讯导航 SDK v7.5.0，通过 `NavigatorDrive` API 实现路线规划和导航引导。
+**核心机制**：集成腾讯导航 SDK v7.5.0，通过 `TencentNavPage` 和 `TencentNavDataBridge` 实现完整的导航功能。
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -1106,19 +1110,20 @@ class TencentNavDataBridge(
 
 #### 当前状态
 
-**⚠️ 框架就绪，待配置**
+**✅ 完整实现**
 
 - ✅ **已完成**：
-  - `TencentNaviManager` 类结构
-  - `TencentNavDataBridge` 桥接器框架
+  - `TencentNavPage` 完整 UI 组件（~1,000 行）
+  - `TencentNavDataBridge` 桥接器（完整实现）
   - 坐标转换逻辑（WGS-84 ↔ GCJ-02）
   - CarrotManFields 集成接口
+  - ProGuard 规则保护（R 类字段保护）
+  - Theme.Navipilot 主题适配（MaterialComponents 属性解析）
+  - AAPT2 R 类生成器 Bug 修补（ASM 字节码注入）
 
-- ⏳ **待完成**：
-  - 腾讯导航 SDK 授权配置
-  - `NavigatorDrive` API 调用
-  - 观察者接口实现
-  - UI 组件集成
+- ⚠️ **注意事项**：
+  - 需要腾讯导航 SDK 授权密钥（在腾讯开放平台申请）
+  - 已移除 MapGestureListener（SDK 版本兼容性问题）
 
 #### 优势与限制
 
@@ -1136,11 +1141,76 @@ class TencentNavDataBridge(
 
 ---
 
-### 模式 4: OSM（OpenStreetMap）— 开源自研模式
+### 模式 4: AMAP_MOBILE（高德手机 SDK）— 完整导航体验
 
 #### 工作原理
 
-**核心机制**：基于 OpenStreetMap 数据 + MapLibre GL 渲染 + 自研导航引擎（规划中）。
+**核心机制**：集成高德导航 SDK（AMapNaviView），提供与官方高德地图 App 一致的导航体验。
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ AmapMobileNavPage（Compose 页面）                         │
+│ • AndroidView 嵌入 AMapNaviView                          │
+│ • 管理 SDK 生命周期                                       │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 初始化
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ AMapNaviView（高德官方导航控件）                          │
+│ • 路口大图、车道引导、电子眼播报                           │
+│ • 实时路况、实景路口大图                                   │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 导航事件回调
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ AmapNaviSdkUiBridge（SDK 回调监听器）                     │
+│ • 实现 AMapNaviListener 接口                              │
+│ • 监听导航状态、路线规划、导航事件                         │
+└────────────────┬─────────────────────────────────────────┘
+                 │ 数据桥接
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ AmapNavDataBridge → CarrotManFields                      │
+│ • GCJ-02 → WGS-84 转换                                   │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### 关键特性
+
+**1. 算路策略配置**
+- 避拥堵、避高速、避收费、高速优先
+- 支持多条路线选择
+
+**2. 显示偏好**
+- 3D 倾斜地图
+- 鹰眼地图
+- 鹰巢路口大图
+- 实景路口大图
+- 模型路口大图
+
+**3. 模拟导航**
+- Debug 模式支持 5x 速度模拟（台架调试）
+
+#### 优势与限制
+
+**✅ 优势**：
+- **完整功能**：路口大图、车道引导、电子眼播报，与官方 App 一致
+- **免费使用**：无需付费，仅需高德开发者账号
+- **稳定可靠**：官方 SDK，更新及时
+- **主动控制**：可编程控制导航行为（路线规划、显示偏好等）
+
+**❌ 限制**：
+- **需要 SDK 集成**：需要集成高德导航 SDK（合并 JAR）
+- **坐标转换**：需 GCJ-02 → WGS-84 转换
+- **APK 体积**：SDK 体积较大（~50MB）
+
+---
+
+### 模式 5: OSM（OpenStreetMap）— 开源自研模式
+
+#### 工作原理
+
+**核心机制**：基于 OpenStreetMap 数据 + MapLibre GL 渲染 + 自研导航引擎（框架就绪）。
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -1373,7 +1443,7 @@ NavModeSwitcher 显示模式选择
 - **语言**：Kotlin
 - **UI**：Jetpack Compose + Material 3
 - **地图**：MapLibre（OSM 瓦片），高德 3D 地图 SDK（JAR 合并包）
-- **导航**：高德导航 SDK（合并 JAR 11.1.200）、Google Navigation SDK (7.0.0)、腾讯地图导航 SDK（待授权）
+- **导航**：高德导航 SDK（合并 JAR 11.1.200，包含 3D 地图 + 导航 + 搜索 + 定位）、Google Navigation SDK (7.0.0)、腾讯地图导航 SDK (7.5.0，完整实现）
 - **搜索**：高德搜索 SDK（合并 JAR 内）、高德 Web REST API（备用）、Photon / Nominatim
 - **网络**：Kotlin Coroutines、OkHttp、Gson
 - **依赖注入**：Koin (3.5.3)
@@ -1417,7 +1487,7 @@ NavModeSwitcher 显示模式选择
 **当前版本**：2.6 (versionCode: 260516, versionName: v260516)
 
 **更新历史**：
-- 2.6：新增高德手机 SDK 导航（AMapMobileNavPage）、驾驶报告系统（DrivingReportScreen）、模型下载与管理（ModelSwitcherPage）、条件实验模式 7 条件（ConditionalExperimentManager）、SSH 文件上传/远程命令（SshConnectionManager）、LED 自动显示引擎（20 级优先级 P1-P20）、新手引导 5 页（OnboardingScreen）、帮助中心/FAQ（HelpPage）、隐私声明（PrivacyDialog）；移除腾讯 SDK（TencentNavPage 删除）；修复 AAPT2 R 类生成 Bug（ASM 字节码注入）
+- 2.6：新增高德手机 SDK 导航（AmapMobileNavPage）、驾驶报告系统（DrivingReportScreen）、模型下载与管理（ModelSwitcherPage）、条件实验模式 7 条件（ConditionalExperimentManager）、SSH 文件上传/远程命令（SshConnectionManager）、LED 自动显示引擎（20 级优先级 P1-P20）、新手引导 5 页（OnboardingScreen）、帮助中心/FAQ（HelpPage）、隐私声明（PrivacyDialog）；腾讯导航 SDK 完整实现（TencentNavPage，~1,000 行）；修复 AAPT2 R 类生成 Bug（ASM 字节码注入）；TCP 7711 替代 UDP 7705；包名统一为 com.example.navipilot；LocationSensorManager 修复 GPS 数据写入；默认仅编译 arm64-v8a（减少 APK 体积 40-50%）
 - 2.5：UI 响应式布局优化（竖屏 2/3 地图 + 1/3 控制面板）；引导页更新；OSM 地图搜索改为高德 Android SDK 优先 + 可选 Web REST / 腾讯 / Photon 链路
 - 2.4：架构重构（协调器模式拆分 MainActivity）
 - 2.3：Google Navigation SDK 集成
