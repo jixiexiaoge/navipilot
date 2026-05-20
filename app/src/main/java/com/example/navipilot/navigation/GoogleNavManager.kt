@@ -259,20 +259,11 @@ class GoogleNavManager(
         Log.i(TAG, "  路线超时: ${routeTimeoutMs}ms")
 
         try {
-            // 构建路线请求
-            val destinationBuilder = Waypoint.builder().setLatLng(destLat, destLon)
-            
-            // 如果提供了起点坐标，设置起点（否则使用当前GPS位置）
-            val pendingRoute = if (startLat != 0.0 && startLon != 0.0) {
-                Log.i(TAG, "使用指定起点: ($startLat, $startLon)")
-                val origin = Waypoint.builder().setLatLng(startLat, startLon).build()
-                val destination = destinationBuilder.build()
-                nav.setDestinations(listOf(origin, destination))
-            } else {
-                Log.i(TAG, "使用当前GPS位置作为起点")
-                val destination = destinationBuilder.build()
-                nav.setDestination(destination)
-            }
+            // 构建路线请求 — 始终只设置目的地，SDK 自动使用当前 GPS 作为起点
+            // 使用 setDestinations（复数）而非 setDestination（单数），确保 SDK 正确触发路线计算
+            Log.i(TAG, "使用当前GPS位置作为起点")
+            val destination = Waypoint.builder().setLatLng(destLat, destLon).build()
+            val pendingRoute = nav.setDestinations(listOf(destination))
 
             Log.i(TAG, "等待路线计算结果...")
 

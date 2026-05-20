@@ -42,16 +42,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.navipilot.CarrotManNetworkClient
 import com.example.navipilot.MainActivityUIComponents
-import com.example.navipilot.navigation.OsmNavigationManager
-import com.example.navipilot.navigation.OsmNavDest
-import com.example.navipilot.navigation.RouteInfo
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -59,13 +50,11 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import com.example.navipilot.ui.utils.localized
 
@@ -219,9 +208,6 @@ private const val CAR_ICON = "car-icon"
 private const val DEST_SOURCE = "dest-src"
 private const val DEST_LAYER = "dest-layer"
 private const val DEST_ICON = "dest-icon"
-private const val ROUTE_SOURCE = "route-src"
-private const val ROUTE_LAYER = "route-layer"
-private const val ROUTE_OUTLINE = "route-outline"
 private const val PARKED_SOURCE = "parked-src"
 private const val PARKED_LAYER = "parked-layer"
 private const val PARKED_ICON = "parked-icon"
@@ -261,37 +247,6 @@ private fun createParkedIconBitmap(): Bitmap {
     return bmp
 }
 
-// ==================== 网络 ====================
-
-private val httpClient = OkHttpClient()
-
-/** 获取路线，返回 geometry JSON + 距离(m) + 时间(s) */
-private suspend fun fetchRouteInfo(fromLon: Double, fromLat: Double, toLon: Double, toLat: Double): RouteInfo? =
-    withContext(Dispatchers.IO) {
-        try {
-            val osrmUrl = "https://router.project-osrm.org/route/v1/driving/$fromLon,$fromLat;$toLon,$toLat?overview=full&geometries=geojson"
-            Log.d(TAG, "📍 请求OSRM路线: from=($fromLon,$fromLat) to=($toLon,$toLat)")
-            val body = httpClient.newCall(Request.Builder().url(osrmUrl).build()).execute().body?.string()
-            if (body != null) {
-                Log.d(TAG, "📍 OSRM响应: ${body.take(300)}")
-                val osrmRoutes = JSONObject(body).optJSONArray("routes")
-                if (osrmRoutes != null && osrmRoutes.length() > 0) {
-                    val route = osrmRoutes.getJSONObject(0)
-                    val geometry = route.getJSONObject("geometry")
-                    val geojsonGeometry = "{\"type\":\"LineString\",\"coordinates\":${geometry.getJSONArray("coordinates").toString()}}"
-                    Log.d(TAG, "✅ OSRM路线获取成功")
-                    return@withContext RouteInfo(
-                        route.optDouble("distance", 0.0).toInt(),
-                        route.optDouble("duration", 0.0).toInt(),
-                        geojsonGeometry
-                    )
-                }
-            }
-            Log.e(TAG, "❌ OSRM路线获取失败")
-            null
-        } catch (e: Exception) { Log.e(TAG, "获取路线失败: ${e.message}"); null }
-    }
-
 // ==================== 工具 ====================
 
 private fun saveAddress(context: Context, key: String, lat: Double, lon: Double, name: String) {
@@ -309,55 +264,15 @@ private fun clearAddress(context: Context, key: String) {
     Log.i(TAG, "已清除${if (key == "home") "家" else "公司"}地址")
 }
 
-/**
- * 安全地解析路线几何 JSON，避免 MapLibre Native JNI 崩溃
- * 问题：OSRM 返回的 geometryJson 可能包含无效的 Feature（id 为 null）
- * 解决：从 JSON 提取坐标后手动创建 LineString，避免 Native 层解析问题
- */
-private fun safeParseRouteGeometry(geometryJson: String): Feature? {
-    if (geometryJson.isBlank()) {
-        Log.w(TAG, "路线几何为空，跳过")
-        return null
-    }
-    return try {
-        val json = org.json.JSONObject(geometryJson)
-        // 验证包含有效的坐标数据
-        val coordinates = json.optJSONArray("coordinates")
-        if (coordinates == null || coordinates.length() < 2) {
-            Log.w(TAG, "路线坐标无效，跳过: ${coordinates?.length() ?: 0} 个点")
-            return null
-        }
-        // 从 JSON 提取坐标，手动创建 LineString
-        // 避免使用 LineString.fromJson() 触发 Native 层解析问题
-        val points = mutableListOf<Point>()
-        for (i in 0 until coordinates.length()) {
-            val coord = coordinates.optJSONArray(i) ?: continue
-            if (coord.length() >= 2) {
-                val lon = coord.getDouble(0)
-                val lat = coord.getDouble(1)
-                points.add(Point.fromLngLat(lon, lat))
-            }
-        }
-        if (points.size < 2) {
-            Log.w(TAG, "有效坐标点不足: ${points.size} 个")
-            return null
-        }
-        // 手动创建 LineString 和 Feature
-        val lineString = LineString.fromLngLats(points)
-        Feature.fromGeometry(lineString)
-    } catch (e: Exception) {
-        Log.e(TAG, "路线几何解析失败: ${e.message}")
-        null
-    }
-}
+private data class SavedLocation(val name: String, val lon: Double, val lat: Double)
 
-private fun loadAddress(context: Context, key: String): OsmNavDest? {
+private fun loadAddress(context: Context, key: String): SavedLocation? {
     val prefs = context.getSharedPreferences("map_addresses", Context.MODE_PRIVATE)
     val name = prefs.getString("${key}_name", null) ?: return null
     // 🔧 修复：使用CoordinatePreferences读取坐标，避免Float精度损失
     val lat = com.example.navipilot.utils.CoordinatePreferences.getCoordinate(prefs, "${key}_lat", 0.0)
     val lon = com.example.navipilot.utils.CoordinatePreferences.getCoordinate(prefs, "${key}_lon", 0.0)
-    return if (lat != 0.0 && lon != 0.0) OsmNavDest(name, lon, lat) else null
+    return if (lat != 0.0 && lon != 0.0) SavedLocation(name, lon, lat) else null
 }
 
 // ==================== 导航历史记录 ====================
@@ -382,7 +297,7 @@ private fun saveNavHistory(context: Context, name: String, lon: Double, lat: Dou
     }
     // 新记录插入头部
     val newArr = org.json.JSONArray()
-    newArr.put(JSONObject().put("name", name).put("lon", lon).put("lat", lat))
+    newArr.put(org.json.JSONObject().put("name", name).put("lon", lon).put("lat", lat))
     for (i in 0 until minOf(filtered.length(), NAV_HISTORY_MAX - 1)) {
         newArr.put(filtered.getJSONObject(i))
     }
@@ -539,34 +454,9 @@ fun OsmMapView(
     var searchServiceName by remember { mutableStateOf("") } // 当前搜索服务名称
     var selectedProvider by remember { mutableStateOf(SearchProvider.AUTO) } // 用户选择的搜索引擎
 
-    // OSM 内部导航状态
-    var osmNav by remember { mutableStateOf<OsmNavDest?>(null) }
-    var osmRouteDist by remember { mutableStateOf(0) }
-    var osmRouteTime by remember { mutableStateOf(0) }
-    var isLoadingRoute by remember { mutableStateOf(false) }
-
     // 🆕 家/公司地址状态（提升到顶层，避免在 if 块内重组问题）
-    var homeDest by remember { mutableStateOf<OsmNavDest?>(null) }
-    var companyDest by remember { mutableStateOf<OsmNavDest?>(null) }
-
-    // 🆕 OSM 导航管理器（remember 管理生命周期，Activity 重建时自动重建）
-    val osmNavigationManager = remember(networkClient, carrotManFieldsState) {
-        if (networkClient != null) {
-            OsmNavigationManager(context, networkClient, carrotManFieldsState, activeNavMode).apply {
-                // 设置路线计算完成回调
-                routeEngine.onRouteCalculated = { parsed ->
-                    Log.i(TAG, "✅ 路线计算完成: ${(parsed.distance/1000).toInt()}km, 提供者=${parsed.provider}")
-                    osmRouteDist = parsed.distance.toInt()
-                    osmRouteTime = parsed.duration.toInt()
-                }
-            }
-        } else null
-    }
-
-    // 🆕 清理 OSM 导航管理器（Composable 离开组合树时释放资源）
-    DisposableEffect(osmNavigationManager) {
-        onDispose { osmNavigationManager?.cleanup() }
-    }
+    var homeDest by remember { mutableStateOf<SavedLocation?>(null) }
+    var companyDest by remember { mutableStateOf<SavedLocation?>(null) }
 
     remember { MapLibre.getInstance(context.applicationContext) }
 
@@ -609,16 +499,11 @@ fun OsmMapView(
     // 默认：OpenFreeMap 矢量（OSM 数据、免 Key）；国内 tile.openstreetmap.org 常不可用故不再默认直连官方栅格
     val dashyStyleJson = remember { getDashyNavMapDarkStyleJson() }
 
-    // 判断是否有活跃导航（OSM内部 或 外部高德）
-    val hasOsmNav = osmNav != null
+    // 判断是否有活跃导航（仅外部导航模式）
     val hasExternalNav = isNavigating && goalLon != 0.0 && goalLat != 0.0
-    val activeNavName = when {
-        hasOsmNav -> osmNav!!.name
-        hasExternalNav -> goalName
-        else -> ""
-    }
-    val activeNavLon = if (hasOsmNav) osmNav!!.lon else goalLon
-    val activeNavLat = if (hasOsmNav) osmNav!!.lat else goalLat
+    val activeNavName = if (hasExternalNav) goalName else ""
+    val activeNavLon = if (hasExternalNav) goalLon else 0.0
+    val activeNavLat = if (hasExternalNav) goalLat else 0.0
     
     // ===== 面板触发器监听（父级递增 → 执行内部逻辑）=====
 
@@ -699,28 +584,6 @@ fun OsmMapView(
                     onHomeNavClick()
                     saveNavHistory(context, currentHomeDest.name, currentHomeDest.lon, currentHomeDest.lat)
                 }
-                "OSM" -> {
-                    if (longitude == 0.0 || latitude == 0.0) {
-                        android.widget.Toast.makeText(context, localized("无法获取当前位置", "Cannot get current location"), android.widget.Toast.LENGTH_SHORT).show()
-                    } else if (osmNavigationManager == null) {
-                        android.widget.Toast.makeText(context, localized("导航服务未就绪", "Navigation service not ready"), android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        isLoadingRoute = true
-                        val dest = currentHomeDest
-                        val info = fetchRouteInfo(longitude, latitude, dest.lon, dest.lat)
-                        if (info != null) {
-                            val routeInfo = RouteInfo(info.distanceM, info.durationS, info.geometryJson)
-                            osmNav = dest; osmRouteDist = info.distanceM; osmRouteTime = info.durationS
-                            try { mapRef?.style?.getSourceAs<GeoJsonSource>(ROUTE_SOURCE)?.setGeoJson(safeParseRouteGeometry(info.geometryJson)) }
-                            catch (e: Exception) { Log.e(TAG, "路线失败: ${e.message}") }
-                            osmNavigationManager?.startOsmNavigation(dest, routeInfo)
-                            saveNavHistory(context, dest.name, dest.lon, dest.lat)
-                        } else {
-                            android.widget.Toast.makeText(context, localized("无法获取路线", "Cannot get route"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        isLoadingRoute = false
-                    }
-                }
                 else -> {
                     if (startExternalNavigation(currentHomeDest.name, currentHomeDest.lat, currentHomeDest.lon)) {
                         saveNavHistory(context, currentHomeDest.name, currentHomeDest.lon, currentHomeDest.lat)
@@ -754,28 +617,6 @@ fun OsmMapView(
                     onCompanyNavClick()
                     saveNavHistory(context, currentCompanyDest.name, currentCompanyDest.lon, currentCompanyDest.lat)
                 }
-                "OSM" -> {
-                    if (longitude == 0.0 || latitude == 0.0) {
-                        android.widget.Toast.makeText(context, localized("无法获取当前位置", "Cannot get current location"), android.widget.Toast.LENGTH_SHORT).show()
-                    } else if (osmNavigationManager == null) {
-                        android.widget.Toast.makeText(context, localized("导航服务未就绪", "Navigation service not ready"), android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        isLoadingRoute = true
-                        val dest = currentCompanyDest
-                        val info = fetchRouteInfo(longitude, latitude, dest.lon, dest.lat)
-                        if (info != null) {
-                            val routeInfo = RouteInfo(info.distanceM, info.durationS, info.geometryJson)
-                            osmNav = dest; osmRouteDist = info.distanceM; osmRouteTime = info.durationS
-                            try { mapRef?.style?.getSourceAs<GeoJsonSource>(ROUTE_SOURCE)?.setGeoJson(safeParseRouteGeometry(info.geometryJson)) }
-                            catch (e: Exception) { Log.e(TAG, "路线失败: ${e.message}") }
-                            osmNavigationManager?.startOsmNavigation(dest, routeInfo)
-                            saveNavHistory(context, dest.name, dest.lon, dest.lat)
-                        } else {
-                            android.widget.Toast.makeText(context, localized("无法获取路线", "Cannot get route"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        isLoadingRoute = false
-                    }
-                }
                 else -> {
                     if (startExternalNavigation(currentCompanyDest.name, currentCompanyDest.lat, currentCompanyDest.lon)) {
                         saveNavHistory(context, currentCompanyDest.name, currentCompanyDest.lon, currentCompanyDest.lat)
@@ -799,23 +640,8 @@ fun OsmMapView(
     LaunchedEffect(homeDest) { onHomeAddressChange(homeDest != null) }
     LaunchedEffect(companyDest) { onCompanyAddressChange(companyDest != null) }
 
-    // 🆕 更新 OSM 导航管理器的位置信息
-    LaunchedEffect(latitude, longitude, bearing, speedKmh) {
-        if (latitude != 0.0 && longitude != 0.0) {
-            val location = Location("gps").apply {
-                this.latitude = latitude
-                this.longitude = longitude
-                this.bearing = bearing.toFloat()
-                this.speed = (speedKmh / 3.6).toFloat()  // km/h → m/s
-                this.accuracy = 10f  // 默认精度
-                this.time = System.currentTimeMillis()
-            }
-            osmNavigationManager?.updateLocation(location)
-        }
-    }
-
     // 车辆位置更新
-    LaunchedEffect(latitude, longitude, bearing, isMapReady, isUserInteracting, selectedResult, hasOsmNav, hasExternalNav, nextTurnDist) {
+    LaunchedEffect(latitude, longitude, bearing, isMapReady, isUserInteracting, selectedResult, hasExternalNav, nextTurnDist) {
         val map = mapRef ?: return@LaunchedEffect
         if (!isMapReady || (latitude == 0.0 && longitude == 0.0)) return@LaunchedEffect
         try {
@@ -830,14 +656,11 @@ fun OsmMapView(
                 Log.i(TAG, "📍 首次定位成功，强制居中: lat=$latitude, lon=$longitude")
             }
             // 动态缩放：导航中放大，接近路口进一步放大
-            val isNavActive = hasOsmNav || hasExternalNav
-            val turnDist = if (hasOsmNav) {
-                osmNavigationManager?.getCurrentInstruction()?.distanceToManeuver?.toInt() ?: nextTurnDist
-            } else nextTurnDist
+            val turnDist = nextTurnDist
             val zoom = when {
-                !isNavActive -> DEFAULT_ZOOM
+                !hasExternalNav -> DEFAULT_ZOOM
                 // 接近路口：根据距离插值放大（500m→NAV_ZOOM, 50m→NAV_INTERSECTION_ZOOM）
-                isNavActive && turnDist in 1..500 -> {
+                hasExternalNav && turnDist in 1..500 -> {
                     val t = ((500 - turnDist).coerceIn(0, 450)) / 450.0
                     NAV_ZOOM + t * (NAV_INTERSECTION_ZOOM - NAV_ZOOM)
                 }
@@ -850,7 +673,7 @@ fun OsmMapView(
     }
 
     // 目的地标记
-    LaunchedEffect(activeNavLon, activeNavLat, hasOsmNav, hasExternalNav, isMapReady, selectedResult) {
+    LaunchedEffect(activeNavLon, activeNavLat, hasExternalNav, isMapReady, selectedResult) {
         val map = mapRef ?: return@LaunchedEffect
         if (!isMapReady) return@LaunchedEffect
         val src = map.style?.getSourceAs<GeoJsonSource>(DEST_SOURCE) ?: return@LaunchedEffect
@@ -861,7 +684,6 @@ fun OsmMapView(
             else -> src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
     }
-
     // 🆕 停车位置标记（未连接comma3时才显示）
     LaunchedEffect(parkedLocation, isMapReady, commaConnectionState) {
         val map = mapRef ?: return@LaunchedEffect
@@ -875,74 +697,6 @@ fun OsmMapView(
         } else {
             src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
-    }
-
-    // 🆕 OSM 导航路线显示（使用 RouteEngine 的路线几何）
-    LaunchedEffect(osmNav, isMapReady, latitude, longitude) {
-        val map = mapRef ?: return@LaunchedEffect
-        if (!isMapReady) return@LaunchedEffect
-        val src = map.style?.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return@LaunchedEffect
-        val nav = osmNav
-        if (nav == null || latitude == 0.0) {
-            if (!hasExternalNav) src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-            return@LaunchedEffect
-        }
-        
-        // 等待 RouteEngine 计算完成
-        isLoadingRoute = true
-        delay(500) // 给RouteEngine一点时间计算
-        
-        // 使用 RouteEngine 的路线几何
-        val parsed = osmNavigationManager?.routeEngine?.parsedRoute
-        if (parsed != null && parsed.geometry.isNotEmpty()) {
-            try {
-                // 将 GeoCoordinate 列表转换为 MapLibre 的 Point 列表
-                val points = parsed.geometry.map { coord ->
-                    Point.fromLngLat(coord.longitude, coord.latitude)
-                }
-                src.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(points)))
-                osmRouteDist = parsed.distance.toInt()
-                osmRouteTime = parsed.duration.toInt()
-                isLoadingRoute = false
-                Log.i(TAG, "✅ 路线已显示在地图上: ${points.size} 个点, 提供者=${parsed.provider}")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ 显示路线失败: ${e.message}", e)
-                isLoadingRoute = false
-            }
-        } else {
-            Log.w(TAG, "⚠️ 等待路线计算...")
-        }
-    }
-    
-    // 🆕 RouteEngine 路线更新时刷新地图显示
-    LaunchedEffect(osmNavigationManager?.routeEngine?.parsedRoute) {
-        val parsed = osmNavigationManager?.routeEngine?.parsedRoute ?: return@LaunchedEffect
-        val map = mapRef ?: return@LaunchedEffect
-        if (!isMapReady) return@LaunchedEffect
-        val src = map.style?.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return@LaunchedEffect
-        
-        // 更新地图上的路线显示
-        if (parsed.geometry.isNotEmpty()) {
-            try {
-                val points = parsed.geometry.map { coord ->
-                    Point.fromLngLat(coord.longitude, coord.latitude)
-                }
-                src.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(points)))
-                Log.i(TAG, "🔄 路线已更新: ${(parsed.distance/1000).toInt()}km, 提供者=${parsed.provider}")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ 更新路线显示失败: ${e.message}", e)
-            }
-        }
-    }
-
-    // 根据 active 状态切换路线颜色：激活=绿色，未激活=蓝色
-    LaunchedEffect(isAutopilotActive, isMapReady) {
-        val map = mapRef ?: return@LaunchedEffect
-        if (!isMapReady) return@LaunchedEffect
-        val lineColor = if (isAutopilotActive) AndroidColor.rgb(34, 197, 94) else AndroidColor.rgb(59, 130, 246)
-        val outlineColor = if (isAutopilotActive) AndroidColor.rgb(21, 128, 61) else AndroidColor.rgb(30, 64, 175)
-        map.style?.getLayer(ROUTE_LAYER)?.setProperties(PropertyFactory.lineColor(lineColor))
-        map.style?.getLayer(ROUTE_OUTLINE)?.setProperties(PropertyFactory.lineColor(outlineColor))
     }
 
     // 生命周期
@@ -976,15 +730,6 @@ fun OsmMapView(
                                 map.setStyle(styleBuilder) { style ->
                                     style.addImage(CAR_ICON, createCarArrowBitmap())
                                     style.addImage(DEST_ICON, createDestPinBitmap())
-                                    style.addSource(GeoJsonSource(ROUTE_SOURCE))
-                                    style.addLayer(LineLayer(ROUTE_OUTLINE, ROUTE_SOURCE).apply {
-                                        setProperties(PropertyFactory.lineColor(AndroidColor.rgb(30,64,175)), PropertyFactory.lineWidth(8f),
-                                            PropertyFactory.lineOpacity(0.8f), PropertyFactory.lineCap("round"), PropertyFactory.lineJoin("round"))
-                                    })
-                                    style.addLayer(LineLayer(ROUTE_LAYER, ROUTE_SOURCE).apply {
-                                        setProperties(PropertyFactory.lineColor(AndroidColor.rgb(59,130,246)), PropertyFactory.lineWidth(5f),
-                                            PropertyFactory.lineOpacity(0.9f), PropertyFactory.lineCap("round"), PropertyFactory.lineJoin("round"))
-                                    })
                                     style.addSource(GeoJsonSource(DEST_SOURCE))
                                     style.addLayer(SymbolLayer(DEST_LAYER, DEST_SOURCE).apply {
                                         setProperties(PropertyFactory.iconImage(DEST_ICON), PropertyFactory.iconSize(0.7f),
@@ -1318,7 +1063,7 @@ fun OsmMapView(
                                         OutlinedButton(
                                             onClick = {
                                                 saveAddress(context, "home", sel.lat, sel.lon, sel.name)
-                                                homeDest = OsmNavDest(sel.name, sel.lon, sel.lat)  // 🔧 同步更新状态
+                                                homeDest = SavedLocation(sel.name, sel.lon, sel.lat)  // 🔧 同步更新状态
                                                 selectedResult = null; showSearch = false; searchQuery = ""
                                             },
                                             shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)
@@ -1328,7 +1073,7 @@ fun OsmMapView(
                                         OutlinedButton(
                                             onClick = {
                                                 saveAddress(context, "company", sel.lat, sel.lon, sel.name)
-                                                companyDest = OsmNavDest(sel.name, sel.lon, sel.lat)  // 🔧 同步更新状态
+                                                companyDest = SavedLocation(sel.name, sel.lon, sel.lat)  // 🔧 同步更新状态
                                                 selectedResult = null; showSearch = false; searchQuery = ""
                                             },
                                             shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)
@@ -1356,12 +1101,3 @@ fun OsmMapView(
         )
     }
 }
-
-/** 导航信息栏数据（供外部浮层使用） */
-data class OsmNavInfo(
-    val name: String,
-    val distM: Int,
-    val timeS: Int,
-    val hasOsmNav: Boolean,
-    val hasExternalNav: Boolean
-)
