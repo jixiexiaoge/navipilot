@@ -266,7 +266,7 @@ class AmapBroadcastManager(
             if (result.isFailure) {
                 // Channel满了，丢弃旧数据，这是正常的背压处理
                 if (!shouldSuppressLogs) {
-                    // Log.v(TAG, "⚠️ 广播Channel已满，丢弃数据 (KEY_TYPE: $keyType) - 这是正常的背压控制")
+                    Log.v(TAG, "⚠️ 广播Channel已满，丢弃数据 (KEY_TYPE: $keyType) - 这是正常的背压控制")
                 }
             }
         } catch (e: Exception) {
