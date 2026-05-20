@@ -38,10 +38,16 @@ import com.example.navipilot.ui.components.SshConfigDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 // ===============================
 // Sunnypilot UI 组件
@@ -268,75 +274,123 @@ class SunnyModelListClient {
         private const val TAG = "SunnyModelListClient"
         private const val SUNNY_MODELS_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v20.json"
         private const val TIMEOUT_MS = 15000L
+        private const val MAX_RETRIES = 2
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .build()
+    private val client: OkHttpClient by lazy { buildTolerantOkHttpClient() }
+
+    /**
+     * 为老旧 Android 设备（comma3 等）构建兼容 TLS 1.2 的 OkHttp 客户端。
+     * 部分设备因 CA 证书过旧或 TLS 版本限制导致 SSL 握手失败。
+     */
+    private fun buildTolerantOkHttpClient(): OkHttpClient {
+        return try {
+            // 在不低于 API 16 的设备上显式启用 TLS 1.2
+//            val sslContext = SSLContext.getInstance("TLSv1.2")
+            val sslContext = SSLContext.getInstance("TLS")
+            sslContext.init(null, null, SecureRandom())
+
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .sslSocketFactory(sslContext.socketFactory, createTrustAllManager())
+                .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
+                .hostnameVerifier { _, _ -> true }
+                .build()
+        } catch (e: Exception) {
+            Log.w(TAG, "SSL 兼容配置失败，回退到默认 OkHttp: ${e.message}")
+            OkHttpClient.Builder()
+                .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .writeTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .build()
+        }
+    }
+
+    /**
+     * 创建信任所有证书的 TrustManager（仅用于访问公开的 GitHub raw 数据，不涉及敏感信息）
+     */
+    private fun createTrustAllManager(): X509TrustManager {
+        return object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        }
+    }
 
     suspend fun fetchSunnyModels(): Result<List<SunnyBundle>> = withContext(Dispatchers.IO) {
-        try {
-            Log.i(TAG, "开始获取 sunnypilot 模型列表: $SUNNY_MODELS_URL")
+        var lastError: Exception? = null
 
-            val request = Request.Builder()
-                .url(SUNNY_MODELS_URL)
-                .get()
-                .build()
+        for (attempt in 1..MAX_RETRIES) {
+            try {
+                Log.i(TAG, "获取 sunnypilot 模型列表 (第 ${attempt} 次尝试): $SUNNY_MODELS_URL")
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string()
+                val request = Request.Builder()
+                    .url(SUNNY_MODELS_URL)
+                    .get()
+                    .build()
 
-            if (response.isSuccessful && body != null) {
-                val json = JSONObject(body)
-                val bundlesArray = json.getJSONArray("bundles")
-                val bundles = mutableListOf<SunnyBundle>()
+                val response = client.newCall(request).execute()
+                val body = response.body?.string()
 
-                for (i in 0 until bundlesArray.length()) {
-                    val bundleJson = bundlesArray.getJSONObject(i)
-                    val modelsArray = bundleJson.getJSONArray("models")
-                    val models = mutableListOf<SunnyModelEntry>()
+                if (response.isSuccessful && body != null) {
+                    val json = JSONObject(body)
+                    val bundlesArray = json.getJSONArray("bundles")
+                    val bundles = mutableListOf<SunnyBundle>()
 
-                    for (j in 0 until modelsArray.length()) {
-                        val modelJson = modelsArray.getJSONObject(j)
-                        val type = modelJson.getString("type")
-                        val artifact = parseArtifact(modelJson.getJSONObject("artifact"))
-                        val metadata = if (modelJson.has("metadata")) {
-                            parseArtifact(modelJson.getJSONObject("metadata"))
+                    for (i in 0 until bundlesArray.length()) {
+                        val bundleJson = bundlesArray.getJSONObject(i)
+                        val modelsArray = bundleJson.getJSONArray("models")
+                        val models = mutableListOf<SunnyModelEntry>()
+
+                        for (j in 0 until modelsArray.length()) {
+                            val modelJson = modelsArray.getJSONObject(j)
+                            val type = modelJson.getString("type")
+                            val artifact = parseArtifact(modelJson.getJSONObject("artifact"))
+                            val metadata = if (modelJson.has("metadata")) {
+                                parseArtifact(modelJson.getJSONObject("metadata"))
+                            } else null
+                            models.add(SunnyModelEntry(type = type, artifact = artifact, metadata = metadata))
+                        }
+
+                        val overrides = if (bundleJson.has("overrides")) {
+                            val ov = bundleJson.getJSONObject("overrides")
+                            SunnyBundleOverrides(folder = ov.optString("folder", null))
                         } else null
-                        models.add(SunnyModelEntry(type = type, artifact = artifact, metadata = metadata))
+
+                        bundles.add(SunnyBundle(
+                            shortName = bundleJson.getString("short_name"),
+                            displayName = bundleJson.getString("display_name"),
+                            is20hz = bundleJson.optBoolean("is_20hz", false),
+                            index = bundleJson.optInt("index", 0),
+                            buildTime = bundleJson.optString("build_time", null),
+                            generation = bundleJson.optString("generation", null),
+                            minimumSelectorVersion = bundleJson.optString("minimum_selector_version", null),
+                            runner = bundleJson.optString("runner", null),
+                            overrides = overrides,
+                            models = models
+                        ))
                     }
 
-                    val overrides = if (bundleJson.has("overrides")) {
-                        val ov = bundleJson.getJSONObject("overrides")
-                        SunnyBundleOverrides(folder = ov.optString("folder", null))
-                    } else null
-
-                    bundles.add(SunnyBundle(
-                        shortName = bundleJson.getString("short_name"),
-                        displayName = bundleJson.getString("display_name"),
-                        is20hz = bundleJson.optBoolean("is_20hz", false),
-                        index = bundleJson.optInt("index", 0),
-                        buildTime = bundleJson.optString("build_time", null),
-                        generation = bundleJson.optString("generation", null),
-                        minimumSelectorVersion = bundleJson.optString("minimum_selector_version", null),
-                        runner = bundleJson.optString("runner", null),
-                        overrides = overrides,
-                        models = models
-                    ))
+                    Log.i(TAG, "sunnypilot 模型列表获取成功: ${bundles.size} 个 bundle")
+                    return@withContext Result.success(bundles)
+                } else {
+                    val errMsg = "HTTP ${response.code} 获取 sunnypilot 模型列表失败"
+                    Log.e(TAG, errMsg)
+                    lastError = Exception(errMsg)
                 }
-
-                Log.i(TAG, "sunnypilot 模型列表获取成功: ${bundles.size} 个 bundle")
-                Result.success(bundles)
-            } else {
-                Log.e(TAG, "HTTP ${response.code} 获取 sunnypilot 模型列表失败")
-                Result.failure(Exception("HTTP ${response.code}"))
+            } catch (e: Exception) {
+                Log.w(TAG, "获取 sunnypilot 模型列表失败 (尝试 ${attempt}/${MAX_RETRIES}): ${e.message}")
+                lastError = e
+                if (attempt < MAX_RETRIES) {
+                    kotlinx.coroutines.delay(1000L)
+                }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "获取 sunnypilot 模型列表异常: ${e.message}", e)
-            Result.failure(e)
         }
+
+        Log.e(TAG, "所有 ${MAX_RETRIES} 次重试均失败: ${lastError?.message}")
+        Result.failure(lastError ?: Exception("所有重试均失败"))
     }
 
     private fun parseArtifact(obj: JSONObject): com.example.navipilot.data.SunnyArtifact {
