@@ -87,7 +87,7 @@ class DrivingScoreEngine {
         val speedScore = (100 - deviation * 1.5).toInt().coerceIn(0, 100)
         // 巡航比例加分
         val cruiseBonus = (cruiseRatio * 30).toInt()
-        return ((speedScore + cruiseBonus) * 0.7).toInt().coerceIn(0, 100)
+        return (speedScore * 0.7 + cruiseBonus).toInt().coerceIn(0, 100)
     }
 
     /**

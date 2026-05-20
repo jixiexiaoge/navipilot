@@ -23,6 +23,7 @@ class DrivingDataCollector(private val context: Context) {
     private var currentSession: DrivingSession? = null
     @Volatile private var collecting = false
     private var saveJob: Job? = null
+    private val saveScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // 实时统计
     private var totalDistance = 0f
@@ -66,7 +67,7 @@ class DrivingDataCollector(private val context: Context) {
 
         currentSession = DrivingSession(startTime = System.currentTimeMillis())
 
-        saveJob = CoroutineScope(Dispatchers.IO).launch {
+        saveJob = saveScope.launch {
             while (isActive && collecting) {
                 delay(30000)
                 saveCurrentSessionTemp()
@@ -164,8 +165,9 @@ class DrivingDataCollector(private val context: Context) {
         if (isHardBraking) harshBrakeCount++
         if (isSharpTurn) sharpTurnCount++
 
-        // 接管检测（NOO从激活变为未激活）
-        if (lastNooActive && !nooActive && speed > 5f) {
+        // 接管检测（NOO从激活变为未激活，且需驾驶员干预：加速度<-1.5m/s²）
+        // 避免将ACC系统自然减速/Nav取消NOO误判为接管
+        if (lastNooActive && !nooActive && speed > 5f && acceleration < -1.5f) {
             interventionCount++
             val reason = guessInterventionReason(speed, leadDistance, tbtDist, roadType)
             interventionDetails.add(InterventionDetail(
