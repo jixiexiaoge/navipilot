@@ -1705,7 +1705,9 @@ class TencentNavDataBridge(
                                     latitude = wgsLat,
                                     longitude = wgsLon,
                                     nPosAngle = direction.toDouble(),
-                                    nPosSpeed = (speed * 3.6).toDouble()  // m/s → km/h
+                                    nPosSpeed = (speed * 3.6).toDouble(),  // m/s → km/h
+                                    heading = direction.toDouble(),
+                                    gps_speed = speed.toDouble()  // 单位 m/s
                                 )
                             }
                         }
@@ -2150,7 +2152,8 @@ class TencentNavDataBridge(
                     nSdiBlockType = 2,               // 进行中
                     nSdiBlockSpeed = zoneLimitSpeed,
                     nSdiBlockDist = distToEnd,
-                    nSdiAverageSpeed = avgSpeed
+                    nSdiAverageSpeed = avgSpeed,
+                    nSdiSection = distToEnd          // 区间总长度，与AmapBroadcast中nSdiSection含义一致
                 )
 
                 // 超速警告

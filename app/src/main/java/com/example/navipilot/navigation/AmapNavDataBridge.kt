@@ -306,6 +306,10 @@ class AmapNavDataBridge(
         postFieldsMutate { s ->
             val cur = s.value
             val limit = cur.nRoadLimitSpeed
+            // 🆕 目的地坐标（反射方式提取，兼容旧版 SDK）
+            val goalPosX = try { info.javaClass.getMethod("getEndLng").invoke(info) as? Double ?: cur.goalPosX } catch (_: Exception) { cur.goalPosX }
+            val goalPosY = try { info.javaClass.getMethod("getEndLat").invoke(info) as? Double ?: cur.goalPosY } catch (_: Exception) { cur.goalPosY }
+            val szGoalName = try { info.javaClass.getMethod("getEndName").invoke(info) as? String ?: "" } catch (_: Exception) { cur.szGoalName }
             s.value = cur.copy(
                 nGoPosDist = info.pathRetainDistance,
                 nGoPosTime = info.pathRetainTime,
@@ -318,6 +322,9 @@ class AmapNavDataBridge(
                 roadcate = if (limit > 0) inferRoadcate(limit, cur.roadcate, curRoad) else cur.roadcate,
                 // 🆕 P0: 补充 NOA 增强字段
                 exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
+                goalPosX = goalPosX,
+                goalPosY = goalPosY,
+                szGoalName = szGoalName,
                 isNavigating = true,
                 source_last = "amap_mobile"
             )
@@ -391,6 +398,7 @@ class AmapNavDataBridge(
                 nSdiBlockSpeed = spd,        // 🆕 区间限速
                 nSdiAverageSpeed = avg,
                 nSdiBlockDist = intervalRemain,
+                nSdiSection = intervalRemain,      // 🆕 区间测速剩余距离，与 Tencent 的 distToEnd 对齐
                 source_last = "amap_mobile"
             )
         }
@@ -562,11 +570,13 @@ class AmapNavDataBridge(
                 nTBTDistNext = info.driveDist.coerceAtLeast(0),
                 // 🆕 P0: 补充 TBT 增强字段
                 szFarDirName = farDirName.ifBlank { cur.szFarDirName },
+                szTBTMainTextNext = farDirName,
                 lastUpdateTime = now,
                 source_last = "amap_mobile"
             )
         }
     }
+
 
     override fun showCross(aMapNaviCross: AMapNaviCross?) {
         super.showCross(aMapNaviCross)

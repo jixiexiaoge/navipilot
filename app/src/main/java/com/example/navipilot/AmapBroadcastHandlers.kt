@@ -834,6 +834,12 @@ class AmapBroadcastHandlers(
                     // 🆕 高德道路吸附坐标转WGS-84后写入主字段
                     vpPosPointLat = wgsLat,
                     vpPosPointLon = wgsLon,
+                    // 🆕 GPS主字段（WGS-84，已由GCJ-02转换）
+                    latitude = wgsLat,
+                    longitude = wgsLon,
+                    heading = bearing,
+                    // 🆕 GPS速度 m/s（原始km/h除以3.6）
+                    gps_speed = speed / 3.6,
                     // 协议标准位置字段同步（方向和速度）
                     nPosSpeed = speed,
                     nPosAngle = bearing,

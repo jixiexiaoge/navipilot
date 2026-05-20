@@ -107,6 +107,24 @@ class GoogleNavDataBridge(
         }
     }
 
+    /**
+     * 将 SDI 字段重置为默认值，用于 Google 导航开始或重新开始时调用
+     */
+    fun resetSdiFields() {
+        postFieldsMutate { s ->
+            s.value = s.value.copy(
+                nSdiType = -1,
+                nSdiSpeedLimit = 0,
+                nSdiDist = 0,
+                nSdiSection = 0,
+                nSdiBlockType = -1,
+                nSdiBlockSpeed = 0,
+                nSdiBlockDist = 0,
+                source_last = "google_nav"
+            )
+        }
+    }
+
     fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float, accuracy: Float = 0f) {
         postFieldsMutate { s ->
             val cur = s.value
@@ -149,11 +167,13 @@ class GoogleNavDataBridge(
      * @param szFarDirName 远处方向名（下一转弯后的道路）
      * @param nTBTDistNext 下一转弯距离
      * @param nTBTTurnTypeNext 下一转弯类型
+     * @param szTBTMainTextNext 下一转弯指令文本，非 null 则更新
      */
     fun updateTbtEnhanced(
         szFarDirName: String? = null,
         nTBTDistNext: Int = -1,
-        nTBTTurnTypeNext: Int = -1
+        nTBTTurnTypeNext: Int = -1,
+        szTBTMainTextNext: String? = null
     ) {
         postFieldsMutate { s ->
             val cur = s.value
@@ -161,6 +181,7 @@ class GoogleNavDataBridge(
                 szFarDirName = szFarDirName ?: cur.szFarDirName,
                 nTBTDistNext = if (nTBTDistNext >= 0) nTBTDistNext else cur.nTBTDistNext,
                 nTBTTurnTypeNext = if (nTBTTurnTypeNext >= 0) nTBTTurnTypeNext else cur.nTBTTurnTypeNext,
+                szTBTMainTextNext = szTBTMainTextNext ?: cur.szTBTMainTextNext,
                 source_last = "google_nav"
             )
         }
