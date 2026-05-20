@@ -48,8 +48,10 @@ android {
         val amapWebSecret = props.getProperty("AMAP_WEB_SECRET", "").replace("\\", "\\\\").replace("\"", "\\\"")
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebKey\"")
         buildConfigField("String", "AMAP_WEB_SECRET", "\"$amapWebSecret\"")
-        // Google Maps API Key（注入 AndroidManifest）
-        manifestPlaceholders["MAPS_API_KEY"] = props.getProperty("MAPS_API_KEY", "")
+        // Google Maps API Key（注入 AndroidManifest，同时用于 Places API 海外搜索）
+        val googleApiKey = props.getProperty("MAPS_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
+        manifestPlaceholders["MAPS_API_KEY"] = googleApiKey
+        buildConfigField("String", "GOOGLE_PLACES_API_KEY", "\"$googleApiKey\"")
 
         ndk {
             abiFilters.clear()

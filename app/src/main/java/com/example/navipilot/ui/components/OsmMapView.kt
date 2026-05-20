@@ -1041,7 +1041,7 @@ fun OsmMapView(
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                                 // 根据当前位置预判搜索服务
-                                val expectedService = if (latitude != 0.0 && isInChina(latitude, longitude)) "高德地图" else "Photon"
+                                val expectedService = if (latitude != 0.0 && isInChina(latitude, longitude)) "高德地图" else "谷歌地图"
                                 val placeholderText = if (searchServiceName.isNotEmpty()) {
                                     localized("搜索地点... ($searchServiceName)", "Search places... ($searchServiceName)")
                                 } else {

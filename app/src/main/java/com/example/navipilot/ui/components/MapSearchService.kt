@@ -46,7 +46,7 @@ private fun calcTencentSig(path: String, params: Map<String, String>): String {
     return md5.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
-/** GCJ-02 转 WGS-84（腾讯/高德坐标 → OSM/Mapbox 坐标） */
+/** GCJ-02 转 WGS-84（腾讯/高德坐标 → OSM 坐标） */
 fun gcj02ToWgs84(gcjLat: Double, gcjLon: Double): Pair<Double, Double> {
     val a = 6378245.0
     val ee = 0.00669342162296594323
@@ -298,49 +298,56 @@ private suspend fun searchPlacesAmap(
     return searchPlacesAmapRest(query, biasGcjLat, biasGcjLon)
 }
 
-/** Photon 搜索（Komoot 提供，基于 OSM，免费无 key） */
-private suspend fun searchPlacesPhoton(query: String, lat: Double?, lon: Double?, lang: String = "zh"): List<SearchResult> =
+/** 谷歌地图 Places API 搜索（海外用，返回 WGS-84 坐标） */
+private suspend fun searchPlacesGoogle(query: String, lat: Double?, lon: Double?): List<SearchResult> =
     withContext(Dispatchers.IO) {
         val results = mutableListOf<SearchResult>()
+        val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+        if (apiKey.isBlank()) {
+            Log.w(TAG, "Google Places API Key 未配置，跳过谷歌搜索")
+            return@withContext results
+        }
         try {
-            val photonUrl = buildString {
-                append("https://photon.komoot.io/api/")
-                append("?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
-                append("&lang=$lang")
-                append("&limit=5")
-                if (lat != null && lon != null) {
-                    append("&lat=$lat&lon=$lon&location_bias_scale=0.5")
-                }
+            val urlBuilder = StringBuilder()
+                .append("https://maps.googleapis.com/maps/api/place/textsearch/json")
+                .append("?query=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                .append("&key=$apiKey")
+                .append("&language=zh-CN")
+            if (lat != null && lon != null) {
+                urlBuilder.append("&location=$lat,$lon")
+                urlBuilder.append("&radius=50000")
             }
-            val req = Request.Builder().url(photonUrl)
-                .header("User-Agent", "CarrotAmap/1.0")
-                .build()
-            val body = searchHttpClient.newCall(req).execute().body?.string()
+            Log.d(TAG, "谷歌地图搜索: keyword=$query")
+            val body = searchHttpClient.newCall(
+                Request.Builder().url(urlBuilder.toString()).build()
+            ).execute().body?.string()
             if (body != null) {
-                val features = JSONObject(body).optJSONArray("features")
-                if (features != null) {
-                    for (i in 0 until features.length()) {
-                        val f = features.getJSONObject(i)
-                        val coords = f.getJSONObject("geometry").getJSONArray("coordinates")
-                        val pLon = coords.getDouble(0)
-                        val pLat = coords.getDouble(1)
-                        val props = f.getJSONObject("properties")
-                        val name = props.optString("name", "")
-                        val addrParts = listOfNotNull(
-                            props.optString("street", "").ifEmpty { null },
-                            props.optString("city", "").ifEmpty { null },
-                            props.optString("state", "").ifEmpty { null },
-                            props.optString("country", "").ifEmpty { null }
-                        )
-                        val address = if (addrParts.isNotEmpty()) addrParts.joinToString(", ") else name
-                        if (name.isNotEmpty() && pLon != 0.0 && pLat != 0.0) {
-                            results.add(SearchResult(name, address, pLon, pLat))
+                val json = JSONObject(body)
+                val status = json.optString("status", "")
+                if (status == "OK") {
+                    val allResults = json.optJSONArray("results")
+                    if (allResults != null) {
+                        for (i in 0 until allResults.length()) {
+                            val item = allResults.getJSONObject(i)
+                            val name = item.optString("name", "")
+                            val address = item.optString("formatted_address", "")
+                            val geometry = item.optJSONObject("geometry") ?: continue
+                            val location = geometry.optJSONObject("location") ?: continue
+                            val gLat = location.optDouble("lat", 0.0)
+                            val gLon = location.optDouble("lng", 0.0)
+                            if (name.isNotEmpty() && gLat != 0.0 && gLon != 0.0) {
+                                results.add(SearchResult(name, address, gLon, gLat))
+                            }
                         }
                     }
+                    Log.i(TAG, "谷歌地图搜索成功: ${results.size}条结果")
+                } else {
+                    val errMsg = json.optString("error_message", "")
+                    Log.w(TAG, "谷歌地图搜索失败: status=$status, error=$errMsg")
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Photon 搜索失败: ${e.message}")
+            Log.w(TAG, "谷歌地图搜索异常: ${e.message}")
         }
         results
     }
@@ -350,107 +357,14 @@ enum class SearchProvider(val label: String) {
     AUTO("默认"),
     GAODE("高德"),
     TENCENT("腾讯"),
-    PHOTON("备用")
-}
-
-/** Nominatim 搜索 */
-private suspend fun searchPlacesNominatim(
-    query: String, proxLat: Double?, proxLon: Double?, langFull: String
-): List<SearchResult> = withContext(Dispatchers.IO) {
-    val results = mutableListOf<SearchResult>()
-    try {
-        val nomUrl = "https://nominatim.openstreetmap.org/search" +
-                "?q=${java.net.URLEncoder.encode(query, "UTF-8")}" +
-                "&format=json&limit=8&accept-language=$langFull&addressdetails=1" +
-                (if (proxLon != null && proxLat != null) {
-                    "&viewbox=${proxLon-0.5},${proxLat-0.5},${proxLon+0.5},${proxLat+0.5}&bounded=0"
-                } else "")
-        val req = Request.Builder().url(nomUrl)
-            .header("User-Agent", "CarrotAmap/1.0")
-            .build()
-        val body = searchHttpClient.newCall(req).execute().body?.string()
-        if (body != null) {
-            val arr = org.json.JSONArray(body)
-            for (i in 0 until arr.length()) {
-                val item = arr.getJSONObject(i)
-                val name = item.optString("display_name", "").split(",").firstOrNull() ?: ""
-                val address = item.optString("display_name", "")
-                val lon = item.optDouble("lon", 0.0)
-                val lat = item.optDouble("lat", 0.0)
-                if (name.isNotEmpty() && lon != 0.0 && lat != 0.0) {
-                    results.add(SearchResult(name, address, lon, lat))
-                }
-            }
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "Nominatim 搜索失败: ${e.message}")
-    }
-    results
-}
-
-/**
- * 备用免费搜索链路：先 Photon，失败后再尝试 Nominatim。
- * 对外仍表现为单一备用路径，但内部保留一个额外兜底，减少公共服务波动带来的空结果。
- */
-private suspend fun searchPlacesFallback(
-    query: String,
-    proxLat: Double?,
-    proxLon: Double?,
-    lang: String,
-    langFull: String
-): SearchResponse = withContext(Dispatchers.IO) {
-    val photonResults = searchPlacesPhoton(query, proxLat, proxLon, lang)
-    if (photonResults.isNotEmpty()) {
-        return@withContext SearchResponse(
-            photonResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
-            "Photon"
-        )
-    }
-
-    val nominatimResults = searchPlacesNominatim(query, proxLat, proxLon, langFull)
-    if (nominatimResults.isNotEmpty()) {
-        return@withContext SearchResponse(
-            nominatimResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
-            "Nominatim"
-        )
-    }
-
-    SearchResponse(emptyList(), "备用搜索")
-}
-
-/** Mapbox 搜索 */
-private suspend fun searchPlacesMapbox(
-    token: String, query: String, proximity: String, lang: String
-): List<SearchResult> = withContext(Dispatchers.IO) {
-    val results = mutableListOf<SearchResult>()
-    try {
-        val url = "https://api.mapbox.com/geocoding/v5/mapbox.places/${java.net.URLEncoder.encode(query, "UTF-8")}.json" +
-                "?access_token=$token&limit=8&language=$lang&proximity=$proximity"
-        val body = searchHttpClient.newCall(Request.Builder().url(url).build()).execute().body?.string()
-        if (body != null) {
-            val features = JSONObject(body).optJSONArray("features")
-            if (features != null) {
-                for (i in 0 until features.length()) {
-                    val f = features.getJSONObject(i)
-                    val coords = f.getJSONObject("geometry").getJSONArray("coordinates")
-                    val name = f.optString("text", "")
-                    if (name.isNotEmpty()) {
-                        results.add(SearchResult(name, f.optString("place_name", ""), coords.getDouble(0), coords.getDouble(1)))
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "Mapbox 搜索失败: ${e.message}")
-    }
-    results
+    GOOGLE("谷歌")
 }
 
 /**
  * 统一搜索入口：
  * 1. 用户显式指定引擎 → 始终直接调用指定引擎
- * 2. AUTO（国内且有定位）→ 高德（Android 搜索 SDK，失败则 REST）→ 腾讯 → 备用免费链路
- * 3. AUTO（国外或无有效 proximity）→ 直接备用链路
+ * 2. AUTO（国内且有定位）→ 高德（Android 搜索 SDK，失败则 REST）→ 腾讯
+ * 3. AUTO（海外或无有效 proximity）→ 谷歌 Places API
  *
  * @param androidContext 用于高德 SDK 输入提示；传 null 时高德仅尝试 REST（易遇 10009）
  */
@@ -469,24 +383,12 @@ suspend fun searchPlaces(
     val proxLon = proxParts.getOrNull(0)?.toDoubleOrNull()
     val proxLat = proxParts.getOrNull(1)?.toDoubleOrNull()
 
-    // 语言检测
-    val lang = when {
-        query.any { it in '\uAC00'..'\uD7AF' } -> "ko"
-        query.any { it in '\u4E00'..'\u9FFF' } -> "zh"
-        else -> "en"
-    }
-    val langFull = when (lang) {
-        "ko" -> "ko,zh,en"
-        "zh" -> "zh,en"
-        else -> "en,zh,ko"
-    }
-
-    // ===== 用户指定了搜索引擎 → 直接调用（不受系统语言影响） =====
+    // ===== 用户指定了搜索引擎 → 直接调用 =====
     if (preferredProvider != SearchProvider.AUTO) {
         val providerResults = when (preferredProvider) {
             SearchProvider.GAODE -> {
                 serviceName = "高德地图"
-                if (proxLat != null && proxLon != null) {
+                if (proxLat != null && proxLon != null && isInChina(proxLat, proxLon)) {
                     val gcj = com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
                     searchPlacesAmap(androidContext, query, gcj.first, gcj.second)
                 } else {
@@ -496,15 +398,19 @@ suspend fun searchPlaces(
             SearchProvider.TENCENT -> {
                 serviceName = "腾讯地图"
                 if (proxLat != null && proxLon != null) {
-                    val gcjCoords = com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
+                    val gcjCoords = if (isInChina(proxLat, proxLon)) {
+                        com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
+                    } else {
+                        Pair(proxLat, proxLon)
+                    }
                     searchPlacesTencent(query, gcjCoords.first, gcjCoords.second)
                 } else {
                     emptyList()
                 }
             }
-            SearchProvider.PHOTON -> {
-                serviceName = "Photon"
-                searchPlacesPhoton(query, proxLat, proxLon, lang)
+            SearchProvider.GOOGLE -> {
+                serviceName = "谷歌地图"
+                searchPlacesGoogle(query, proxLat, proxLon)
             }
             SearchProvider.AUTO -> emptyList()
         }
@@ -515,8 +421,9 @@ suspend fun searchPlaces(
         )
     }
 
-    // ===== AUTO：国内优先高德，再腾讯，再走备用 =====
+    // ===== AUTO 模式 =====
     if (proxLat != null && proxLon != null && isInChina(proxLat, proxLon)) {
+        // 国内：高德优先 → 腾讯兜底
         val gcjCoords = com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
         val amapResults = searchPlacesAmap(androidContext, query, gcjCoords.first, gcjCoords.second)
         if (amapResults.isNotEmpty()) {
@@ -525,11 +432,7 @@ suspend fun searchPlaces(
                 "高德地图"
             )
         }
-        if (androidContext == null) {
-            Log.d(TAG, "高德：未传入 Context，无法走 Android SDK，尝试腾讯")
-        } else {
-            Log.w(TAG, "高德地图无结果，尝试腾讯")
-        }
+        Log.w(TAG, "高德地图无结果，尝试腾讯")
         val tencentResults = searchPlacesTencent(query, gcjCoords.first, gcjCoords.second)
         if (tencentResults.isNotEmpty()) {
             return@withContext SearchResponse(
@@ -537,8 +440,19 @@ suspend fun searchPlaces(
                 "腾讯地图"
             )
         }
-        Log.w(TAG, "腾讯地图无结果，切换备用搜索")
+        Log.w(TAG, "高德、腾讯均无结果")
+    } else {
+        // 海外或无定位：谷歌搜索
+        Log.d(TAG, "海外/AUTO 模式，调用谷歌搜索")
+        val googleResults = searchPlacesGoogle(query, proxLat, proxLon)
+        if (googleResults.isNotEmpty()) {
+            return@withContext SearchResponse(
+                googleResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
+                "谷歌地图"
+            )
+        }
+        Log.w(TAG, "谷歌搜索无结果")
     }
 
-    searchPlacesFallback(query, proxLat, proxLon, lang, langFull)
+    SearchResponse(emptyList(), "")
 }
