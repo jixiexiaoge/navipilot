@@ -20,55 +20,6 @@ data class BroadcastData(
     val parsedContent: String               // 解析后的内容
 )
 
-// CarrotMan数据包类 - 用于发送到Comma3设备
-data class CarrotManData(
-    // 导航信息
-    val nTBTTurnType: Int,
-    val nTBTDist: Int,
-    val szTBTMainText: String,
-    val szNearDirName: String,
-    val szFarDirName: String,
-    
-    // 位置信息
-    val vpPosPointLat: Double,
-    val vpPosPointLon: Double,
-    val vpPosPointLatNavi: Double,
-    val vpPosPointLonNavi: Double,
-    
-    // 目的地信息
-    val goalPosX: Double,
-    val goalPosY: Double,
-    val szGoalName: String,
-    
-    // 道路信息
-    val roadcate: Int,
-    val nRoadLimitSpeed: Int,
-    
-    // SDI信息
-    val nSdiType: Int,
-    val nSdiSpeedLimit: Int,
-    val nSdiDist: Int,
-    
-    // 系统状态
-    val active_carrot: Int,
-    val isNavigating: Boolean,
-    val carrotIndex: Long,
-    val carcruiseSpeed: Float,
-    
-    // NOA增强信息
-    val exitDirectionInfo: String = "",
-    val exitNameInfo: String = "",
-    val roundAboutNum: Int = -1,
-    val roundAllNum: Int = -1,
-    val segAssistantAction: Int = -1,
-    val sapaName: String = "",
-    val sapaDist: Int = -1,
-    val nextNextAddIcon: String = "",
-    
-    // 时间戳
-    val lastUpdateTime: Long
-)
-
 // OpenpPilot状态数据类 - 用于接收7705端口的JSON数据
 data class OpenpilotStatusData(
     val carrot2: String = "",           // OpenpPilot版本信息
