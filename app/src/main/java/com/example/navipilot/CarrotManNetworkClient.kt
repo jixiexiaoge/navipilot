@@ -155,6 +155,40 @@ class CarrotManNetworkClient(
             put("carrotCmdIndex", fields.carrotCmdIndex)
             put("carcruiseSpeed", fields.carcruiseSpeed)
 
+            // === 高德原始 ICON 和 NOA 增强字段 ===
+            put("amapIcon", fields.amapIcon)
+            put("amapIconNext", fields.amapIconNext)
+            put("exitDirectionInfo", fields.exitDirectionInfo)
+            put("roundAboutNum", fields.roundAboutNum)
+            put("roundAllNum", fields.roundAllNum)
+            put("segAssistantAction", fields.segAssistantAction)
+            put("nextNextAddIcon", fields.nextNextAddIcon)
+            put("routeRemainDisAuto", fields.routeRemainDisAuto)
+            put("routeRemainTimeAuto", fields.routeRemainTimeAuto)
+            put("nextSegRemainDisAuto", fields.nextSegRemainDisAuto)
+            put("nextSapaDistAuto", fields.nextSapaDistAuto)
+            put("sapaDistAuto", fields.sapaDistAuto)
+            put("nextRoadProgressPercent", fields.nextRoadProgressPercent)
+            put("cameraID", fields.cameraID)
+            put("cameraPenalty", fields.cameraPenalty)
+            put("newCamera", fields.newCamera)
+            put("viaPOIdistance", fields.viaPOIdistance)
+            put("viaPOItime", fields.viaPOItime)
+
+            // === 地图/导航状态字段 ===
+            put("mapState", fields.mapState)
+            put("extraState", fields.extraState)
+            put("navStatus", fields.navStatus)
+            put("routeType", fields.routeType)
+            put("speedLimitType", fields.speedLimitType)
+
+            // === 高德 SDK 并行路/地图朝向/路口大图状态 ===
+            put("amapParallelElevatedFlag", fields.amapParallelElevatedFlag)
+            put("amapParallelMainSideFlag", fields.amapParallelMainSideFlag)
+            put("amapNaviMapMode", fields.amapNaviMapMode)
+            put("amapSdkCrossVisible", fields.amapSdkCrossVisible)
+            put("amapSdkModeCrossVisible", fields.amapSdkModeCrossVisible)
+
             put("leftLaneVehicle", ts.leftLaneVehicle)
             put("rightLaneVehicle", ts.rightLaneVehicle)
             put("leftLaneVehicleDist", ts.leftLaneVehicleDist)
