@@ -399,7 +399,10 @@ class GoogleNavManager(
                 .setPlaceIdString(placeId)
                 .build()
 
-            val pendingRoute = nav.setDestination(destination)
+            val displayOptions = DisplayOptions()
+                .showTrafficLights(true)
+                .showStopSigns(true)
+            val pendingRoute = nav.setDestinations(listOf(destination), RoutingOptions(), displayOptions)
 
             if (pendingRoute == null) {
                 val msg = "无法创建路线请求（pendingRoute 为 null）"
