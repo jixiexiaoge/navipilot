@@ -3,6 +3,8 @@
 > **目的**：以车机 **[carrot_man.py](carrot/carrot_man.py)** 的**入口**与 **[carrot_serv.py](carrot/carrot_serv.py) `CarrotServ.update(self, json)`**（约 1182–1314 行）为准，逆向说明 **哪些 JSON/二进制字段会生效**；并与 CPlink **[CarrotManNetworkClient.kt](../app/src/main/java/com/example/carrotamap/CarrotManNetworkClient.kt)** 实际发送内容对照。  
 > **坐标**：导航/路径点约定 **WGS-84**（高德系需在 App 侧完成 GCJ→WGS）。
 
+> **⚠️ 2025-07 逆向验证结果**：代码实际行为与本清单的 **§1.5** 和 **§7** 一致，车机端 `szTBTMainTextNext` 键读取存在 **Bug**（见 §1.5 说明）。
+
 ---
 
 ## 〇、车机侧数据入口总览（`carrot_man.py`）
@@ -51,10 +53,12 @@
 - `phone_latitude/longitude/accuracy` 来自 `latitude/longitude/accuracy`。  
 - 若 **`(now - last_update_gps_time_navi) > 3.0`**：用 phone 坐标覆盖 `vpPosPointLatNavi/LonNavi`，`nPosAngle = nPosAnglePhone`，**`nPosSpeed = float(json.get("gps_speed", 0))`**。
 
-### 1.5 `szTBTMainTextNext`（与 App 对齐）
+### 1.5 `szTBTMainTextNext` ⚠️ Bug 确认
 
-- 车机应使用 **`_s(json.get("szTBTMainTextNext"))`**，与 App 键 **`szTBTMainTextNext`** 一致。  
-- 若仍为旧代码 `json.get("szTBTMainText", "")`，则会**误读主文案键**，App 单独发的 **`szTBTMainTextNext` 无效**。
+- **代码行 1271**：`self.szTBTMainTextNext = json.get("szTBTMainText", "")`  
+- **实际行为**：**误读 `szTBTMainText`**（主文案键），而非 `szTBTMainTextNext`。即使 App 正确发送 `szTBTMainTextNext`，车机仍然读的是主文案的值。  
+- **正确应写为**：`self.szTBTMainTextNext = _s(json.get("szTBTMainTextNext"))`  
+- 此 Bug 已在文档 §7 标注，但**当前代码尚未修复**。App 端若已发 `szTBTMainTextNext`，但车机侧需手动修复此行才生效。
 
 ---
 
@@ -78,7 +82,7 @@
 | `nLaneCount` | **否** | | | |
 | `nTBTDist` … `nTBTTurnTypeNext` | 是 | | | int |
 | `szTBTMainText` / `szNearDirName` / `szFarDirName` | 是 | | | `_s` |
-| `szTBTMainTextNext` | 是 | | | 应为 `_s(json.get("szTBTMainTextNext"))` |
+| `szTBTMainTextNext` | 是 | | | **⚠️ Bug：代码读的是 `szTBTMainText`** |
 | `nGoPosDist` / `nGoPosTime` / `szPosRoadName` | 是 | | | |
 | `latitude` / `longitude` / `accuracy` | | 是 | | |
 | `gps_speed` | | 条件赋 `nPosSpeed` | | 见 §1.4；单位常与 `nPosSpeed` 不一致风险 |
@@ -87,9 +91,7 @@
 | `isNavigating` | **否** | | | |
 | `tCamera*` / `remainingTrafficLights` / `passed*` / `isOnMainRoad` | **否** | | | |
 | `carrotCmd` / `carrotArg` | | | 是 | |
-| `carrotCmdIndex` | **否** | | | 见 §1.1 |
-| `carcruiseSpeed` | **否** | | | 与 7705 广播字段名相似，勿混 |
-| `leftLaneVehicle` … `laneDetectSource` | **否** | | | |
+| `carrotCmdIndex` | **否** | | | 不在此 JSON 读取 |
 
 ### 2.2 心跳包（`sendHeartbeat`）
 
@@ -159,7 +161,7 @@
 | UDP 7706 JSON | `carrot_man_thread` → `update` |
 | TCP 7709 折线 | `carrot_route` |
 | 未发 7712/7713 | 若将来发送，`rgdata` 内字段与 7706 一致；可加顶层 `timestamp_ms` |
-| `szTBTMainTextNext` | 须车机读 **`szTBTMainTextNext`** 键（本仓库 `carrot_serv.py` 已 `_s(json.get("szTBTMainTextNext"))`） |
+| `szTBTMainTextNext` | **⚠️ 车机代码行 1271 误读 `szTBTMainText` 键，需修复为 `_s(json.get("szTBTMainTextNext"))`** |
 
 ---
 
@@ -169,6 +171,7 @@
 |----|------|
 | `gps_speed` vs `nPosSpeed` | 统一 **m/s** 或 **km/h**，避免 GPS 回退与主导航速度混用 |
 | App `heading` 双写 | 合并为一次 `put` |
+| 🐛 **修复 `szTBTMainTextNext` Bug** | `carrot_serv.py` 第 1271 行：`json.get("szTBTMainText", "")` → `_s(json.get("szTBTMainTextNext"))` |
 | 上游 openpilot | 若合并分支，请同步 **`szTBTMainTextNext`** 一行修正 |
 
 ---
