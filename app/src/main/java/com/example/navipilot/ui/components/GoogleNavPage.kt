@@ -98,6 +98,7 @@ private fun toggleOverview(
  *
  * Google Maps 使用 WGS-84 坐标系，与内部存储一致，无需坐标转换
  */
+@Suppress("DEPRECATION")
 @SuppressLint("MissingPermission")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

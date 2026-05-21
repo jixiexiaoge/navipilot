@@ -230,6 +230,7 @@ class GoogleNavManager(
      * @param onRouteError 路线错误回调
      * @param networkClient 可选网络客户端，用于发送路线点到设备
      */
+    @Suppress("DEPRECATION")
     fun startNavigation(
         startLat: Double = 0.0,
         startLon: Double = 0.0,
@@ -380,6 +381,7 @@ class GoogleNavManager(
     /**
      * 通过 Place ID 设置目的地（推荐方式，可获得更准确的路线和 ETA）
      */
+    @Suppress("DEPRECATION")
     fun startNavigationByPlaceId(
         placeId: String,
         destName: String,

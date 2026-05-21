@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -420,7 +421,7 @@ object MainActivityUIComponents {
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.HelpOutline,
+                                                    imageVector = Icons.AutoMirrored.Filled.HelpOutline,
                                                     contentDescription = "帮助",
                                                     modifier = Modifier.size(24.dp),
                                                     tint = Color.White
@@ -568,7 +569,7 @@ object MainActivityUIComponents {
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.KeyboardArrowLeft,
+                                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                                     contentDescription = "左变道",
                                                     modifier = Modifier.size(24.dp),
                                                     tint = Color.White
@@ -637,7 +638,7 @@ object MainActivityUIComponents {
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.KeyboardArrowRight,
+                                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                                     contentDescription = "右变道",
                                                     modifier = Modifier.size(24.dp),
                                                     tint = Color.White

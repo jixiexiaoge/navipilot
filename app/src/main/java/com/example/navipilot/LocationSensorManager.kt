@@ -110,6 +110,7 @@ class LocationSensorManager(
     /**
      * GPS 状态检查
      */
+    @Suppress("DEPRECATION")
     fun checkGpsStatus(): Map<String, Any> {
         val gpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
         val satellites = try {

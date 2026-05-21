@@ -435,7 +435,6 @@ fun AmapMobileNavPage(
         
         // 🔧 优化3: Activity级别屏幕常亮控制
         val activity = findActivityContext(context) as? Activity
-        val originalFlags = activity?.window?.attributes?.flags
         try {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             Log.i(TAG, "✅ Activity屏幕常亮已启用")
@@ -447,7 +446,7 @@ fun AmapMobileNavPage(
             onExitAmapMobileMode()
             // 恢复原始屏幕标志
             try {
-                if (originalFlags != null && activity != null) {
+                if (activity != null) {
                     activity.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     Log.i(TAG, "✅ Activity屏幕常亮已恢复")
                 }

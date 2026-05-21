@@ -382,6 +382,12 @@
 -keep class com.amap.api.location.R$string { *; }
 
 # ============================================================
+# Google Places API（防止 R8 StackOverflowError）
+# ============================================================
+-keep class com.google.android.libraries.places.** { *; }
+-dontwarn com.google.android.libraries.places.**
+
+# ============================================================
 # 反射保护（防止反射调用失败）
 # ===========================================================
 # 保留所有通过 Class.forName 加载的类

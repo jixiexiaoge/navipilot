@@ -53,6 +53,7 @@ class CommaDeviceDiscovery(private val context: Context) {
     /**
      * 获取本机 IP 地址
      */
+    @Suppress("DEPRECATION")
     fun getLocalIPAddress(): String? {
         try {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
