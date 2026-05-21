@@ -794,59 +794,78 @@ class StatusTCPServer:
 
     def _accept_loop(self):
         """接受客户端连接"""
+        srv_socket = None
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-                srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                srv.settimeout(5)
-                srv.bind(("0.0.0.0", self.port))
-                srv.listen(5)
+            srv_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv_socket.settimeout(5)
+            srv_socket.bind(("0.0.0.0", self.port))
+            srv_socket.listen(5)
 
-                if self.log_callback:
-                    self.log_callback(f"TCP状态服务器启动: 0.0.0.0:{self.port}")
+            if self.log_callback:
+                self.log_callback(f"✅ TCP状态服务器已启动: 0.0.0.0:{self.port}")
 
-                while self.is_running:
-                    try:
-                        client, addr = srv.accept()
-                        with self.lock:
-                            self.clients.append(client)
+            while self.is_running:
+                try:
+                    client, addr = srv_socket.accept()
+                    with self.lock:
+                        self.clients.append(client)
+                    if self.log_callback:
+                        self.log_callback(f"📱 状态客户端连接: {addr[0]}:{addr[1]}")
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if self.is_running:
                         if self.log_callback:
-                            self.log_callback(f"📱 状态客户端连接: {addr[0]}:{addr[1]}")
-                    except socket.timeout:
-                        continue
-                    except Exception as e:
-                        if self.is_running:
-                            if self.log_callback:
-                                self.log_callback(f"状态服务器接受连接错误: {e}")
+                            self.log_callback(f"⚠️ 状态服务器接受连接错误: {e}")
         except Exception as e:
             if self.log_callback:
-                self.log_callback(f"状态服务器异常: {e}")
+                self.log_callback(f"❌ TCP状态服务器异常: {e}")
+                traceback.print_exc()
+        finally:
+            if srv_socket:
+                try:
+                    srv_socket.close()
+                except:
+                    pass
 
     def _broadcast_loop(self):
         """每秒向所有客户端广播状态"""
+        if self.log_callback:
+            self.log_callback(f"TCP状态广播循环已启动")
+
         while self.is_running:
             time.sleep(1.0)
 
             # 生成模拟状态数据
-            status_data = self._make_status_data()
-            json_str = json.dumps(status_data)
-            data = json_str.encode("utf-8")
+            try:
+                status_data = self._make_status_data()
+                json_str = json.dumps(status_data)
+                data = json_str.encode("utf-8")
 
-            # 发送给所有客户端
-            with self.lock:
-                dead_clients = []
-                for client in self.clients:
-                    try:
-                        client.sendall(data + b"\n")
-                    except:
-                        dead_clients.append(client)
+                # 发送给所有客户端
+                with self.lock:
+                    dead_clients = []
+                    for client in self.clients:
+                        try:
+                            client.sendall(data + b"\n")
+                        except Exception as e:
+                            dead_clients.append(client)
+                            if self.log_callback:
+                                self.log_callback(f"⚠️ 客户端发送失败: {e}")
 
-                # 移除断开的客户端
-                for client in dead_clients:
-                    self.clients.remove(client)
-                    try:
-                        client.close()
-                    except:
-                        pass
+                    # 移除断开的客户端
+                    for client in dead_clients:
+                        self.clients.remove(client)
+                        try:
+                            client.close()
+                        except:
+                            pass
+                        if self.log_callback:
+                            self.log_callback(f"📱 客户端断开连接")
+            except Exception as e:
+                if self.is_running and self.log_callback:
+                    self.log_callback(f"⚠️ 状态广播错误: {e}")
 
     def _make_status_data(self):
         """生成模拟的设备状态数据"""
@@ -1061,18 +1080,24 @@ class Comma3Simulator:
                 ParamHTTPHandler,
                 log_callback=self._log
             )
-            threading.Thread(target=self._http_server_loop, daemon=True).start()
-            self._log(f"✅ HTTP参数服务器已启动: 0.0.0.0:{PARAM_PORT}")
+            http_thread = threading.Thread(target=self._http_server_loop, daemon=True)
+            http_thread.start()
+            # 等待一小段时间确保服务器启动
+            time.sleep(0.1)
+            self._log(f"✅ HTTP参数服务器已启动: 0.0.0.0:{PARAM_PORT} (线程ID: {http_thread.ident})")
         except Exception as e:
             self._log(f"❌ HTTP参数服务器启动失败: {e}")
+            traceback.print_exc()
 
         # 启动 TCP 状态推送服务器 (7711)
         try:
             self.status_server = StatusTCPServer(STATUS_PORT, self.serv, log_callback=self._log)
             self.status_server.start()
-            self._log(f"✅ TCP状态推送服务器已启动: 0.0.0.0:{STATUS_PORT}")
+            # 等待一小段时间确保服务器启动
+            time.sleep(0.1)
         except Exception as e:
             self._log(f"❌ TCP状态推送服务器启动失败: {e}")
+            traceback.print_exc()
 
         # 启动网络线程
         threading.Thread(target=self._broadcast_loop, daemon=True).start()
@@ -1124,10 +1149,14 @@ class Comma3Simulator:
     def _http_server_loop(self):
         """HTTP服务器运行循环"""
         try:
+            self._log(f"HTTP服务器线程开始运行...")
             self.http_server.serve_forever()
         except Exception as e:
             if self.is_running:
-                self._log(f"HTTP服务器异常: {e}")
+                self._log(f"❌ HTTP服务器异常: {e}")
+                traceback.print_exc()
+        finally:
+            self._log(f"HTTP服务器线程已退出")
 
     def _toggle_pause(self):
         self._paused = not self._paused
