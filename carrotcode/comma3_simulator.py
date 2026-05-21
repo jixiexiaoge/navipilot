@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 Comma3 Device Simulator for Windows
-模拟comma3设备，接收手机App(CarrotAmap)发送的导航数据并显示。
+模拟comma3设备,接收手机App(CarrotAmap)发送的导航数据并显示。
 
 协议逆向自 carrot_man.py / carrot_serv.py:
   - 7705 UDP广播: comma3 → 手机 (设备发现 + 状态推送, 20Hz)
   - 7706 UDP接收: 手机 → comma3 (导航/GPS/SDI/TBT数据)
   - 7709 TCP接收: 手机 → comma3 (路线点串)
+  - 7711 TCP推送: comma3 → 手机 (设备状态: carState/modelV2/controlsState)
+  - 7000 HTTP服务: comma3 ↔ 手机 (参数读写 API: /api/params_bulk, /api/param_set)
 """
 
 import json
@@ -20,6 +22,8 @@ from datetime import datetime
 from collections import OrderedDict
 import traceback
 import math
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 
 # ─────────────────────────────────────────────
@@ -28,6 +32,8 @@ import math
 BROADCAST_PORT = 7705
 DATA_PORT      = 7706
 ROUTE_PORT     = 7709
+STATUS_PORT    = 7711  # TCP: 向手机推送设备状态
+PARAM_PORT     = 7000  # HTTP: 参数读写 API
 BROADCAST_HZ   = 20        # 广播频率
 VERSION        = "0.9.4"   # 模拟的 openpilot 版本
 
@@ -658,6 +664,248 @@ def _interp_curve_speed(curvature):
 
 
 # ═══════════════════════════════════════════════
+#  HTTP 参数服务器 (7000 端口)
+# ═══════════════════════════════════════════════
+class ParamHTTPHandler(BaseHTTPRequestHandler):
+    """
+    模拟 comma3 的 HTTP 参数 API (端口 7000)
+
+    支持的端点:
+    - GET  /api/params_bulk?keys=key1,key2   批量读取参数
+    - POST /api/param_set?key=xxx&value=yyy  设置参数
+
+    参数存储在 server.params 字典中
+    """
+
+    def log_message(self, format, *args):
+        """抑制默认的HTTP日志输出，使用自定义日志"""
+        pass
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/params_bulk":
+            self._handle_params_bulk(parsed)
+        else:
+            self.send_error(404, "Not Found")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/param_set":
+            self._handle_param_set(parsed)
+        else:
+            self.send_error(404, "Not Found")
+
+    def _handle_params_bulk(self, parsed):
+        """批量读取参数"""
+        query = parse_qs(parsed.query)
+        keys_str = query.get("keys", [""])[0]
+        keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+
+        result = {}
+        for key in keys:
+            result[key] = self.server.params.get(key, "")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode("utf-8"))
+
+        if self.server.log_callback:
+            self.server.log_callback(f"HTTP GET /api/params_bulk keys={keys_str}")
+
+    def _handle_param_set(self, parsed):
+        """设置参数"""
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len).decode("utf-8")
+
+        # 解析参数 (支持 query string 或 POST body)
+        params = parse_qs(parsed.query)
+        if body:
+            params.update(parse_qs(body))
+
+        key = params.get("key", [""])[0]
+        value = params.get("value", [""])[0]
+
+        if key:
+            self.server.params[key] = value
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+            if self.server.log_callback:
+                self.server.log_callback(f"HTTP POST /api/param_set key={key} value={value[:50]}")
+        else:
+            self.send_error(400, "Missing key parameter")
+
+
+class ParamHTTPServer(HTTPServer):
+    """扩展HTTPServer以支持参数存储和日志回调"""
+    def __init__(self, server_address, handler_class, log_callback=None):
+        super().__init__(server_address, handler_class)
+        self.params = {
+            # 默认参数 (模拟 comma3 常见参数)
+            "DongleId": "sim_" + get_local_ip().replace(".", "_"),
+            "Version": VERSION,
+            "IsOnroad": "1",
+            "CarrotManActive": "1",
+        }
+        self.log_callback = log_callback
+
+
+# ═══════════════════════════════════════════════
+#  TCP 状态推送服务器 (7711 端口)
+# ═══════════════════════════════════════════════
+class StatusTCPServer:
+    """
+    模拟 comma3 向手机推送设备状态 (端口 7711)
+
+    协议: 每秒发送一次 JSON 数据，包含:
+      - carState: 车辆状态 (速度、转向角等)
+      - modelV2: 模型输出
+      - controlsState: 控制状态
+      - systemState: 系统状态
+    """
+
+    def __init__(self, port, serv, log_callback=None):
+        self.port = port
+        self.serv = serv
+        self.log_callback = log_callback
+        self.is_running = False
+        self.clients = []  # 已连接的客户端列表
+        self.lock = threading.Lock()
+
+    def start(self):
+        """启动TCP服务器"""
+        self.is_running = True
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+        threading.Thread(target=self._broadcast_loop, daemon=True).start()
+
+    def stop(self):
+        """停止服务器"""
+        self.is_running = False
+        with self.lock:
+            for client in self.clients:
+                try:
+                    client.close()
+                except:
+                    pass
+            self.clients.clear()
+
+    def _accept_loop(self):
+        """接受客户端连接"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+                srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                srv.settimeout(5)
+                srv.bind(("0.0.0.0", self.port))
+                srv.listen(5)
+
+                if self.log_callback:
+                    self.log_callback(f"TCP状态服务器启动: 0.0.0.0:{self.port}")
+
+                while self.is_running:
+                    try:
+                        client, addr = srv.accept()
+                        with self.lock:
+                            self.clients.append(client)
+                        if self.log_callback:
+                            self.log_callback(f"📱 状态客户端连接: {addr[0]}:{addr[1]}")
+                    except socket.timeout:
+                        continue
+                    except Exception as e:
+                        if self.is_running:
+                            if self.log_callback:
+                                self.log_callback(f"状态服务器接受连接错误: {e}")
+        except Exception as e:
+            if self.log_callback:
+                self.log_callback(f"状态服务器异常: {e}")
+
+    def _broadcast_loop(self):
+        """每秒向所有客户端广播状态"""
+        while self.is_running:
+            time.sleep(1.0)
+
+            # 生成模拟状态数据
+            status_data = self._make_status_data()
+            json_str = json.dumps(status_data)
+            data = json_str.encode("utf-8")
+
+            # 发送给所有客户端
+            with self.lock:
+                dead_clients = []
+                for client in self.clients:
+                    try:
+                        client.sendall(data + b"\n")
+                    except:
+                        dead_clients.append(client)
+
+                # 移除断开的客户端
+                for client in dead_clients:
+                    self.clients.remove(client)
+                    try:
+                        client.close()
+                    except:
+                        pass
+
+    def _make_status_data(self):
+        """生成模拟的设备状态数据"""
+        s = self.serv
+
+        # 模拟车辆状态
+        car_state = {
+            "vEgo": s.nPosSpeed / 3.6,  # km/h → m/s
+            "aEgo": 0.0,
+            "steeringAngleDeg": 0.0,
+            "steeringTorque": 0.0,
+            "gas": 0.0,
+            "brake": 0.0,
+            "gearShifter": "drive",
+            "cruiseState": {
+                "enabled": True,
+                "speed": s.nRoadLimitSpeed / 3.6,
+                "available": True,
+            }
+        }
+
+        # 模拟模型输出
+        model_v2 = {
+            "position": {"x": [0.0] * 33, "y": [0.0] * 33, "z": [0.0] * 33},
+            "velocity": {"x": [0.0] * 33, "y": [0.0] * 33, "z": [0.0] * 33},
+            "orientation": {"x": [0.0] * 33, "y": [0.0] * 33, "z": [0.0] * 33},
+            "laneLines": [],
+            "roadEdges": [],
+            "leads": [],
+        }
+
+        # 模拟控制状态
+        controls_state = {
+            "enabled": True,
+            "active": True,
+            "vPid": s.nPosSpeed / 3.6,
+            "vTargetLead": 0.0,
+            "vCruise": s.nRoadLimitSpeed,
+            "alertText1": "",
+            "alertText2": "",
+            "alertStatus": "normal",
+        }
+
+        # 模拟系统状态
+        system_state = {
+            "deviceType": "comma",
+            "started": True,
+            "ignitionLine": True,
+        }
+
+        return {
+            "carState": car_state,
+            "modelV2": model_v2,
+            "controlsState": controls_state,
+            "systemState": system_state,
+        }
+
+
+# ═══════════════════════════════════════════════
 #  主模拟器
 # ═══════════════════════════════════════════════
 class Comma3Simulator:
@@ -666,6 +914,12 @@ class Comma3Simulator:
         self.is_running = False
         self.remote_addr = None       # 手机App地址 (ip, port)
         self.serv = CarrotServSim()   # 协议解析器
+
+        # HTTP 参数服务器 (7000)
+        self.http_server = None
+
+        # TCP 状态推送服务器 (7711)
+        self.status_server = None
 
         # GUI
         self.root = tk.Tk()
@@ -800,6 +1054,26 @@ class Comma3Simulator:
         self.lbl_status.config(text=f"状态: 运行中  IP={self.local_ip}")
         self.root.title(f"Comma3 模拟器  [{self.local_ip}]")
 
+        # 启动 HTTP 参数服务器 (7000)
+        try:
+            self.http_server = ParamHTTPServer(
+                ("0.0.0.0", PARAM_PORT),
+                ParamHTTPHandler,
+                log_callback=self._log
+            )
+            threading.Thread(target=self._http_server_loop, daemon=True).start()
+            self._log(f"✅ HTTP参数服务器已启动: 0.0.0.0:{PARAM_PORT}")
+        except Exception as e:
+            self._log(f"❌ HTTP参数服务器启动失败: {e}")
+
+        # 启动 TCP 状态推送服务器 (7711)
+        try:
+            self.status_server = StatusTCPServer(STATUS_PORT, self.serv, log_callback=self._log)
+            self.status_server.start()
+            self._log(f"✅ TCP状态推送服务器已启动: 0.0.0.0:{STATUS_PORT}")
+        except Exception as e:
+            self._log(f"❌ TCP状态推送服务器启动失败: {e}")
+
         # 启动网络线程
         threading.Thread(target=self._broadcast_loop, daemon=True).start()
         threading.Thread(target=self._data_recv_loop, daemon=True).start()
@@ -807,13 +1081,17 @@ class Comma3Simulator:
 
         # 启动GUI刷新
         self._schedule_gui_update()
+        self._log("=" * 60)
         self._log("模拟器已启动")
-        self._log(f"  广播端口: {BROADCAST_PORT} (UDP)")
-        self._log(f"  数据端口: {DATA_PORT} (UDP)")
-        self._log(f"  路线端口: {ROUTE_PORT} (TCP)")
+        self._log(f"  广播端口: {BROADCAST_PORT} (UDP) - 设备发现")
+        self._log(f"  数据端口: {DATA_PORT} (UDP) - 接收导航数据")
+        self._log(f"  路线端口: {ROUTE_PORT} (TCP) - 接收路线点")
+        self._log(f"  状态端口: {STATUS_PORT} (TCP) - 推送设备状态")
+        self._log(f"  参数端口: {PARAM_PORT} (HTTP) - 参数读写API")
         self._log(f"  本机IP: {self.local_ip}")
         self._log(f"  子网广播: {get_subnet_broadcast(self.local_ip)}")
         self._log(f"  请确保手机和电脑在同一WiFi网络")
+        self._log("=" * 60)
 
     def _stop(self):
         self.is_running = False
@@ -821,7 +1099,35 @@ class Comma3Simulator:
         self.btn_start.config(state=tk.NORMAL)
         self.btn_stop.config(state=tk.DISABLED)
         self.lbl_status.config(text="状态: 已停止")
+
+        # 停止 HTTP 服务器
+        if self.http_server:
+            try:
+                self.http_server.shutdown()
+                self.http_server.server_close()
+                self._log("HTTP参数服务器已停止")
+            except:
+                pass
+            self.http_server = None
+
+        # 停止 TCP 状态服务器
+        if self.status_server:
+            try:
+                self.status_server.stop()
+                self._log("TCP状态推送服务器已停止")
+            except:
+                pass
+            self.status_server = None
+
         self._log("模拟器已停止")
+
+    def _http_server_loop(self):
+        """HTTP服务器运行循环"""
+        try:
+            self.http_server.serve_forever()
+        except Exception as e:
+            if self.is_running:
+                self._log(f"HTTP服务器异常: {e}")
 
     def _toggle_pause(self):
         self._paused = not self._paused
