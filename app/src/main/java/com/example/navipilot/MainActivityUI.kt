@@ -73,7 +73,6 @@ import com.example.navipilot.ui.components.ProfilePage
 import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
 import com.example.navipilot.ui.components.LedMatrixPreview
-import com.example.navipilot.ui.components.ModelSwitcherPage
 import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.ui.components.OnboardingScreen
 import com.example.navipilot.ui.components.TencentNavPage
@@ -362,13 +361,9 @@ class MainActivityUI(
                         )
                         11 -> { /* SSH 已移除 */ }
                         13 -> {
-                            val sshManager = remember { SshConnectionManager(appContext) }
-                            ModelSwitcherPage(
-                                onBack = {
-                                    core.currentPage = 0
-                                },
-                                sshManager = sshManager,
-                                discoveredDeviceIp = null
+                            // 模型切换器功能已移除 - 显示提示信息
+                            ModelSwitcherRemovedHint(
+                                onBack = { core.currentPage = 0 }
                             )
                         }
                     }
@@ -1633,6 +1628,71 @@ class MainActivityUI(
                     fontSize = 11.sp,
                     color = Color(0xFF64748B)
                 )
+            }
+        }
+    }
+
+    /**
+     * 模型切换器已移除提示页
+     */
+    @Composable
+    private fun ModelSwitcherRemovedHint(onBack: () -> Unit) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F172A)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(
+                    text = localized("模型切换器", "Model Switcher"),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = localized(
+                                "模型切换器使用反馈欠佳，app 已移除该功能。",
+                                "Model Switcher removed due to poor feedback."
+                            ),
+                            fontSize = 15.sp,
+                            color = Color(0xFFCBD5E1),
+                            lineHeight = 22.sp
+                        )
+                        Text(
+                            text = localized(
+                                "若体验切换模型，可以使用 BYD 的 CP 分支或者换用 c3-ms 分支即可在设备上切换模型。",
+                                "To switch models, use BYD's CP branch or switch to c3-ms branch on your device."
+                            ),
+                            fontSize = 14.sp,
+                            color = Color(0xFF94A3B8),
+                            lineHeight = 21.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = onBack,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF3B82F6)
+                            ),
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text(localized("返回主页", "Back to Home"))
+                        }
+                    }
+                }
             }
         }
     }

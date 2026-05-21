@@ -38,7 +38,6 @@ style:
     ignorePropertyDeclaration: true
     ignoreAnnotation: true
     ignoreEnums: true
-    ignoreStaticDeclaration: true
 
 naming:
   active: true
@@ -55,17 +54,11 @@ naming:
 
 potential-bugs:
   active: true
-  DuplicateCaseInWhenExpression:
-    active: true
   EqualsAlwaysReturnsTrueOrFalse:
-    active: true
-  SafeCast:
     active: true
   UnreachableCode:
     active: true
   UnsafeCallOnNullableType:
-    active: true
-  UnusedVariable:
     active: true
 
 performance:
@@ -75,6 +68,4 @@ performance:
   ForEachOnRange:
     active: true
   SpreadOperator:
-    active: true
-  UnnecessaryTemporaryObject:
     active: true
