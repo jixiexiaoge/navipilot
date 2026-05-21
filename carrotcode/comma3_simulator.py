@@ -959,7 +959,14 @@ class Comma3Simulator:
                                 continue
 
                             if self.remote_addr is None:
-                                self._log(f"📱 手机已连接: {addr[0]}:{addr[1]}")
+                                self._log(f"📱 手机已连接: {addr[0]}:{addr[1]} (首次收到UDP数据)")
+                                # 打印接收到的原始数据头
+                                raw_preview = data.decode("utf-8", errors="replace")[:200]
+                                self._log(f"📦 首包数据预览: {raw_preview}")
+                            else:
+                                # 地址变化时也提示
+                                if self.remote_addr != addr:
+                                    self._log(f"📱 手机地址变更: {self.remote_addr[0]} → {addr[0]}")
                             self.remote_addr = addr
 
                             try:
