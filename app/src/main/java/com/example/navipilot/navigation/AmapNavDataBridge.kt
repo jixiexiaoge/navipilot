@@ -55,8 +55,6 @@ class AmapNavDataBridge(
     /** 模型路口大图 Bitmap 回调（供 UI 渲染 3D 模型路口大图） */
     var onModeCrossBitmap: ((android.graphics.Bitmap?) -> Unit)? = null
 
-    /** 车道信息回调（供 UI 渲染车道线视图） */
-    var onLaneInfo: ((List<LaneInfo>) -> Unit)? = null
 
     /**
      * 每次算路成功（含偏航/拥堵重算）在 [notifyRouteReady] 之前回调一次。
@@ -210,7 +208,6 @@ class AmapNavDataBridge(
         onMultiRouteIds = null
         onCrossBitmap = null
         onModeCrossBitmap = null
-        onLaneInfo = null
         onCalculateRouteResultDetail = null
         routeSuccessOnce.set(false)
         lastTrafficFacilitySummary = ""
@@ -602,7 +599,6 @@ class AmapNavDataBridge(
 
     private fun applyLaneList(list: List<LaneInfo>) {
         if (carrotManFieldsState == null) return
-        onLaneInfo?.invoke(list)
         postFieldsMutate { s ->
             val cur = s.value
             s.value = cur.copy(

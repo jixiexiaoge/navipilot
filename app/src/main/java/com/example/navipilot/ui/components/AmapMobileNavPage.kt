@@ -77,7 +77,6 @@ import com.amap.api.navi.model.AMapNaviPath
 import com.amap.api.navi.model.NaviLatLng
 import com.example.navipilot.BuildConfig
 import com.example.navipilot.CarrotManFields
-import com.example.navipilot.LaneInfo
 import com.example.navipilot.R
 import com.example.navipilot.navigation.AmapNavDataBridge
 import com.example.navipilot.navigation.CameraOverlay
@@ -478,7 +477,6 @@ fun AmapMobileNavPage(
         var overviewNow by remember { mutableStateOf(false) }
         var crossBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
         var modeCrossBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-        var laneInfoList by remember { mutableStateOf<List<LaneInfo>>(emptyList()) }
 
         var showRouteListSheet by remember { mutableStateOf(false) }
         var showStrategySheet by remember { mutableStateOf(false) }
@@ -550,16 +548,7 @@ fun AmapMobileNavPage(
             }
         }
 
-        // F1: 车道信息回调 - 获取车道列表并更新 UI 状态
-        DisposableEffect(dataBridge) {
-            dataBridge.onLaneInfo = { lanes ->
-                laneInfoList = lanes
-            }
-            onDispose {
-                dataBridge.onLaneInfo = null
-                laneInfoList = emptyList()
-            }
-        }
+
 
         val parallelRoadListener = remember(carrotManFieldsState) {
             object : ParallelRoadListener {
@@ -1085,29 +1074,7 @@ fun AmapMobileNavPage(
                 }
             }
 
-            // F1: 车道线视图 - 显示当前车道引导信息
-            if (laneInfoList.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    laneInfoList.forEachIndexed { index, lane ->
-                        Text(
-                            text = if (lane.isRecommended) "★" else "•",
-                            color = if (lane.isRecommended) Color.Yellow else Color.White,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        if (index < laneInfoList.size - 1) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                    }
-                }
-            }
+
 
             // 与 NaviDemo activity_basic_navi 一致：地图区尽量只保留 SDK 自带控件；扩展能力收进「更多」菜单，避免铺满自定义按钮。
             Box(
