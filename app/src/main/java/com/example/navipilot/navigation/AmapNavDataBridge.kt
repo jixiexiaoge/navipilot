@@ -4,7 +4,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.MutableState
+import com.amap.api.navi.ParallelRoadListener
 import com.amap.api.navi.SimpleNaviListener
+import com.amap.api.navi.enums.AMapNaviParallelRoadStatus
 import com.amap.api.navi.model.AMapCalcRouteResult
 import com.amap.api.navi.model.AMapLaneInfo
 import com.amap.api.navi.model.AMapModelCross
@@ -30,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class AmapNavDataBridge(
     private val carrotManFieldsState: MutableState<CarrotManFields>?
-) : SimpleNaviListener() {
+) : SimpleNaviListener(), ParallelRoadListener {
 
     /** 算路成功后由 UI 层注册：内部应调用 [com.amap.api.navi.AMapNavi.startNavi] */
     var onRouteCalculated: (() -> Unit)? = null
@@ -211,6 +213,21 @@ class AmapNavDataBridge(
                 amapSdkModeCrossVisible = false,
                 amapParallelElevatedFlag = -1,
                 amapParallelMainSideFlag = -1
+            )
+        }
+    }
+
+    override fun notifyParallelRoad(status: AMapNaviParallelRoadStatus?) {
+        if (status == null || carrotManFieldsState == null) return
+        val elevatedFlag = try { status.getmElevatedRoadStatusFlag() } catch (_: Exception) { -1 }
+        val mainSideFlag = try { status.getmParallelRoadStatusFlag() } catch (_: Exception) { -1 }
+        Log.i(TAG, "主辅路状态: elevated=$elevatedFlag mainSide=$mainSideFlag")
+        postFieldsMutate { s ->
+            val cur = s.value
+            s.value = cur.copy(
+                amapParallelElevatedFlag = elevatedFlag,
+                amapParallelMainSideFlag = mainSideFlag,
+                source_last = "amap_mobile"
             )
         }
     }

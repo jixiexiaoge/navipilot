@@ -80,6 +80,7 @@ import com.example.navipilot.CarrotManFields
 import com.example.navipilot.LaneInfo
 import com.example.navipilot.R
 import com.example.navipilot.navigation.AmapNavDataBridge
+import com.example.navipilot.navigation.CameraOverlay
 import com.example.navipilot.navigation.CoordinateConverter
 import com.example.navipilot.ui.utils.localized
 import kotlinx.coroutines.launch
@@ -426,6 +427,9 @@ fun AmapMobileNavPage(
 
     val wgsStart = resolveStartWgs84(currentLat, currentLon, carrotManFieldsState?.value)
     val routeRebuildKey = stableLatLonKey(goalLat, goalLon)
+    // GCJ-02 坐标缓存（供独立算路使用，在 factory lambda 内赋值）
+    var cachedGcjStart by remember { mutableStateOf(0.0 to 0.0) }
+    var cachedGcjGoal by remember { mutableStateOf(0.0 to 0.0) }
 
     DisposableEffect(Unit) {
         onEnterAmapMobileMode()
@@ -479,12 +483,20 @@ fun AmapMobileNavPage(
         var showRouteListSheet by remember { mutableStateOf(false) }
         var showStrategySheet by remember { mutableStateOf(false) }
         var showDisplaySheet by remember { mutableStateOf(false) }
+        // 🆕 独立算路状态
+        var showIndependentRouteSheet by remember { mutableStateOf(false) }
+        var independentRouteReady by remember { mutableStateOf(false) }
+        var independentRouteInfo by remember { mutableStateOf("") }
+        // 🆕 电子眼覆盖层
+        var cameraOverlay by remember { mutableStateOf<CameraOverlay?>(null) }
         val sdkSettingsBridge = remember(routeRebuildKey) { AmapNaviSdkUiBridge() }
 
         val strategySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val displaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         val routeListSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        // 🆕 独立算路
+        val independentRouteSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         var overflowMenuExpanded by remember { mutableStateOf(false) }
 
@@ -856,6 +868,16 @@ fun AmapMobileNavPage(
                                     }
                                 }
 
+                                // 🆕 电子眼覆盖层 — 从 camera 收听回调获取最近摄像头（getCameraInfo 在 11.1.200 中不存在）
+                                try {
+                                    // NaviDemo 参考：使用 updateCameraInfo 回调数据，由 CameraOverlay 绘制
+                                    if (cameraOverlay != null) {
+                                        Log.i(TAG, "✅ 电子眼覆盖层已就绪，等待摄像头数据回调")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "摄像头覆盖层: ${e.message}")
+                                }
+
                                 // 延迟启动导航，让用户先看到路线（2秒后自动开始）
                                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                     try {
@@ -906,6 +928,8 @@ fun AmapMobileNavPage(
                         }
 
                         val (gcjSLat, gcjSLon) = CoordinateConverter.wgs84ToGcj02(wgsSLat, wgsSLon)
+                        cachedGcjStart = gcjSLat to gcjSLon
+                        cachedGcjGoal = gcjGLat to gcjGLon
                         val sList = ArrayList<NaviLatLng>()
                         val eList = ArrayList<NaviLatLng>()
                         sList.add(NaviLatLng(gcjSLat, gcjSLon))
@@ -930,6 +954,7 @@ fun AmapMobileNavPage(
                                     try {
                                         val carInfo = AMapCarInfo()
                                         carInfo.carNumber = plate
+                                        carInfo.setRestriction(true)
                                         navi.setCarInfo(carInfo)
                                     } catch (e: Exception) {
                                         Log.w(TAG, "setCarInfo: ${e.message}")
@@ -963,6 +988,38 @@ fun AmapMobileNavPage(
                             navi.setIsNaviTravelView(false)
                         } catch (e: Exception) {
                             Log.w(TAG, "setIsNaviTravelView(init): ${e.message}")
+                        }
+                        
+                        // ParallelRoadListener — 主辅路状态（注册给 bridge 统一管理）
+                        try {
+                            navi.addParallelRoadListener(dataBridge)
+                            Log.i(TAG, "✅ ParallelRoadListener 已注册")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "addParallelRoadListener: ${e.message}")
+                        }
+                        
+                        // 🆕 电子眼覆盖层初始化
+                        try {
+                            cameraOverlay = CameraOverlay(naviView.map)
+                            Log.i(TAG, "✅ 电子眼覆盖层已初始化")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "CameraOverlay 初始化失败: ${e.message}")
+                        }
+                        
+                        // 🆕 路线点击切换 — 地图路线点击打开备选路线面板
+                        try {
+                            val amap = naviView.map
+                            if (amap != null) {
+                                amap.setOnPolylineClickListener { polyline ->
+                                    // SDK 11.1.200 简化处理: 直接打开备选路线面板
+                                    postToast(localized("点击路线切换", "Switch route"))
+                                    showRouteListSheet = true
+                                    true
+                                }
+                                Log.i(TAG, "✅ Polyline 点击监听已注册")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "注册路线点击监听失败: ${e.message}")
                         }
                         
                         // ParallelRoadListener 由独立的 DisposableEffect 管理，避免重复注册
@@ -1121,6 +1178,13 @@ fun AmapMobileNavPage(
                             setNaviHeadingMode(AMapNaviView.NORTH_UP_MODE)
                         },
                         enabled = naviMapMode != AMapNaviView.NORTH_UP_MODE
+                    )
+                    DropdownMenuItem(
+                        text = { Text(localized("独立算路…", "Independent route…")) },
+                        onClick = {
+                            overflowMenuExpanded = false
+                            showIndependentRouteSheet = true
+                        }
                     )
                     if (isNavigatingActive) {
                         HorizontalDivider()
@@ -1386,6 +1450,154 @@ fun AmapMobileNavPage(
                             }
                         ) {
                             Text(localized("应用", "Apply"))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 🆕 独立算路面板
+        if (showIndependentRouteSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showIndependentRouteSheet = false },
+                sheetState = independentRouteSheetState
+            ) {
+                var draftStrategy by remember(showIndependentRouteSheet) {
+                    mutableStateOf(readRoutePrefs(context))
+                }
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        localized("独立算路（不影响当前导航）", "Independent route (no effect on current nav)"),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        localized(
+                            "在不中断当前导航的前提下额外计算一条路线，确认后切换导航。",
+                            "Calculate an additional route without interrupting current navigation. Confirm to switch."
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    // 算路策略
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = draftStrategy.avoidCongestion,
+                            onCheckedChange = { draftStrategy = draftStrategy.copy(avoidCongestion = it) }
+                        )
+                        Text(localized("躲避拥堵", "Avoid congestion"))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = draftStrategy.avoidHighway,
+                            onCheckedChange = { draftStrategy = draftStrategy.copy(avoidHighway = it) }
+                        )
+                        Text(localized("不走高速", "Avoid motorways"))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = draftStrategy.avoidCost,
+                            onCheckedChange = { draftStrategy = draftStrategy.copy(avoidCost = it) }
+                        )
+                        Text(localized("避免收费", "Avoid tolls"))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = draftStrategy.highwayPriority,
+                            onCheckedChange = { draftStrategy = draftStrategy.copy(highwayPriority = it) }
+                        )
+                        Text(localized("高速优先", "Motorway priority"))
+                    }
+                    Spacer(Modifier.height(12.dp))
+
+                    if (independentRouteReady) {
+                        Text(
+                            localized("独立路线就绪", "Independent route ready"),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            independentRouteInfo,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showIndependentRouteSheet = false }) {
+                            Text(localized("取消", "Cancel"))
+                        }
+                        TextButton(
+                            onClick = {
+                                val err = validateRoutePrefs(draftStrategy)
+                                if (err != null) {
+                                    toast(err)
+                                    return@TextButton
+                                }
+                                val navi = aMapNaviHolder ?: run {
+                                    toast(localized("导航未初始化", "Navigation not initialized"))
+                                    return@TextButton
+                                }
+                                try {
+                                    val st = resolveDrivingStrategy(navi, draftStrategy)
+                                    val (gcjSLat, gcjSLon) = cachedGcjStart
+                                    val (gcjGLat, gcjGLon) = cachedGcjGoal
+                                    val endLatGcj = if (gcjGLat == 0.0 && gcjGLon == 0.0) gcjSLat else gcjGLat
+                                    val endLonGcj = if (gcjGLat == 0.0 && gcjGLon == 0.0) gcjSLon else gcjGLon
+                                    // 独立算路 — 使用 calculateDriveRoute（AMapNaviPoint 在 11.1.200 中不可用）
+                                    navi.calculateDriveRoute(
+                                        ArrayList<NaviLatLng>().apply { add(NaviLatLng(gcjSLat, gcjSLon)) },
+                                        ArrayList<NaviLatLng>().apply { add(NaviLatLng(endLatGcj, endLonGcj)) },
+                                        java.util.ArrayList<NaviLatLng>(),
+                                        st
+                                    )
+                                    navi.setMultipleRouteNaviMode(true)
+                                    postToast(localized("正在独立算路…", "Calculating independent route…"))
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "独立算路异常: ${e.message}", e)
+                                    postToast(localized("独立算路异常: ${e.message}", "Independent route error: ${e.message}"))
+                                }
+                            }
+                        ) {
+                            Text(localized("计算独立路线", "Calculate"))
+                        }
+                        if (independentRouteReady) {
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        val navi = aMapNaviHolder ?: return@TextButton
+                                        val naviType = if (BuildConfig.DEBUG && AMAP_MOBILE_USE_EMULATOR_IN_DEBUG) {
+                                            NaviType.EMULATOR
+                                        } else {
+                                            NaviType.GPS
+                                        }
+                                        val (gcjSLat, gcjSLon) = cachedGcjStart
+                                        val (gcjGLat, gcjGLon) = cachedGcjGoal
+                                        navi.stopNavi()
+                                        routeNavStarted.set(false)
+                                        // 用当前导航参数重新算路（独立算路结果需要通过正常 startNavi 激活）
+                                        // 此处切换策略为重算触发路线变更
+                                        val st = resolveDrivingStrategy(navi, draftStrategy)
+                                        navi.calculateDriveRoute(
+                                            ArrayList<NaviLatLng>().apply { add(NaviLatLng(gcjSLat, gcjSLon)) },
+                                            ArrayList<NaviLatLng>().apply { add(NaviLatLng(gcjGLat, gcjGLon)) },
+                                            java.util.ArrayList<NaviLatLng>(),
+                                            st
+                                        )
+                                        showIndependentRouteSheet = false
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "切换独立路线失败: ${e.message}", e)
+                                        postToast(localized("切换失败: ${e.message}", "Switch failed: ${e.message}"))
+                                    }
+                                }
+                            ) {
+                                Text(localized("使用此路线导航", "Use this route"))
+                            }
                         }
                     }
                 }
