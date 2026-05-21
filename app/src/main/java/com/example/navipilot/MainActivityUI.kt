@@ -504,6 +504,15 @@ class MainActivityUI(
             else -> 0.0
         }
 
+        // comma 设备连接状态：0=未连接, 1=已连接, 2=异常
+        val commaConnectionState = core.getNetworkClientSafely()?.let { client ->
+            when {
+                core.xiaogeDataTimeout.value -> 2
+                client.isRunning() && client.getCurrentDevice() != null -> 1
+                else -> 0
+            }
+        } ?: 0
+
         // 地图区 Composable lambda（复用于竖屏/横屏两种布局）
         val mapZoneContent: @Composable () -> Unit = {
             val isNavActive = carrotManFields.isNavigating
@@ -635,13 +644,7 @@ class MainActivityUI(
                             positionMode = positionMode,
                             parkedLocation = parkedLocPair,
                             onNavigateToParked = { navigateToParkedCar() },
-                            commaConnectionState = core.getNetworkClientSafely()?.let { client ->
-                                when {
-                                    core.xiaogeDataTimeout.value -> 2
-                                    client.isRunning() && client.getCurrentDevice() != null -> 1
-                                    else -> 0
-                                }
-                            } ?: 0,
+                            commaConnectionState = commaConnectionState,
                             searchShowTrigger = searchShowTrigger,
                             ledMatrixTrigger = ledMatrixTrigger,
                             homeNavTrigger = homeNavTrigger,
@@ -717,13 +720,7 @@ class MainActivityUI(
                     positionMode = positionMode,
                     parkedLocation = parkedLocPair,
                     onNavigateToParked = { navigateToParkedCar() },
-                    commaConnectionState = core.getNetworkClientSafely()?.let { client ->
-                        when {
-                            core.xiaogeDataTimeout.value -> 2
-                            client.isRunning() && client.getCurrentDevice() != null -> 1
-                            else -> 0
-                        }
-                    } ?: 0,
+                    commaConnectionState = commaConnectionState,
                     searchShowTrigger = searchShowTrigger,
                     ledMatrixTrigger = ledMatrixTrigger,
                     homeNavTrigger = homeNavTrigger,
@@ -766,6 +763,7 @@ class MainActivityUI(
                     ledDisplayBitmapData = ledDisplayState.bitmapData,
                     homeAddressSet = homeAddressSet,
                     companyAddressSet = companyAddressSet,
+                    commaConnectionState = commaConnectionState,
                     onShowAdvancedDialog = { showAdvancedDialog = true },
                     onPageChange = onPageChange,
                     onSearchClick = { searchShowTrigger++ },
@@ -804,6 +802,7 @@ class MainActivityUI(
                     ledDisplayBitmapData = ledDisplayState.bitmapData,
                     homeAddressSet = homeAddressSet,
                     companyAddressSet = companyAddressSet,
+                    commaConnectionState = commaConnectionState,
                     onShowAdvancedDialog = { showAdvancedDialog = true },
                     onPageChange = onPageChange,
                     onSearchClick = { searchShowTrigger++ },
@@ -1168,6 +1167,7 @@ class MainActivityUI(
         ledDisplayBitmapData: List<ByteArray>,
         homeAddressSet: Boolean,
         companyAddressSet: Boolean,
+        commaConnectionState: Int = 0, // 0=未连接, 1=已连接, 2=异常
         onShowAdvancedDialog: () -> Unit,
         onPageChange: (Int) -> Unit,
         onSearchClick: () -> Unit,
@@ -1218,6 +1218,11 @@ class MainActivityUI(
         val coroutineScope = rememberCoroutineScope()
         val tileBg = Color(0xFF1E293B).copy(alpha = 0.72f)
         val ledBg = if (isLedConnected) Color(0xFF10B981).copy(alpha = 0.9f) else tileBg
+        val searchBg = when (commaConnectionState) {
+            1 -> Color(0xFF10B981).copy(alpha = 0.9f) // 已连接 → 绿色
+            2 -> Color(0xFFEF4444).copy(alpha = 0.9f) // 异常 → 浅红
+            else -> tileBg // 未连接 → 默认
+        }
         var isExperimentalMode by remember(carrotParamClient) { mutableStateOf<Boolean?>(null) }
 
         LaunchedEffect(carrotParamClient) {
@@ -1349,7 +1354,7 @@ class MainActivityUI(
                         )
                         HomeControlPanelCircleIcon(
                             modifier = Modifier.weight(1f),
-                            background = tileBg,
+                            background = searchBg,
                             icon = Icons.Default.Search,
                             contentDescription = localized("搜索地点", "Search"),
                             onClick = onSearchClick
@@ -1441,7 +1446,7 @@ class MainActivityUI(
                                 )
                                 HomeControlPanelCircleIcon(
                                     modifier = Modifier.weight(1f),
-                                    background = tileBg,
+                                    background = searchBg,
                                     icon = Icons.Default.Search,
                                     contentDescription = localized("搜索地点", "Search"),
                                     onClick = onSearchClick
