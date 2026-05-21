@@ -234,6 +234,8 @@ class CarrotServSim:
         self.bearing_measured = 0.0
         self.last_calculate_gps_time = 0
         self.last_update_gps_time = 0
+        self.last_update_gps_time_navi = 0
+        self.last_update_gps_time_phone = 0
         self.bearing = 0
 
         # 交通灯
@@ -427,7 +429,10 @@ class CarrotServSim:
         # ── 时间同步 (每60帧) ──
         if "epochTime" in data and self.total_packets % 60 == 0:
             self.epochTime = int(data.get("epochTime", 0))
-            self.timezone = int(data.get("timezone", 0))
+            tz_val = data.get("timezone", 0)
+            if isinstance(tz_val, str):
+                tz_val = 0
+            self.timezone = int(tz_val)
 
         # ── autoNaviSpeed 参数 ──
         if "autoNaviSpeed" in data:
@@ -843,29 +848,44 @@ class StatusTCPServer:
                 json_str = json.dumps(status_data)
                 data = json_str.encode("utf-8")
 
-                # 发送给所有客户端
+                # 发送给所有客户端 (长度前缀协议: 4字节大端长度 + JSON数据)
                 with self.lock:
                     dead_clients = []
                     for client in self.clients:
                         try:
-                            client.sendall(data + b"\n")
-                        except Exception as e:
-                            dead_clients.append(client)
-                            if self.log_callback:
-                                self.log_callback(f"⚠️ 客户端发送失败: {e}")
-
-                    # 移除断开的客户端
-                    for client in dead_clients:
-                        self.clients.remove(client)
-                        try:
-                            client.close()
+                            # 先读取客户端发来的心跳数据(非阻塞), 防止缓冲区满
+                            client.setblocking(False)
+                            try:
+                                while True:
+                                    chunk = client.recv(4096)
+                                    if not chunk:
+                                        break
+                            except (BlockingIOError, socket.timeout):
+                                pass
+                            finally:
+                                client.setblocking(True)
                         except:
                             pass
-                        if self.log_callback:
-                            self.log_callback(f"📱 客户端断开连接")
+
+                        try:
+                            # 长度前缀协议: [4字节大端长度][JSON数据]
+                            payload = struct.pack('>I', len(data)) + data
+                            client.sendall(payload)
+                        except Exception as e:
+                            if self.is_running and self.log_callback:
+                                self.log_callback(f"⚠️ 状态广播错误: {e}")
+                            dead_clients.append(client)
+
+                    # 清理断开的客户端
+                    for dead in dead_clients:
+                        try:
+                            dead.close()
+                        except:
+                            pass
+                        self.clients.remove(dead)
             except Exception as e:
-                if self.is_running and self.log_callback:
-                    self.log_callback(f"⚠️ 状态广播错误: {e}")
+                if self.log_callback:
+                    self.log_callback(f"⚠️ 状态广播循环错误: {e}")
 
     def _make_status_data(self):
         """生成模拟的设备状态数据"""
@@ -1191,16 +1211,18 @@ class Comma3Simulator:
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        # 绑定到本机IP，确保广播包的源IP正确
+        sock.settimeout(5)  # 避免 sendto 在极端情况下永久阻塞
+        # 绑定到 "" (0.0.0.0)，在 Windows 上更可靠
         try:
-            sock.bind((self.local_ip, 0))
-        except Exception:
             sock.bind(("", 0))
+        except Exception:
+            pass  # 绑定失败则使用未绑定socket
+
         interval = 1.0 / BROADCAST_HZ
         subnet_broadcast = get_subnet_broadcast(self.local_ip)
         frame = 0
 
-        self._log(f"广播线程启动: 子网广播地址={subnet_broadcast}")
+        self._log(f"广播线程启动: 子网广播={subnet_broadcast} | 自身IP={self.local_ip}")
 
         while self.is_running:
             try:
@@ -1209,23 +1231,35 @@ class Comma3Simulator:
                 data = json.dumps(msg).encode("utf-8")
 
                 if self.remote_addr:
-                    # 有连接时: 每帧直接发给手机 (20Hz, 与原始代码一致)
-                    sock.sendto(data, (self.remote_addr[0], BROADCAST_PORT))
+                    # 有连接时: 每帧直接发给手机 (20Hz)
+                    try:
+                        sock.sendto(data, (self.remote_addr[0], BROADCAST_PORT))
+                    except Exception as e:
+                        self._log(f"发送单播给 {self.remote_addr[0]} 失败: {e}")
                 else:
-                    # 无连接时: 每秒广播一次 (与原始代码 frame%20==0 一致)
+                    # 无连接时: 每秒广播一次 (frame%20==0)
                     if frame % 20 == 0:
-                        # 同时发送子网广播和全局广播，确保手机能收到
-                        sock.sendto(data, (subnet_broadcast, BROADCAST_PORT))
+                        sent_ok = False
+                        # 子网广播
+                        try:
+                            sock.sendto(data, (subnet_broadcast, BROADCAST_PORT))
+                            sent_ok = True
+                        except Exception as e:
+                            self._log(f"子网广播发送失败 {subnet_broadcast}:{BROADCAST_PORT} — {e}")
+                        # 全局广播
                         try:
                             sock.sendto(data, ("255.255.255.255", BROADCAST_PORT))
+                            sent_ok = True
                         except Exception:
                             pass  # 全局广播可能被防火墙拦截，忽略
+                        if sent_ok and frame % (20 * 5) == 0:  # 每5秒log一次
+                            self._log(f"📡 广播已发送: len={len(data)}B | 等待手机从 {BROADCAST_PORT} 发现...")
 
                 time.sleep(interval)
                 frame += 1
             except Exception as e:
                 if self.is_running:
-                    self._log(f"广播错误: {e}")
+                    self._log(f"广播循环异常: {e}")
                 time.sleep(1)
         sock.close()
 
@@ -1391,7 +1425,10 @@ class Comma3Simulator:
     def _log(self, msg):
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         line = f"[{ts}] {msg}\n"
-        print(line.strip())
+        try:
+            print(line.strip())
+        except UnicodeEncodeError:
+            print(line.strip().encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
         if hasattr(self, "txt_log"):
             try:
                 self.txt_log.insert(tk.END, line)
