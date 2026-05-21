@@ -175,12 +175,74 @@ class CarrotServSim:
         # 交通灯
         self.traffic_state = 0
 
-        # 手机GPS
+        # 手机GPS (回退)
         self.phone_lat = 0.0
         self.phone_lon = 0.0
         self.phone_heading = 0.0
         self.phone_accuracy = 0.0
         self.phone_gps_speed = 0.0
+
+        # 手机GPS (完整字段: carrot_serv.py 中的 phoneGPS)
+        self.phone_lat2 = 0.0      # phoneLatitude
+        self.phone_lon2 = 0.0      # phoneLongitude
+        self.phone_acc2 = 0.0      # phoneAccuracy
+        self.phone_frame = 0       # phoneGPSFrame
+        self.phone_speed2 = 0.0    # phoneSpeed
+
+        # sdiData (区间测速控制)
+        self.sdiData_type = -1     # nSdiType in sdiData
+        self.sdiData_dist = 0      # nSdiDist in sdiData
+        self.sdiData_speed = 0     # nSdiSpeedLimit in sdiData
+        self.sectionStartType = -1 # sectionStartType
+        self.sectionStartDist = 0  # sectionStartDist
+
+        # carrotDetect (探测数据)
+        self.carrotDetect_type = 0  # carrotDetectType
+        self.carrotDetect_dist = 0  # carrotDetectDist
+        self.carrotDetect_speed = 0 # carrotDetectSpeed
+        self.carrotDetect_cnf = 0   # carrotDetectCnf
+
+        # autoNaviSpeed 参数
+        self.autoNaviSpeedCtrlMode = 0
+        self.autoNaviSpeedDecelRate = 0
+        self.autoNaviSpeedSafetyFactor = 0
+        self.autoNaviSpeedBumpSpeed = 30
+        self.autoNaviSpeedBumpTime = 2
+        self.autoNaviSpeedCtrlEnd = 0
+
+        # 时间同步
+        self.epochTime = 0
+        self.timezone = 0
+        self.timestamp = 0
+
+        # GPS 内部状态
+        self.vpPosPointLatNavi = 0.0
+        self.vpPosPointLonNavi = 0.0
+        self.gps_valid = False
+        self.bearing_offset = 0.0
+        self.bearing_measured = 0.0
+        self.last_calculate_gps_time = 0
+        self.last_update_gps_time = 0
+        self.bearing = 0
+
+        # 交通灯
+        self.traffic_light_x = 0
+        self.traffic_light_y = 0
+        self.traffic_light_color = 0
+        self.traffic_light_cntf = 0
+
+        # KISA 数据
+        self.kisa_raw_bytes = b""
+        self.kisa_parsed = {}
+        self.kisa_data_str = ""
+
+        # 下一转弯信息 (szTBTMainTextNext 等)
+        self.szTBTMainTextNext = ""
+        self.szNearDirNameNext = ""
+        self.szFarDirNameNext = ""
+
+        # 总距离 (用于 delta 计算)
+        self.totalDistance = 0.0
 
         # 路线点
         self.navi_points = []
@@ -205,6 +267,7 @@ class CarrotServSim:
         self.total_packets += 1
         self.last_update_time = time.time()
 
+        # ── 基本字段 ──
         if "carrotIndex" in data:
             self.carrotIndex = int(data["carrotIndex"])
 
@@ -215,11 +278,13 @@ class CarrotServSim:
 
         self.active_count = 80
 
+        # ── 目标 ──
         if "goalPosX" in data:
             self.goalPosX = float(data.get("goalPosX", 0))
             self.goalPosY = float(data.get("goalPosY", 0))
             self.szGoalName = data.get("szGoalName", "")
 
+        # ── 导航数据 (当 nRoadLimitSpeed 存在时) ──
         if "nRoadLimitSpeed" in data:
             self.active_sdi_count = self.active_sdi_count_max
             # 限速解码 (与原始代码一致)
@@ -238,7 +303,7 @@ class CarrotServSim:
             else:
                 self.nRoadLimitSpeed_counter = 0
 
-            # SDI
+            # SDI 完整12字段
             self.nSdiType = int(data.get("nSdiType", -1))
             self.nSdiSpeedLimit = int(data.get("nSdiSpeedLimit", 0))
             self.nSdiSection = int(data.get("nSdiSection", -1))
@@ -254,7 +319,7 @@ class CarrotServSim:
             self.nSdiPlusBlockDist = int(data.get("nSdiPlusBlockDist", 0))
             self.roadcate = int(data.get("roadcate", 0))
 
-            # TBT
+            # TBT 转弯
             self.nTBTDist = int(data.get("nTBTDist", 0))
             self.nTBTTurnType = int(data.get("nTBTTurnType", -1))
             self.szTBTMainText = data.get("szTBTMainText", "")
@@ -263,6 +328,11 @@ class CarrotServSim:
             self.nTBTNextRoadWidth = int(data.get("nTBTNextRoadWidth", 0))
             self.nTBTDistNext = int(data.get("nTBTDistNext", 0))
             self.nTBTTurnTypeNext = int(data.get("nTBTTurnTypeNext", -1))
+
+            # 下一转弯信息 (新增)
+            self.szTBTMainTextNext = data.get("szTBTMainTextNext", "")
+            self.szNearDirNameNext = data.get("szNearDirNameNext", "")
+            self.szFarDirNameNext = data.get("szFarDirNameNext", "")
 
             # 目的地
             self.nGoPosDist = int(data.get("nGoPosDist", 0))
@@ -280,16 +350,85 @@ class CarrotServSim:
                 self.nPosAngle = float(data.get("nPosAngle", self.nPosAngle))
             self.nPosSpeed = float(data.get("nPosSpeed", self.nPosSpeed))
 
+            # 更新时间戳
+            if "epochTime" in data:
+                self.epochTime = int(data.get("epochTime", 0))
+                self.timestamp = data.get("timestamp", 0)
             self._update_tbt()
             self._update_sdi()
 
-        # 手机GPS (当导航GPS不可用时回退)
-        if "latitude" in data:
+        # ── sdiData (区间测速控制) ──
+        if "sdiData" in data:
+            sdi_data = data.get("sdiData", {})
+            if isinstance(sdi_data, dict):
+                self.sdiData_type = int(sdi_data.get("nSdiType", -1))
+                self.sdiData_dist = int(sdi_data.get("nSdiDist", 0))
+                self.sdiData_speed = int(sdi_data.get("nSdiSpeedLimit", 0))
+                self.sectionStartType = int(sdi_data.get("sectionStartType", -1))
+                self.sectionStartDist = int(sdi_data.get("sectionStartDist", 0))
+
+        # ── carrotDetect (探测数据) ──
+        if "carrotDetect" in data:
+            det = data.get("carrotDetect", {})
+            if isinstance(det, dict):
+                self.carrotDetect_type = int(det.get("carrotDetectType", 0))
+                self.carrotDetect_dist = int(det.get("carrotDetectDist", 0))
+                self.carrotDetect_speed = int(det.get("carrotDetectSpeed", 0))
+                self.carrotDetect_cnf = int(det.get("carrotDetectCnf", 0))
+
+        # ── phoneGPS (完整手机GPS) ──
+        if "phoneGPS" in data:
+            pg = data.get("phoneGPS", {})
+            if isinstance(pg, dict):
+                self.phone_lat2 = float(pg.get("phoneLatitude", 0))
+                self.phone_lon2 = float(pg.get("phoneLongitude", 0))
+                self.phone_acc2 = float(pg.get("phoneAccuracy", 0))
+                self.phone_frame = int(pg.get("phoneGPSFrame", 0))
+                self.phone_speed2 = float(pg.get("phoneSpeed", 0))
+        elif "latitude" in data:
+            # 旧格式手机GPS (当导航GPS不可用时回退)
             self.phone_heading = float(data.get("heading", 0))
             self.phone_lat = float(data.get("latitude", 0))
             self.phone_lon = float(data.get("longitude", 0))
             self.phone_accuracy = float(data.get("accuracy", 0))
             self.phone_gps_speed = float(data.get("gps_speed", 0))
+
+        # ── 时间同步 (每60帧) ──
+        if "epochTime" in data and self.total_packets % 60 == 0:
+            self.epochTime = int(data.get("epochTime", 0))
+            self.timezone = int(data.get("timezone", 0))
+
+        # ── autoNaviSpeed 参数 ──
+        if "autoNaviSpeed" in data:
+            an = data.get("autoNaviSpeed", {})
+            if isinstance(an, dict):
+                self.autoNaviSpeedCtrlMode = int(an.get("autoNaviSpeedCtrlMode", 0))
+                self.autoNaviSpeedDecelRate = float(an.get("autoNaviSpeedDecelRate", 0))
+                self.autoNaviSpeedSafetyFactor = float(an.get("autoNaviSpeedSafetyFactor", 0))
+                self.autoNaviSpeedBumpSpeed = float(an.get("autoNaviSpeedBumpSpeed", 30))
+                self.autoNaviSpeedBumpTime = int(an.get("autoNaviSpeedBumpTime", 2))
+                self.autoNaviSpeedCtrlEnd = int(an.get("autoNaviSpeedCtrlEnd", 0))
+
+        # ── 交通灯 ──
+        if "trafficLight" in data:
+            tl = data.get("trafficLight", {})
+            if isinstance(tl, dict):
+                self.traffic_light_x = int(tl.get("trafficLightX", 0))
+                self.traffic_light_y = int(tl.get("trafficLightY", 0))
+                self.traffic_light_color = int(tl.get("trafficLightColor", 0))
+                self.traffic_light_cntf = int(tl.get("trafficLightCntf", 0))
+
+        # ── KISA 数据 (Korean safety camera) ──
+        if "kisaData" in data:
+            kisa_raw = data.get("kisaData", "")
+            if kisa_raw:
+                self.kisa_data_str = str(kisa_raw)
+                self.active_kisa_count = 200
+                self._parse_kisa_data(kisa_raw)
+
+        # ── 总距离 (delta 计算) ──
+        if "totalDistance" in data:
+            self.totalDistance = float(data.get("totalDistance", 0))
 
     def _update_tbt(self):
         """对照 carrot_serv.py _update_tbt()"""
@@ -308,21 +447,46 @@ class CarrotServSim:
 
     def _update_sdi(self):
         """对照 carrot_serv.py _update_sdi()"""
-        if self.nSdiType in [0, 1, 2, 3, 4, 7, 8, 75, 76] and self.nSdiSpeedLimit > 0:
-            self.xSpdLimit = self.nSdiSpeedLimit
+        if self.nSdiType in [0, 1, 2, 3, 4, 7, 8, 75, 76] and self.nSdiSpeedLimit > 0 and self.autoNaviSpeedCtrlMode > 0:
+            self.xSpdLimit = int(self.nSdiSpeedLimit * self.autoNaviSpeedSafetyFactor)
             self.xSpdDist = self.nSdiDist
             self.xSpdType = self.nSdiType
             if self.nSdiBlockType in [2, 3]:
                 self.xSpdDist = self.nSdiBlockDist
                 self.xSpdType = 4
-        elif (self.nSdiPlusType == 22 or self.nSdiType == 22) and self.roadcate > 1:
-            self.xSpdLimit = 30  # autoNaviSpeedBumpSpeed default
+            elif self.nSdiType == 7 and self.autoNaviSpeedCtrlMode < 3:  # 이동식카메라
+                self.xSpdLimit = self.xSpdDist = 0
+        elif (self.nSdiPlusType == 22 or self.nSdiType == 22) and self.roadcate > 1 and self.autoNaviSpeedCtrlMode >= 2:
+            self.xSpdLimit = int(self.autoNaviSpeedBumpSpeed)
             self.xSpdDist = self.nSdiPlusDist if self.nSdiPlusType == 22 else self.nSdiDist
             self.xSpdType = 22
         else:
             self.xSpdLimit = 0
             self.xSpdType = -1
             self.xSpdDist = 0
+
+    def _update_tbt(self):
+        """对照 carrot_serv.py _update_tbt()"""
+        if self.nTBTTurnType in NAV_TYPE_MAPPING:
+            nav_type, modifier, self.xTurnInfo = NAV_TYPE_MAPPING[self.nTBTTurnType]
+            self.navType = nav_type
+            self.navModifier = modifier
+        else:
+            self.xTurnInfo = -1
+            self.navType, self.navModifier = "invalid", ""
+
+        if self.nTBTTurnTypeNext in NAV_TYPE_MAPPING:
+            nav_type, modifier, self.xTurnInfoNext = NAV_TYPE_MAPPING[self.nTBTTurnTypeNext]
+            self.navTypeNext = nav_type
+            self.navModifierNext = modifier
+        else:
+            self.xTurnInfoNext = -1
+            self.navTypeNext, self.navModifierNext = "invalid", ""
+
+        if self.nTBTDist > 0 and self.xTurnInfo > 0:
+            self.xDistToTurn = self.nTBTDist
+        if self.nTBTDistNext > 0 and self.xTurnInfoNext > 0:
+            self.xDistToTurnNext = self.nTBTDistNext + self.nTBTDist
 
     def tick(self):
         """每帧递减计数器 (模拟 update_navi 中的递减逻辑)"""
@@ -335,6 +499,28 @@ class CarrotServSim:
             self.active_carrot = 2 if self.active_sdi_count > 0 else 1
         else:
             self.active_carrot = 0
+
+    def _parse_kisa_data(self, data: str):
+        """解析 KISA 数据 (Korean safety camera)"""
+        self.kisa_raw_bytes = b""
+        self.kisa_parsed = {}
+        try:
+            raw_bytes = data.encode("latin-1")
+            self.kisa_raw_bytes = raw_bytes
+            # 替换转义字符为实际字符
+            parsed = data.replace("\\x", "\\x").replace("\\n", "\n")
+            try:
+                json_str = parsed.encode("latin-1").decode("unicode_escape")
+                self.kisa_parsed = json.loads(json_str)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                # 尝试直接解析
+                try:
+                    self.kisa_parsed = json.loads(data)
+                except json.JSONDecodeError:
+                    self.kisa_parsed = {"raw": data}
+        except Exception:
+            self.kisa_parsed = {"error": "parse_failed"}
+
 
     def set_route_points(self, points):
         """设置路线点并计算分析数据"""
@@ -717,6 +903,30 @@ class Comma3Simulator:
             "active": False,
             "xState": 0,
             "trafficState": self.serv.traffic_state,
+            "active_carrot": self.serv.active_carrot,
+            "carrotIndex": self.serv.carrotIndex,
+            "nRoadLimitSpeed": self.serv.nRoadLimitSpeed,
+            "roadcate": self.serv.roadcate,
+            "nSdiType": self.serv.nSdiType,
+            "nSdiSpeedLimit": self.serv.nSdiSpeedLimit,
+            "nSdiDist": self.serv.nSdiDist,
+            "xSpdType": self.serv.xSpdType,
+            "xSpdLimit": self.serv.xSpdLimit,
+            "nTBTTurnType": self.serv.nTBTTurnType,
+            "nTBTDist": self.serv.nTBTDist,
+            "szTBTMainText": self.serv.szTBTMainText,
+            "nGoPosDist": self.serv.nGoPosDist,
+            "nGoPosTime": self.serv.nGoPosTime,
+            "szGoalName": self.serv.szGoalName,
+            "vpPosPointLat": self.serv.vpPosPointLat,
+            "vpPosPointLon": self.serv.vpPosPointLon,
+            "nPosSpeed": self.serv.nPosSpeed,
+            "latitude": self.serv.phone_lat,
+            "longitude": self.serv.phone_lon,
+            "nPosAngle": self.serv.nPosAngle,
+            "heading": self.serv.phone_heading,
+            "accuracy": self.serv.phone_accuracy,
+            "gps_speed": self.serv.phone_gps_speed,
         }
 
     # ─── 网络: 数据接收线程 (模拟 carrot_man_thread) ──
@@ -1018,6 +1228,52 @@ class Comma3Simulator:
         rows["phone_head"] = ("手机GPS", "heading", s.phone_heading, "float", "手机方向角")
         rows["phone_acc"] = ("手机GPS", "accuracy", s.phone_accuracy, "float", "GPS精度 (m)")
         rows["phone_spd"] = ("手机GPS", "gps_speed", s.phone_gps_speed, "float", "GPS速度 (m/s)")
+        # 完整手机GPS字段
+        rows["phone_lat2"] = ("手机GPS", "phoneLatitude", s.phone_lat2, "float", "手机纬度 (完整)")
+        rows["phone_lon2"] = ("手机GPS", "phoneLongitude", s.phone_lon2, "float", "手机经度 (完整)")
+        rows["phone_acc2"] = ("手机GPS", "phoneAccuracy", s.phone_acc2, "float", "GPS精度 (完整)")
+        rows["phone_frame"] = ("手机GPS", "phoneGPSFrame", s.phone_frame, "int", "GPS帧号")
+        rows["phone_speed2"] = ("手机GPS", "phoneSpeed", s.phone_speed2, "float", "手机速度 (完整)")
+
+        # ── 下一转弯信息 ──
+        rows["tbt_next_text"] = ("TBT下一", "szTBTMainTextNext", s.szTBTMainTextNext, "str", "下一转弯主文本")
+        rows["tbt_next_near"] = ("TBT下一", "szNearDirNameNext", s.szNearDirNameNext, "str", "下一转弯近处方向")
+        rows["tbt_next_far"] = ("TBT下一", "szFarDirNameNext", s.szFarDirNameNext, "str", "下一转弯远处方向")
+
+        # ── sdiData (区间测速控制) ──
+        rows["sdi_data_type"] = ("sdiData", "nSdiType", s.sdiData_type, "int", "区间测速类型")
+        rows["sdi_data_dist"] = ("sdiData", "nSdiDist", s.sdiData_dist, "int", "区间测速距离 (m)")
+        rows["sdi_data_spd"] = ("sdiData", "nSdiSpeedLimit", s.sdiData_speed, "int", "区间限速 (km/h)")
+        rows["sec_start_type"] = ("sdiData", "sectionStartType", s.sectionStartType, "int", "区间开始类型")
+        rows["sec_start_dist"] = ("sdiData", "sectionStartDist", s.sectionStartDist, "int", "区间开始距离 (m)")
+
+        # ── carrotDetect (探测数据) ──
+        rows["detect_type"] = ("carrotDetect", "carrotDetectType", s.carrotDetect_type, "int", "探测类型")
+        rows["detect_dist"] = ("carrotDetect", "carrotDetectDist", s.carrotDetect_dist, "int", "探测距离 (m)")
+        rows["detect_spd"] = ("carrotDetect", "carrotDetectSpeed", s.carrotDetect_speed, "int", "探测速度 (km/h)")
+        rows["detect_cnf"] = ("carrotDetect", "carrotDetectCnf", s.carrotDetect_cnf, "float", "探测置信度")
+
+        # ── autoNaviSpeed 参数 ──
+        rows["auto_ctrl_mode"] = ("autoNaviSpeed", "autoNaviSpeedCtrlMode", s.autoNaviSpeedCtrlMode, "int", "控制模式 (0=关 1=限速 2=减速带)")
+        rows["auto_decel_rate"] = ("autoNaviSpeed", "autoNaviSpeedDecelRate", s.autoNaviSpeedDecelRate, "float", "减速率 (km/h/s)")
+        rows["auto_safe_factor"] = ("autoNaviSpeed", "autoNaviSpeedSafetyFactor", s.autoNaviSpeedSafetyFactor, "float", "安全系数")
+        rows["auto_bump_spd"] = ("autoNaviSpeed", "autoNaviSpeedBumpSpeed", s.autoNaviSpeedBumpSpeed, "float", "减速带限速 (km/h)")
+        rows["auto_bump_time"] = ("autoNaviSpeed", "autoNaviSpeedBumpTime", s.autoNaviSpeedBumpTime, "int", "减速带持续时间 (s)")
+        rows["auto_ctrl_end"] = ("autoNaviSpeed", "autoNaviSpeedCtrlEnd", s.autoNaviSpeedCtrlEnd, "int", "控制结束标志")
+
+        # ── 交通灯 ──
+        rows["tl_x"] = ("交通灯", "trafficLightX", s.traffic_light_x, "int", "交通灯坐标X")
+        rows["tl_y"] = ("交通灯", "trafficLightY", s.traffic_light_y, "int", "交通灯坐标Y")
+        rows["tl_color"] = ("交通灯", "trafficLightColor", s.traffic_light_color, "int", "交通灯颜色 (0=红 1=黄 2=绿)")
+        rows["tl_cntf"] = ("交通灯", "trafficLightCntf", s.traffic_light_cntf, "float", "交通灯置信度")
+
+        # ── KISA 数据 ──
+        rows["kisa_data"] = ("KISA", "kisaData", s.kisa_data_str[:50] if s.kisa_data_str else "无", "str", "KISA安全摄像头数据")
+
+        # ── 时间同步 ──
+        rows["epoch_time"] = ("时间", "epochTime", s.epochTime, "int", "Unix时间戳")
+        rows["timezone"] = ("时间", "timezone", s.timezone, "int", "时区偏移")
+        rows["timestamp"] = ("时间", "timestamp", s.timestamp, "float", "系统时间戳")
 
         # ── 命令 ──
         rows["cmd_cmd"] = ("命令", "carrotCmd", s.carrotCmd, "str", "命令类型 (DETECT等)")
@@ -1052,6 +1308,10 @@ class Comma3Simulator:
             "vpPosPointLat", "vpPosPointLon", "nPosAngle", "nPosSpeed",
             "latitude", "longitude", "accuracy", "gps_speed",
             "carrotCmd", "carrotArg", "carrotCmdIndex",
+            "phoneGPS", "sdiData", "carrotDetect", "autoNaviSpeed",
+            "trafficLight", "kisaData", "totalDistance",
+            "phoneLatitude", "phoneLongitude", "phoneAccuracy",
+            "phoneGPSFrame", "phoneSpeed",
         }
         for k, v in s.raw_fields.items():
             if k not in known_keys:
