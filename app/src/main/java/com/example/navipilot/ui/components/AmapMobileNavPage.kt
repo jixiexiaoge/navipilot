@@ -844,6 +844,7 @@ fun AmapMobileNavPage(
                         val navi = AMapNavi.getInstance(appCtx)
                         aMapNaviHolder = navi
                         naviViewHolder = naviView
+                        dataBridge.navi = navi // 🆕 赋 navi 引用，使 P4 道路等级推断限速生效
 
                         dataBridge.resetSessionState()
                         dataBridge.showUserMessage = { msg ->

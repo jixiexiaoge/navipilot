@@ -230,7 +230,7 @@ class LocationSensorManager(
             vEgoKph = (speed * 3.6).toInt()
         )
 
-        Log.d(TAG, "📍 位置更新: lat=$lat, lon=$lon, speed=${speed * 3.6}km/h")
+        //Log.d(TAG, "📍 位置更新: lat=$lat, lon=$lon, speed=${speed * 3.6}km/h")
     }
 
     override fun onSensorChanged(event: SensorEvent) {
