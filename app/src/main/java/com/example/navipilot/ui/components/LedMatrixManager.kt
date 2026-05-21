@@ -143,6 +143,14 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
+     * LED 显示指令 — 文字发送或蓝线图案
+     */
+    sealed class DisplayCommand {
+        data class Text(val text: String, val color: Int?, val animation: AnimationType) : DisplayCommand()
+        data object BlueLine : DisplayCommand()
+    }
+
+    /**
      * LED 当前显示状态
      * 用于实时预览组件
      */
@@ -925,6 +933,7 @@ class LedMatrixManager(private val context: Context) {
     private var lastAutoColor: Int? = null
     private var lastAutoAnim: AnimationType = AnimationType.STATIC
     private var lastAutoSendTime: Long = 0
+    private var lastDisplayIsBlueLine: Boolean = false  // 当前显示是否为蓝线图案
     private var speedHistory = mutableListOf<Int>()
     private var autoDisplayEnabled: Boolean = true
     private var stoppedSince: Long = 0L
@@ -955,23 +964,39 @@ class LedMatrixManager(private val context: Context) {
         }
 
         // 按优先级决定显示内容
-        val (text, color, anim) = resolveDisplay(data)
+        val command = resolveDisplay(data)
 
         // 防抖: 相同内容不重复发送，但至少每10秒刷新一次
-        if (text == lastAutoText && color == lastAutoColor && anim == lastAutoAnim
-            && (now - lastAutoSendTime) < 10_000) {
+        val isSame = when (command) {
+            is DisplayCommand.Text -> command.text == lastAutoText && command.color == lastAutoColor && command.animation == lastAutoAnim
+            is DisplayCommand.BlueLine -> lastDisplayIsBlueLine
+        }
+        if (isSame && (now - lastAutoSendTime) < 10_000) {
             return
         }
 
         // 发送到 LED
-        if (text.isNotBlank()) {
-            lastAutoText = text
-            lastAutoColor = color
-            lastAutoAnim = anim
-            lastAutoSendTime = now
-            updatePreviewDisplayState(text, color, anim)
-            if (isReadyToSend()) {
-                sendText(text, color, anim)
+        when (command) {
+            is DisplayCommand.Text -> {
+                if (command.text.isNotBlank()) {
+                    lastAutoText = command.text
+                    lastAutoColor = command.color
+                    lastAutoAnim = command.animation
+                    lastDisplayIsBlueLine = false
+                    lastAutoSendTime = now
+                    updatePreviewDisplayState(command.text, command.color, command.animation)
+                    if (isReadyToSend()) {
+                        sendText(command.text, command.color, command.animation)
+                    }
+                }
+            }
+            is DisplayCommand.BlueLine -> {
+                lastDisplayIsBlueLine = true
+                lastAutoSendTime = now
+                if (isReadyToSend()) {
+                    Log.i(TAG, "📤 自动模式: 发送蓝线")
+                    sendDebugBlueLine()
+                }
             }
         }
     }
@@ -983,70 +1008,70 @@ class LedMatrixManager(private val context: Context) {
      * P2  红灯停（车速=0）       P3  绿灯行（车速=0）
      * P4  停车等待（车速=0超3秒）P5  正在减速
      * P6  弯道减速               P7  正在左转/右转（方向盘）
-     * P8~P15 TBT转弯导航         P16 智驾跟车/巡航
-     * P17 地图领航（导航中）     P18 车道保持（未导航）
+     * P8~P15 TBT转弯导航         P16 智驾蓝灯（智驾跟车/巡航）
+     * P17 地图领航（导航中）     P18 智驾蓝灯（车道保持）
      * P19 限速提醒（道路限速）   P20 欢迎语（仅首次）
      */
-    private fun resolveDisplay(d: AutoDisplayData): Triple<String, Int?, AnimationType> {
+    private fun resolveDisplay(d: AutoDisplayData): DisplayCommand {
         val now = System.currentTimeMillis()
 
         // 未上路且未导航 → 欢迎语（仅首次连接后显示一次）
         if (!d.isOnroad && !d.isNavigating) {
             if (!welcomeShown) {
                 welcomeShown = true
-                return Triple("CP搭子 Carrot Pilot智驾领航外挂", 0xFF33CCFF.toInt(), AnimationType.SCROLL_LEFT)
+                return DisplayCommand.Text("CP搭子 Carrot Pilot智驾领航外挂", 0xFF33CCFF.toInt(), AnimationType.SCROLL_LEFT)
             }
             // 已显示过欢迎语，保持上次内容或静默
-            return Triple(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
         }
 
         val hasLead = d.leadDistance in 1f..30f && d.leadProb > 0.5f
 
         // === P0: 注意避让 — 盲区警告 (红色呼吸) ===
         if (d.leftBlindspot || d.rightBlindspot) {
-            return Triple("注意避让", 0xFFFF3333.toInt(), AnimationType.BREATHE)
+            return DisplayCommand.Text("注意避让", 0xFFFF3333.toInt(), AnimationType.BREATHE)
         }
 
         // === P1: 限速{N} — 测速近距离 ≤200m (红/黄) ===
         if (d.nSdiDist in 20..200 && d.nSdiSpeedLimit > 0 && d.nSdiType >= 0) {
             val over = d.vEgoKph > d.nSdiSpeedLimit
             val color = if (over) 0xFFFF0000.toInt() else 0xFFFFAA00.toInt()
-            return Triple("限速${d.nSdiSpeedLimit}", color, if (over) AnimationType.BREATHE else AnimationType.STATIC)
+            return DisplayCommand.Text("限速${d.nSdiSpeedLimit}", color, if (over) AnimationType.BREATHE else AnimationType.STATIC)
         }
 
         // === P2: 红灯停 — 车速=0且无前车时 (红) ===
         if (d.vEgoKph == 0 && d.trafficState == 1 && !hasLead) {
-            return Triple("红灯停", 0xFFFF0000.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("红灯停", 0xFFFF0000.toInt(), AnimationType.STATIC)
         }
 
         // === P3: 绿灯行 — 车速=0且无前车时 (绿) ===
         if (d.vEgoKph == 0 && d.trafficState == 2 && !hasLead) {
-            return Triple("绿灯行", 0xFF00FF00.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("绿灯行", 0xFF00FF00.toInt(), AnimationType.STATIC)
         }
 
         // === P4: 停车等待 — 车速=0超过3秒 (红) ===
         if (d.vEgoKph == 0 && d.isOnroad && stoppedSince > 0 && (now - stoppedSince) > 3000) {
-            return Triple("停车等待", 0xFFFF4444.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("停车等待", 0xFFFF4444.toInt(), AnimationType.STATIC)
         }
 
         // === P5: 正在减速 (橙) ===
         if (isDecelerating(d.vEgoKph)) {
-            return Triple("正在减速", 0xFFFF6600.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("正在减速", 0xFFFF6600.toInt(), AnimationType.STATIC)
         }
 
         // === P6: 弯道减速 (橙) ===
         if ((d.atcType.isNotEmpty() && d.atcType != "none" && d.atcType != "") ||
             (d.vTurnSpeed > 0 && d.vEgoKph > 20 && d.vTurnSpeed < d.vEgoKph - 5)) {
-            return Triple("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
         }
 
         // === P7: 正在左转/右转 — 方向盘大角度 ===
         // steeringAngleDeg: 正值=左转, 负值=右转（驾驶员视角）
         if (d.vEgoKph > 10 && kotlin.math.abs(d.steeringAngleDeg) > 60) {
             return if (d.steeringAngleDeg > 0) {
-                Triple("正在左转", 0xFF00CCFF.toInt(), AnimationType.STATIC)
+                DisplayCommand.Text("正在左转", 0xFF00CCFF.toInt(), AnimationType.STATIC)
             } else {
-                Triple("正在右转", 0xFF33FF66.toInt(), AnimationType.STATIC)
+                DisplayCommand.Text("正在右转", 0xFF33FF66.toInt(), AnimationType.STATIC)
             }
         }
 
@@ -1057,34 +1082,30 @@ class LedMatrixManager(private val context: Context) {
             if (result != null) return result
         }
 
-        // === P16: 智驾跟车/巡航 — 优先级高于地图领航 ===
+        // === P16: 智驾蓝灯（智驾跟车/巡航）===
         if (d.isOnroad && d.active) {
-            return when (d.xState) {
-                0 -> Triple("智驾跟车", 0xFF00CC66.toInt(), AnimationType.STATIC)
-                1 -> Triple("智驾巡航", 0xFF00CC66.toInt(), AnimationType.STATIC)
-                else -> Triple("智驾跟车", 0xFF00CC66.toInt(), AnimationType.STATIC)
-            }
+            return DisplayCommand.BlueLine
         }
 
         // === P17: 地图领航 — 导航中 (紫) ===
         if (d.isNavigating) {
             return if (d.szTBTMainText.isNotBlank()) {
-                Triple(d.szTBTMainText, 0xFFAA66FF.toInt(), AnimationType.SCROLL_LEFT)
+                DisplayCommand.Text(d.szTBTMainText, 0xFFAA66FF.toInt(), AnimationType.SCROLL_LEFT)
             } else {
-                Triple("地图领航", 0xFFAA66FF.toInt(), AnimationType.STATIC)
+                DisplayCommand.Text("地图领航", 0xFFAA66FF.toInt(), AnimationType.STATIC)
             }
         }
 
-        // === P18: 车道保持 || 限速提醒 — 上路但未导航的默认状态 (蓝/白) ===
+        // === P18: 智驾蓝灯（车道保持）|| 限速提醒 ===
         if (d.isOnroad) {
             if (d.nRoadLimitSpeed > 0 && d.vEgoKph > d.nRoadLimitSpeed - 5) {
-                return Triple("限速${d.nRoadLimitSpeed}", 0xFFFFFFFF.toInt(), AnimationType.STATIC)
+                return DisplayCommand.Text("限速${d.nRoadLimitSpeed}", 0xFFFFFFFF.toInt(), AnimationType.STATIC)
             }
-            return Triple("车道保持", 0xFF3399FF.toInt(), AnimationType.STATIC)
+            return DisplayCommand.BlueLine
         }
 
         // === P19(默认): 保持上次内容 ===
-        return Triple(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
+        return DisplayCommand.Text(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
     }
 
     /**
@@ -1108,28 +1129,28 @@ class LedMatrixManager(private val context: Context) {
      * 近距离 5~150m: 显示动作 + szTBTMainText 滚动
      * 远距离 151~300m: 显示预告文字
      */
-    private fun resolveTurnDisplay(d: AutoDisplayData, xTurn: Int): Triple<String, Int?, AnimationType>? {
+    private fun resolveTurnDisplay(d: AutoDisplayData, xTurn: Int): DisplayCommand? {
         val info = turnTypeToDisplayInfo(xTurn)
 
         // 近距离 5~150m
         if (d.nTBTDist in 5..150 && info != null) {
             val (text, color) = info
             return if (d.szTBTMainText.isNotBlank()) {
-                Triple("$text ${d.szTBTMainText}", color, AnimationType.SCROLL_LEFT)
+                DisplayCommand.Text("$text ${d.szTBTMainText}", color, AnimationType.SCROLL_LEFT)
             } else {
-                Triple(text, color, AnimationType.STATIC)
+                DisplayCommand.Text(text, color, AnimationType.STATIC)
             }
         }
 
         // 远距离 151~300m
         if (d.nTBTDist in 151..300 && info != null) {
             val (text, color) = info
-            return Triple(text, color, AnimationType.STATIC)
+            return DisplayCommand.Text(text, color, AnimationType.STATIC)
         }
 
         // 检查"即将到达"（通过剩余距离）
         if (d.nGoPosDist in 1..200) {
-            return Triple("即将到达", 0xFF00FF00.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("即将到达", 0xFF00FF00.toInt(), AnimationType.STATIC)
         }
 
         return null

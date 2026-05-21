@@ -12,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -157,14 +156,16 @@ private fun LedDotMatrixCanvas(
         // 点与点之间的间距，严格按 16x64 网格排布
         val spacingX = (canvasWidth - cols * dotSize) / (cols + 1)
         val spacingY = (canvasHeight - rows * dotSize) / (rows + 1)
+        val dotRadius = dotSize / 2f
 
+        // 先绘制所有背景点（圆形）
         for (col in 0 until cols) {
-            val x = col * (dotSize + spacingX) + spacingX
+            val cx = col * (dotSize + spacingX) + spacingX + dotRadius
             for (row in 0 until rows) {
-                drawRect(
+                drawCircle(
                     color = inactiveDotColor,
-                    topLeft = Offset(x, row * (dotSize + spacingY) + spacingY),
-                    size = Size(dotSize, dotSize)
+                    radius = dotRadius,
+                    center = Offset(cx, row * (dotSize + spacingY) + spacingY + dotRadius)
                 )
             }
         }
@@ -204,13 +205,13 @@ private fun LedDotMatrixCanvas(
 
                         if (absX < -dotSize || absX > canvasWidth) continue
 
-                        drawRect(
+                        drawCircle(
                             color = displayColor,
-                            topLeft = Offset(
-                                absX + spacingX,
-                                displayRow * (dotSize + spacingY) + spacingY
-                            ),
-                            size = Size(dotSize, dotSize)
+                            radius = dotRadius,
+                            center = Offset(
+                                absX + spacingX + dotRadius,
+                                displayRow * (dotSize + spacingY) + spacingY + dotRadius
+                            )
                         )
                     }
                 }
