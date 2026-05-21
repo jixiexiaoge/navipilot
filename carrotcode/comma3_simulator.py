@@ -37,6 +37,9 @@ VERSION        = "0.9.4"   # 模拟的 openpilot 版本
 # ─────────────────────────────────────────────
 NAV_TYPE_MAPPING = {
     12: ("turn", "left", 1), 16: ("turn", "sharp left", 1),
+    1000: ("turn", "slight left", 1), 1001: ("turn", "slight right", 2),
+    1002: ("fork", "slight left", 3), 1003: ("fork", "slight right", 4),
+    1006: ("off ramp", "left", 3), 1007: ("off ramp", "right", 4),
     13: ("turn", "right", 2), 19: ("turn", "sharp right", 2),
     102: ("off ramp", "slight left", 3), 105: ("off ramp", "slight left", 3),
     112: ("off ramp", "slight left", 3), 115: ("off ramp", "slight left", 3),
@@ -53,10 +56,10 @@ NAV_TYPE_MAPPING = {
     135: ("rotary", "sharp right", 5), 136: ("rotary", "sharp left", 5),
     137: ("rotary", "sharp left", 5), 138: ("rotary", "sharp left", 5),
     139: ("rotary", "left", 5), 142: ("rotary", "straight", 5),
-    14: ("turn", "uturn", 7), 201: ("arrive", "straight", 8),
-    51: ("notification", "straight", 0), 52: ("notification", "straight", 0),
-    53: ("notification", "straight", 0), 54: ("notification", "straight", 0),
-    55: ("notification", "straight", 0),
+    14: ("turn", "uturn", 5), 201: ("arrive", "straight", 5),
+    51: ("notification", "straight", -1), 52: ("notification", "straight", -1),
+    53: ("notification", "straight", -1), 54: ("notification", "straight", -1),
+    55: ("notification", "straight", -1),
     153: ("", "", 6), 154: ("", "", 6), 249: ("", "", 6),
 }
 
@@ -181,6 +184,8 @@ class CarrotServSim:
         self.phone_heading = 0.0
         self.phone_accuracy = 0.0
         self.phone_gps_speed = 0.0
+        self.nPosAnglePhone = 0.0       # 原版: heading→nPosAnglePhone
+        self.phone_gps_frame = 0        # 原版: accuracy<15时自增
 
         # 手机GPS (完整字段: carrot_serv.py 中的 phoneGPS)
         self.phone_lat2 = 0.0      # phoneLatitude
@@ -319,7 +324,7 @@ class CarrotServSim:
             self.nSdiPlusBlockDist = int(data.get("nSdiPlusBlockDist", 0))
             self.roadcate = int(data.get("roadcate", 0))
 
-            # TBT 转弯
+            # TBT 转弯 (原版: vpPosPointLat→vpPosPointLatNavi)
             self.nTBTDist = int(data.get("nTBTDist", 0))
             self.nTBTTurnType = int(data.get("nTBTTurnType", -1))
             self.szTBTMainText = data.get("szTBTMainText", "")
@@ -329,7 +334,7 @@ class CarrotServSim:
             self.nTBTDistNext = int(data.get("nTBTDistNext", 0))
             self.nTBTTurnTypeNext = int(data.get("nTBTTurnTypeNext", -1))
 
-            # 下一转弯信息 (新增)
+            # 下一转弯信息
             self.szTBTMainTextNext = data.get("szTBTMainTextNext", "")
             self.szNearDirNameNext = data.get("szNearDirNameNext", "")
             self.szFarDirNameNext = data.get("szFarDirNameNext", "")
@@ -341,21 +346,41 @@ class CarrotServSim:
             if self.szPosRoadName == "null":
                 self.szPosRoadName = ""
 
-            # 导航GPS
+            # 导航GPS → 原版存入 vpPosPointLatNavi (与显示用 vpPosPointLat 分离)
             lat = float(data.get("vpPosPointLat", 0.0))
             lon = float(data.get("vpPosPointLon", 0.0))
             if lat != 0.0:
-                self.vpPosPointLat = lat
+                self.vpPosPointLatNavi = lat
+                self.vpPosPointLonNavi = lon
+                self.vpPosPointLat = lat   # 显示用 (原版在 _update_gps 中计算)
                 self.vpPosPointLon = lon
                 self.nPosAngle = float(data.get("nPosAngle", self.nPosAngle))
+                self.last_update_gps_time_navi = self.last_calculate_gps_time = time.time()
             self.nPosSpeed = float(data.get("nPosSpeed", self.nPosSpeed))
 
-            # 更新时间戳
             if "epochTime" in data:
                 self.epochTime = int(data.get("epochTime", 0))
                 self.timestamp = data.get("timestamp", 0)
             self._update_tbt()
             self._update_sdi()
+
+        # ── 手机GPS回退 (原版: 3秒无导航GPS则用phoneGPS覆盖) ──
+        if "latitude" in data:
+            self.nPosAnglePhone = float(data.get("heading", self.nPosAngle))
+            self.phone_lat = float(data.get("latitude", self.vpPosPointLatNavi))
+            self.phone_lon = float(data.get("longitude", self.vpPosPointLonNavi))
+            self.phone_accuracy = float(data.get("accuracy", 0))
+            self.phone_gps_speed = float(data.get("gps_speed", 0))
+            if self.phone_accuracy < 15.0:
+                self.phone_gps_frame += 1
+            if (time.time() - self.last_update_gps_time_navi) > 3.0:
+                self.vpPosPointLatNavi = self.phone_lat
+                self.vpPosPointLonNavi = self.phone_lon
+                self.vpPosPointLat = self.phone_lat
+                self.vpPosPointLon = self.phone_lon
+                self.nPosAngle = self.nPosAnglePhone
+                self.last_update_gps_time_phone = self.last_calculate_gps_time = time.time()
+                self.nPosSpeed = float(data.get("gps_speed", 0))
 
         # ── sdiData (区间测速控制) ──
         if "sdiData" in data:
@@ -429,21 +454,6 @@ class CarrotServSim:
         # ── 总距离 (delta 计算) ──
         if "totalDistance" in data:
             self.totalDistance = float(data.get("totalDistance", 0))
-
-    def _update_tbt(self):
-        """对照 carrot_serv.py _update_tbt()"""
-        if self.nTBTTurnType in NAV_TYPE_MAPPING:
-            _, _, self.xTurnInfo = NAV_TYPE_MAPPING[self.nTBTTurnType]
-        else:
-            self.xTurnInfo = -1
-        if self.nTBTTurnTypeNext in NAV_TYPE_MAPPING:
-            _, _, self.xTurnInfoNext = NAV_TYPE_MAPPING[self.nTBTTurnTypeNext]
-        else:
-            self.xTurnInfoNext = -1
-        if self.nTBTDist > 0 and self.xTurnInfo > 0:
-            self.xDistToTurn = self.nTBTDist
-        if self.nTBTDistNext > 0 and self.xTurnInfoNext > 0:
-            self.xDistToTurnNext = self.nTBTDistNext + self.nTBTDist
 
     def _update_sdi(self):
         """对照 carrot_serv.py _update_sdi()"""
