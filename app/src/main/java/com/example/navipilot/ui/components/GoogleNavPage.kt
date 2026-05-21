@@ -4,9 +4,15 @@ import android.annotation.SuppressLint
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,11 +28,65 @@ import com.example.navipilot.CarrotManFields
 import com.example.navipilot.R
 import com.example.navipilot.navigation.GoogleNavManager
 import com.example.navipilot.ui.utils.localized
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
+import com.google.android.libraries.navigation.ForceNightMode
 import com.google.android.libraries.navigation.NavigationApi
-import com.google.android.libraries.navigation.Navigator
 import com.google.android.libraries.navigation.NavigationView
+import com.google.android.libraries.navigation.Navigator
 
 private const val TAG = "GoogleNavPage"
+
+/**
+ * 路线全览 / 恢复跟车视图
+ */
+private fun toggleOverview(
+    context: android.content.Context,
+    navViewRef: NavigationView?,
+    navigator: Navigator?,
+    googleMapRef: GoogleMap?,
+    currentlyOverview: Boolean,
+    onResult: (Boolean) -> Unit
+) {
+    try {
+        if (currentlyOverview) {
+            // 恢复跟车视图 — 使用默认的跟随模式
+            googleMapRef?.followMyLocation(GoogleMap.CameraPerspective.TILTED)
+            onResult(false)
+            Log.i(TAG, "🗺️ 恢复跟车视图")
+        } else {
+            // 全览路线 — 从 navigator 获取路线所有坐标点，计算 LatLngBounds 并 animate
+            val routeSegments = navigator?.routeSegments
+            if (routeSegments != null && routeSegments.isNotEmpty()) {
+                val allPoints = mutableListOf<com.google.android.gms.maps.model.LatLng>()
+                routeSegments.forEach { segment ->
+                    segment.latLngs?.forEach { latLng ->
+                        allPoints.add(latLng)
+                    }
+                }
+                if (allPoints.isNotEmpty()) {
+                    val boundsBuilder = LatLngBounds.builder()
+                    allPoints.forEach { boundsBuilder.include(it) }
+                    val bounds = boundsBuilder.build()
+                    googleMapRef?.animateCamera(
+                        CameraUpdateFactory.newLatLngBounds(bounds, 100)
+                    )
+                    onResult(true)
+                    Log.i(TAG, "🗺️ 路线全览: ${allPoints.size} 个坐标点")
+                } else {
+                    Toast.makeText(context, "路线坐标为空", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "暂无路线数据", Toast.LENGTH_SHORT).show()
+            }
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "toggleOverview: ${e.message}")
+        Toast.makeText(context, "全览操作失败", Toast.LENGTH_SHORT).show()
+    }
+}
 
 /**
  * Google 导航页面（官方 Navigation SDK）
@@ -39,6 +99,7 @@ private const val TAG = "GoogleNavPage"
  * Google Maps 使用 WGS-84 坐标系，与内部存储一致，无需坐标转换
  */
 @SuppressLint("MissingPermission")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoogleNavPage(
     navManager: GoogleNavManager? = null,
@@ -90,6 +151,27 @@ fun GoogleNavPage(
     var pendingNavigation by remember { mutableStateOf(false) }
     var isRoutePlanning by remember { mutableStateOf(false) }
 
+    // 🆕 P0: 谷歌地图引用（用于视角控制、全览等）
+    var googleMapRef by remember { mutableStateOf<GoogleMap?>(null) }
+
+    // 🆕 P0: "更多"菜单 UI 状态
+    var overflowMenuExpanded by remember { mutableStateOf(false) }
+    var overviewNow by remember { mutableStateOf(false) }
+    var showNightModeSheet by remember { mutableStateOf(false) }
+    var showDisplaySheet by remember { mutableStateOf(false) }
+    var showCameraSheet by remember { mutableStateOf(false) }
+    var showStrategySheet by remember { mutableStateOf(false) }
+
+    // 🆕 P0: NavigationView UI 控制开关状态
+    var nightMode by remember { mutableStateOf(ForceNightMode.AUTO) }
+    var navUiEnabled by remember { mutableStateOf(true) }
+    var tripProgressBarEnabled by remember { mutableStateOf(false) }
+    var myLocationEnabled by remember { mutableStateOf(true) }
+    var cameraPerspective by remember { mutableStateOf(GoogleMap.CameraPerspective.TILTED) }
+
+    // 🆕 P0: 到达监听器引用（用于 onDestroy 清理）
+    var arrivalListener by remember { mutableStateOf<Navigator.ArrivalListener?>(null) }
+
     // 🔧 修复: Navigator 初始化必须在 navView 创建后立即同步执行
     // 参考官方 NavViewActivity.kt，initializeNavigationApi 在 onCreate 中调用，不使用协程等待
     // 使用 navigatorInitialized 标志防止重复初始化
@@ -105,14 +187,17 @@ fun GoogleNavPage(
             navigatorInitialized = true
 
             if (arrivalListenerRegisteredForNav !== nav) {
-                nav.addArrivalListener {
+                val listener = Navigator.ArrivalListener {
                     Log.i(TAG, "🏁 到达目的地")
                     nav.clearDestinations()
                     resolvedNavManager.stopNavigation()
                     isNavStarted = false
                     isRoutePlanning = false
                 }
+                nav.addArrivalListener(listener)
+                arrivalListener = listener
                 arrivalListenerRegisteredForNav = nav
+                Log.i(TAG, "✅ 到达监听器已注册")
             }
 
             if (goalLat != 0.0 && goalLon != 0.0) {
@@ -145,13 +230,15 @@ fun GoogleNavPage(
 
                     // 注册到达监听器
                     if (arrivalListenerRegisteredForNav !== nav) {
-                        nav.addArrivalListener {
+                        val listener = Navigator.ArrivalListener {
                             Log.i(TAG, "🏁 到达目的地")
                             nav.clearDestinations()
                             resolvedNavManager.stopNavigation()
                             isNavStarted = false
                             isRoutePlanning = false
                         }
+                        nav.addArrivalListener(listener)
+                        arrivalListener = listener
                         arrivalListenerRegisteredForNav = nav
                     }
 
@@ -162,17 +249,25 @@ fun GoogleNavPage(
                         if (cameraLat != 0.0 && cameraLon != 0.0) {
                             view.getMapAsync { googleMap ->
                                 try {
-                                    val position = com.google.android.gms.maps.model.LatLng(cameraLat, cameraLon)
-                                    val cameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(position, 15f)
+                                    val position = LatLng(cameraLat, cameraLon)
+                                    val cameraUpdate = CameraUpdateFactory.newLatLngZoom(position, 15f)
                                     googleMap.moveCamera(cameraUpdate)
 
                                     // 启用我的位置图层
                                     googleMap.isMyLocationEnabled = true
 
+                                    googleMapRef = googleMap
+
                                     Log.i(TAG, "✅ 地图相机已初始化: ($cameraLat, $cameraLon)")
                                 } catch (e: Exception) {
                                     Log.w(TAG, "地图相机初始化失败: ${e.message}")
                                 }
+                            }
+                        } else {
+                            // 即使没有有效坐标也获取地图引用
+                            view.getMapAsync { googleMap ->
+                                googleMapRef = googleMap
+                                Log.i(TAG, "✅ 地图引用已获取")
                             }
                         }
                     } catch (e: Exception) {
@@ -264,6 +359,7 @@ fun GoogleNavPage(
     BackHandler(enabled = true) { safeBack() }
 
     // 生命周期管理（遵循官方 NavViewActivity 顺序：onPause/Stop/Destroy 先 navView 再 super）
+    // 同时处理 onConfigurationChanged、onTrimMemory 和到达监听器清理
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             val navView = navViewRef ?: return@LifecycleEventObserver
@@ -274,7 +370,19 @@ fun GoogleNavPage(
                 // ON_PAUSE/STOP/DESTROY: 先 navView 再 super（官方示例顺序）
                 Lifecycle.Event.ON_PAUSE -> navView.onPause()
                 Lifecycle.Event.ON_STOP -> navView.onStop()
-                Lifecycle.Event.ON_DESTROY -> navView.onDestroy()
+                Lifecycle.Event.ON_DESTROY -> {
+                    // 1. 清理到达监听器（防止内存泄漏）
+                    if (arrivalListener != null) {
+                        try {
+                            navigator?.removeArrivalListener(arrivalListener!!)
+                            Log.i(TAG, "✅ 到达监听器已移除")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "移除到达监听器失败: ${e.message}")
+                        }
+                        arrivalListener = null
+                    }
+                    navView.onDestroy()
+                }
                 else -> {}
             }
         }
@@ -284,6 +392,16 @@ fun GoogleNavPage(
             lifecycleOwner.lifecycle.removeObserver(observer)
             try {
                 resolvedNavManager.stopNavigation()
+                // 清理到达监听器
+                if (arrivalListener != null) {
+                    try {
+                        navigator?.removeArrivalListener(arrivalListener!!)
+                        Log.i(TAG, "✅ 到达监听器已移除(onDispose)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "移除到达监听器(onDispose)失败: ${e.message}")
+                    }
+                    arrivalListener = null
+                }
                 if (ownsNavManager) {
                     resolvedNavManager.destroy()
                 }
@@ -306,6 +424,10 @@ fun GoogleNavPage(
                 
                 // 立即调用 onCreate（参考官方示例）
                 navView.onCreate(null)
+                // 默认开启导航头部信息栏
+                navView.setHeaderEnabled(true)
+                // 默认开启限速图标
+                navView.setSpeedLimitIconEnabled(true)
                 navViewRef = navView
                 
                 Log.i(TAG, "✅ NavigationView 已创建并初始化")
@@ -363,6 +485,244 @@ fun GoogleNavPage(
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(onClick = { routeError = null; safeBack() }) {
                         Text(localized("返回", "Back"))
+                    }
+                }
+            }
+        }
+
+        // 🆕 更多菜单按钮（右上角）
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 8.dp)
+        ) {
+            IconButton(onClick = { overflowMenuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = localized("更多", "More")
+                )
+            }
+            DropdownMenu(
+                expanded = overflowMenuExpanded,
+                onDismissRequest = { overflowMenuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (overviewNow) localized("恢复跟车视图", "Exit overview")
+                            else localized("全览路线", "Route overview")
+                        )
+                    },
+                    onClick = {
+                        overflowMenuExpanded = false
+                        toggleOverview(context, navViewRef, navigator, googleMapRef, overviewNow) { v -> overviewNow = v }
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            when (nightMode) {
+                                ForceNightMode.AUTO -> "🌗 " + localized("夜间模式：自动", "Night mode: auto")
+                                ForceNightMode.FORCE_DAY -> "☀️ " + localized("夜间模式：白天", "Night mode: day")
+                                else -> "🌙 " + localized("夜间模式：黑夜", "Night mode: night")
+                            }
+                        )
+                    },
+                    onClick = {
+                        overflowMenuExpanded = false
+                        showNightModeSheet = true
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(localized("显示设置…", "Display settings…")) },
+                    onClick = {
+                        overflowMenuExpanded = false
+                        showDisplaySheet = true
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(localized("相机视角…", "Camera perspective…")) },
+                    onClick = {
+                        overflowMenuExpanded = false
+                        showCameraSheet = true
+                    }
+                )
+                if (isNavStarted) {
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(localized("算路策略…", "Route strategy…")) },
+                        onClick = {
+                            overflowMenuExpanded = false
+                            showStrategySheet = true
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // 🆕 夜间模式 BottomSheet
+    if (showNightModeSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showNightModeSheet = false }
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    localized("夜间模式", "Night mode"),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                listOf(
+                    ForceNightMode.AUTO to localized("自动（跟随系统）", "Auto (follow system)"),
+                    ForceNightMode.FORCE_DAY to localized("强制白天模式", "Force day mode"),
+                    ForceNightMode.FORCE_NIGHT to localized("强制黑夜模式", "Force night mode")
+                ).forEach { (mode, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        RadioButton(
+                            selected = nightMode == mode,
+                            onClick = {
+                                nightMode = mode
+                                navViewRef?.setForceNightMode(mode)
+                                showNightModeSheet = false
+                                Log.i(TAG, "🌗 夜间模式已切换: $mode")
+                            }
+                        )
+                        Text(label, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    // 🆕 显示设置 BottomSheet
+    if (showDisplaySheet) {
+        var navUiDraft by remember(showDisplaySheet) { mutableStateOf(navUiEnabled) }
+        var tripBarDraft by remember(showDisplaySheet) { mutableStateOf(tripProgressBarEnabled) }
+        var myLocDraft by remember(showDisplaySheet) { mutableStateOf(myLocationEnabled) }
+        ModalBottomSheet(
+            onDismissRequest = { showDisplaySheet = false }
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    localized("显示设置", "Display settings"),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    localized("注意：部分选项可能需要导航开始后才生效", "Note: Some options may apply after navigation starts"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = navUiDraft,
+                        onCheckedChange = { navUiDraft = it }
+                    )
+                    Text(localized("导航 UI", "Navigation UI"))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = tripBarDraft,
+                        onCheckedChange = { tripBarDraft = it }
+                    )
+                    Text(localized("行程进度条（实验性）", "Trip progress bar (experimental)"))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = myLocDraft,
+                        onCheckedChange = { myLocDraft = it }
+                    )
+                    Text(localized("我的位置标记", "My location marker"))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showDisplaySheet = false }) {
+                        Text(localized("取消", "Cancel"))
+                    }
+                    TextButton(onClick = {
+                        navUiEnabled = navUiDraft
+                        tripProgressBarEnabled = tripBarDraft
+                        myLocationEnabled = myLocDraft
+                        navViewRef?.setNavigationUiEnabled(navUiDraft)
+                        navViewRef?.setTripProgressBarEnabled(tripBarDraft)
+                        googleMapRef?.isMyLocationEnabled = myLocDraft
+                        showDisplaySheet = false
+                        Log.i(TAG, "✅ 显示设置已应用: navUi=$navUiDraft tripBar=$tripBarDraft myLoc=$myLocDraft")
+                    }) {
+                        Text(localized("应用", "Apply"))
+                    }
+                }
+            }
+        }
+    }
+
+    // 🆕 相机视角 BottomSheet
+    if (showCameraSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCameraSheet = false }
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    localized("相机视角", "Camera perspective"),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                listOf(
+                    GoogleMap.CameraPerspective.TILTED to localized("跟随：倾斜（默认）", "Following: Tilted (default)"),
+                    GoogleMap.CameraPerspective.TOP_DOWN_NORTH_UP to localized("跟随：北向上", "Following: North up"),
+                    GoogleMap.CameraPerspective.TOP_DOWN_HEADING_UP to localized("跟随：车头向上", "Following: Heading up")
+                ).forEach { (perspective, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        RadioButton(
+                            selected = cameraPerspective == perspective,
+                            onClick = {
+                                cameraPerspective = perspective
+                                googleMapRef?.followMyLocation(perspective)
+                                showCameraSheet = false
+                                Log.i(TAG, "📷 相机视角已切换: $perspective")
+                            }
+                        )
+                        Text(label, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    // 🆕 算路策略 BottomSheet（仅导航中显示）
+    if (showStrategySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showStrategySheet = false }
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    localized("算路策略", "Route strategy"),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    localized("注意：Google Navigation SDK 不支持导航中动态切换策略，需重新算路。", "Note: Route strategy change requires re-routing."),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showStrategySheet = false }) {
+                        Text(localized("关闭", "Close"))
                     }
                 }
             }

@@ -12,6 +12,8 @@ import com.google.android.libraries.navigation.NavigationApi
 import com.google.android.libraries.navigation.Navigator
 import com.google.android.libraries.navigation.NavigationApi.NavigatorListener
 import com.google.android.libraries.navigation.Waypoint
+import com.google.android.libraries.navigation.DisplayOptions
+import com.google.android.libraries.navigation.RoutingOptions
 import com.google.android.libraries.navigation.SimulationOptions
 import com.google.android.libraries.navigation.Navigator.RouteStatus
 import java.util.concurrent.atomic.AtomicBoolean
@@ -263,7 +265,10 @@ class GoogleNavManager(
             // 使用 setDestinations（复数）而非 setDestination（单数），确保 SDK 正确触发路线计算
             Log.i(TAG, "使用当前GPS位置作为起点")
             val destination = Waypoint.builder().setLatLng(destLat, destLon).build()
-            val pendingRoute = nav.setDestinations(listOf(destination))
+            val displayOptions = DisplayOptions()
+                .showTrafficLights(true)
+                .showStopSigns(true)
+            val pendingRoute = nav.setDestinations(listOf(destination), RoutingOptions(), displayOptions)
 
             Log.i(TAG, "等待路线计算结果...")
 
@@ -503,6 +508,18 @@ class GoogleNavManager(
                 }
                 // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
                 // locationListener, speedingListener, routeSegmentListener 不再需要移除
+
+                // 官方示例：清理模拟器位置 + 释放 navigator 资源
+                try {
+                    nav.simulator?.unsetUserLocation()
+                } catch (e: Exception) {
+                    Log.w(TAG, "simulator.unsetUserLocation: ${e.message}")
+                }
+                try {
+                    nav.cleanup()
+                } catch (e: Exception) {
+                    Log.w(TAG, "navigator.cleanup: ${e.message}")
+                }
             }
 
             routeChangedListener = null
