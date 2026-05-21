@@ -880,13 +880,7 @@ class MainActivityLifecycle(
                         // 🆕 获取导航辅助动作和TBT文本
                         val segAssistantAction = core.carrotManFields.value.segAssistantAction
                         val tbtMainText = core.carrotManFields.value.szTBTMainText
-                        // 🆕 同步 ML Kit 检测结果和导航车道数到 AutoOvertakeManager
-                        val fields = core.carrotManFields.value
-                        core.autoOvertakeManager.mlKitLeftLaneVehicle = fields.tencentSlice.leftLaneVehicle
-                        core.autoOvertakeManager.mlKitRightLaneVehicle = fields.tencentSlice.rightLaneVehicle
-                        core.autoOvertakeManager.navLaneCountCache = fields.nLaneCount
-                        // 🆕 检测到目标车道有车时取消待执行变道
-                        core.autoOvertakeManager.cancelPendingIfMlKitBlocks()
+                        core.autoOvertakeManager.navLaneCountCache = core.carrotManFields.value.nLaneCount
                         core.autoOvertakeManager.update(
                             dataWithTbtDist, 
                             roadTypeParam,

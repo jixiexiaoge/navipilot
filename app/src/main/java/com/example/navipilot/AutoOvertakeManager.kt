@@ -19,10 +19,6 @@ class AutoOvertakeManager(
     companion object {
         private const val TAG = "AutoOvertakeManager"
         
-        // 道路类型常量（已废弃，不再限制道路类型）
-        // private const val HIGHWAY_ROAD_TYPE = 0      // 高速公路
-        // private const val EXPRESSWAY_ROAD_TYPE = 6  // 快速路
-        
         // 速度阈值
         private const val MIN_OVERTAKE_SPEED_MS = 19.44f  // 70 km/h = 19.44 m/s
         private const val SPEED_DIFF_THRESHOLD = 2.78f    // 速度差阈值 (10 km/h = 2.78 m/s)
@@ -40,7 +36,6 @@ class AutoOvertakeManager(
         
         // 车道线阈值
         private const val MIN_LANE_PROB = 0.6f            // 最小车道线置信度 (60%)
-        private const val MIN_LANE_WIDTH = 2.8f           // 最小车道宽度 (m)
         // 注意：车道线类型检查已移除，允许实线变道（由openpilot系统自行判断）
         
         // 曲率阈值
@@ -54,7 +49,6 @@ class AutoOvertakeManager(
         private const val CONFIRM_SOUND_COOLDOWN_MS = 2500L  // 🆕 确认音冷却时间（2.5秒）
         private const val LANE_CHANGE_DELAY_MS = 2500L    // 🆕 变道延迟时间（2.5秒）
         private const val OVERTAKE_ACTION_COOLDOWN_MS = 20000L  // 🆕 超车操作冷却时间（20秒）
-        private const val PENDING_TIMEOUT_MS = 2500L  // 待确认超车超时时间（2.5秒）
         
         // 🆕 车道提醒参数
         private const val LANE_REMINDER_COOLDOWN_MS = 15000L  // 15秒提醒一次
@@ -156,11 +150,6 @@ class AutoOvertakeManager(
     // 日志频率控制
     private val logThrottleMap = mutableMapOf<String, Long>()
     private val DEFAULT_LOG_THROTTLE_MS = 3000L
-
-    // 🆕 ML Kit 检测结果缓存（由外部更新）
-    @Volatile var mlKitLeftLaneVehicle: Boolean = false
-    @Volatile var mlKitRightLaneVehicle: Boolean = false
-    @Volatile var mlKitDetectionFailed: Boolean = false
 
     // 🆕 导航车道数缓存（由外部从 CarrotManFields.nLaneCount 更新）
     @Volatile var navLaneCountCache: Int = 0
@@ -489,23 +478,6 @@ class AutoOvertakeManager(
         val totalLanes = leftLanes + 1 + rightLanes
         val currentLane = leftLanes + 1
         return Pair(currentLane, totalLanes)
-    }
-
-    /**
-     * 🆕 当 ML Kit 检测到目标车道有车时，取消待执行的自动变道
-     * 由外部调用（MainActivityUI 中的检测结果轮询）
-     */
-    fun cancelPendingIfMlKitBlocks() {
-        val pending = pendingLaneChange ?: return
-        val blocked = when (pending.direction) {
-            "LEFT" -> mlKitLeftLaneVehicle
-            "RIGHT" -> mlKitRightLaneVehicle
-            else -> false
-        }
-        if (blocked) {
-            Log.w(TAG, "🚫 ML Kit 检测到${pending.direction}车道有车，取消待执行变道")
-            cancelPendingLaneChange()
-        }
     }
 
     /**
@@ -945,9 +917,9 @@ class AutoOvertakeManager(
     }
     
     /**
-     * ✅ 优化：检查左超车可行性（纯视觉方案 + 导航车道线推断 + ML Kit检测）
+     * ✅ 检查左超车可行性（纯视觉方案 + 导航车道线推断）
      * 简化版：只保留车道线置信度、车道宽度、盲区检查、左侧车辆检查
-     * 🆕 增加：导航数据推断实线/虚线 + ML Kit左车道车辆检测
+     * 🆕 增加：导航数据推断实线/虚线
      */
     private fun checkLeftOvertakeFeasibility(
         carState: CarStateData,
@@ -969,11 +941,6 @@ class AutoOvertakeManager(
             return CheckResult.Fail("左侧车道有车")
         }
 
-        // 🆕 ML Kit 检测：左车道有车（时序融合后的结果）
-        if (mlKitLeftLaneVehicle) {
-            return CheckResult.Fail("左侧车道有车(视觉)")
-        }
-
         // 🆕 适配：使用路缘距离判断车道可行性
         val roadEdgeLeft = modelV2.meta?.distanceToRoadEdgeLeft ?: 0f
         val isLaneFeasible = roadEdgeLeft > 2.5f // 如果左侧路缘距离 > 2.5m，认为有足够空间变道
@@ -987,9 +954,9 @@ class AutoOvertakeManager(
     }
     
     /**
-     * ✅ 优化：检查右超车可行性（纯视觉方案 + 导航车道线推断 + ML Kit检测）
+     * ✅ 检查右超车可行性（纯视觉方案 + 导航车道线推断）
      * 简化版：只保留车道线置信度、路缘检查、盲区检查、右侧车辆检查
-     * 🆕 增加：导航数据推断实线/虚线 + ML Kit右车道车辆检测
+     * 🆕 增加：导航数据推断实线/虚线
      */
     private fun checkRightOvertakeFeasibility(
         carState: CarStateData,
@@ -1009,11 +976,6 @@ class AutoOvertakeManager(
         // 检查右侧是否有车辆（openpilot 模型）
         if (modelV2.leadRight?.status == true) {
             return CheckResult.Fail("右侧车道有车")
-        }
-
-        // 🆕 ML Kit 检测：右车道有车（时序融合后的结果）
-        if (mlKitRightLaneVehicle) {
-            return CheckResult.Fail("右侧车道有车(视觉)")
         }
 
         // 🆕 适配：使用路缘距离判断车道可行性
@@ -1607,28 +1569,6 @@ class AutoOvertakeManager(
             tbtMainText.contains("左") -> "LEFT"
             tbtMainText.contains("右") || tbtMainText.contains("出口") || tbtMainText.contains("驶出") -> "RIGHT"
             else -> null
-        }
-    }
-
-    /**
-     * 获取道路类型描述（内部使用）
-     * @param roadType 道路类型（高德地图 ROAD_TYPE）
-     * @return 道路类型的中文描述
-     */
-    private fun getRoadTypeDescriptionInternal(roadType: Int): String {
-        return when (roadType) {
-            0 -> "高速公路"
-            1 -> "国道"
-            2 -> "省道"
-            3 -> "县道"
-            4 -> "乡公路"
-            5 -> "县乡村内部道路"
-            6 -> "快速道"
-            7 -> "主要道路"
-            8 -> "次要道路"
-            9 -> "普通道路"
-            10 -> "非导航道路"
-            else -> "未知道路类型($roadType)"
         }
     }
 

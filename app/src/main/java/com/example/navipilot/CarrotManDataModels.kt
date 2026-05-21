@@ -84,16 +84,6 @@ data class CarrotManTencentSlice(
     var tSdkIntersectionType: Int = -1,
     var leftLaneVehicle: Boolean = false,
     var rightLaneVehicle: Boolean = false,
-    var leftLaneVehicleDist: Float = 0f,
-    var rightLaneVehicleDist: Float = 0f,
-    var laneDetectFps: Int = 0,
-    var laneDetectSource: String = "",
-    var leftLanePedestrian: Boolean = false,
-    var rightLanePedestrian: Boolean = false,
-    var leftLanePedestrianDist: Float = 0f,
-    var rightLanePedestrianDist: Float = 0f,
-    var leftLanePedestrianConfidence: Int = 0,
-    var rightLanePedestrianConfidence: Int = 0,
 )
 
 // 精简后的CarrotMan字段映射数据类
