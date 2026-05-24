@@ -287,6 +287,7 @@ class MainActivityUI(
                     }
                     navMode = when (core.userSelectedMode) {
                         "TENCENT" -> NavMode.TMAP
+                        "GOOGLE" -> NavMode.GOOGLE
                         "AMAP" -> NavMode.AMAP_AUTO
                         "AMAP_MOBILE" -> NavMode.AMAP_MOBILE
                         else -> NavMode.AMAP_AUTO
@@ -492,13 +493,13 @@ class MainActivityUI(
             else -> "GPS"
         }
 
-        // 腾讯算路起点与 OsmMapView 一致：优先 WGS84 的 latitude/longitude，否则用 X 系列车位（避免 0,0 起点导致「起终点参数错误」）
-        val tencentRouteStartLat = when {
+        // 导航起点与 OsmMapView 一致：优先 WGS84 的 latitude/longitude，否则用 X 系列车位（避免 0,0 起点导致「起终点参数错误」）
+        val currentNavStartLat = when {
             carrotManFields.latitude != 0.0 && carrotManFields.longitude != 0.0 -> carrotManFields.latitude
             carrotManFields.vpPosPointLat != 0.0 && carrotManFields.vpPosPointLon != 0.0 -> carrotManFields.vpPosPointLat
             else -> 0.0
         }
-        val tencentRouteStartLon = when {
+        val currentNavStartLon = when {
             carrotManFields.latitude != 0.0 && carrotManFields.longitude != 0.0 -> carrotManFields.longitude
             carrotManFields.vpPosPointLat != 0.0 && carrotManFields.vpPosPointLon != 0.0 -> carrotManFields.vpPosPointLon
             else -> 0.0
@@ -527,8 +528,8 @@ class MainActivityUI(
                                     goalLat = core.carrotManFields.value.goalPosY,
                                     goalLon = core.carrotManFields.value.goalPosX,
                                     goalName = core.carrotManFields.value.szGoalName,
-                                    currentLat = tencentRouteStartLat,
-                                    currentLon = tencentRouteStartLon,
+                                    currentLat = currentNavStartLat,
+                                    currentLon = currentNavStartLon,
                                     networkClient = core.networkManager.getNetworkClient(),
                                     deviceIP = core.networkManager.getCurrentDeviceIP(),
                                     onEnterTencentMode = { core.switchToTencentMode() },
@@ -549,8 +550,8 @@ class MainActivityUI(
                                     goalLat = core.carrotManFields.value.goalPosY,
                                     goalLon = core.carrotManFields.value.goalPosX,
                                     goalName = core.carrotManFields.value.szGoalName,
-                                    currentLat = tencentRouteStartLat,
-                                    currentLon = tencentRouteStartLon,
+                                    currentLat = currentNavStartLat,
+                                    currentLon = currentNavStartLon,
                                     onEnterAmapMobileMode = { core.switchToAmapMobileMode() },
                                     onExitAmapMobileMode = { core.exitAmapMobileMode() },
                                     onBack = {
@@ -565,12 +566,13 @@ class MainActivityUI(
                         "GOOGLE" -> {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 GoogleNavPage(
+                                    navManager = core.googleNavManager,
                                     carrotManFieldsState = core.carrotManFields,
                                     goalLat = core.carrotManFields.value.goalPosY,
                                     goalLon = core.carrotManFields.value.goalPosX,
                                     goalName = core.carrotManFields.value.szGoalName,
-                                    currentLat = tencentRouteStartLat,
-                                    currentLon = tencentRouteStartLon,
+                                    currentLat = currentNavStartLat,
+                                    currentLon = currentNavStartLon,
                                     networkClient = core.getNetworkClientSafely(),
                                     onEnterGoogleMode = { core.switchToGoogleMode() },
                                     onExitGoogleMode = { core.exitGoogleMode() },

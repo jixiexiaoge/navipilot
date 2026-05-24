@@ -128,6 +128,11 @@
             android:stopWithTask="false">
         </service>
 
+        <!-- Google 导航 NavInfo 接收服务（用于获取 TBT 转弯数据） -->
+        <service
+            android:name=".navigation.GoogleNavInfoService"
+            android:exported="false" />
+
         <receiver
             android:name="com.example.navipilot.AmapAutoStaticReceiver"
             android:exported="true"

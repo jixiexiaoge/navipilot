@@ -5,6 +5,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import com.example.navipilot.CarrotManFields
+import com.google.android.libraries.mapsplatform.turnbyturn.model.NavInfo
+import com.google.android.libraries.mapsplatform.turnbyturn.model.NavState
 import com.google.android.libraries.navigation.Navigator
 
 /**
@@ -89,6 +91,64 @@ class GoogleNavDataBridge(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * S7: 从 NavInfo 对象更新 TBT 全部字段
+     *
+     * 由 GoogleNavManager.onNavInfoReceived() 调用，每个 NavInfo 消息触发一次。
+     * 提取当前步骤操作、道路名称、距离、剩余步骤等信息写入 CarrotManFields。
+     */
+    fun updateFromNavInfo(navInfo: NavInfo) {
+        when (navInfo.navState) {
+            NavState.ENROUTE -> {
+                val currentStep = navInfo.currentStep ?: return
+
+                // 1) 当前步骤 — 转弯类型、道路名称、距离
+                val maneuver = currentStep.maneuver
+                val turnType = mapManeuverToTurnType(maneuver)
+                val roadName = currentStep.fullRoadName ?: ""
+                val distanceToTurn = (navInfo.distanceToCurrentStepMeters ?: 0).toLong()
+
+                postFieldsMutate { s ->
+                    s.value = s.value.copy(
+                        nTBTTurnType = turnType,
+                        nTBTDist = distanceToTurn.toInt().coerceAtLeast(0),
+                        szTBTMainText = roadName.ifEmpty { s.value.szTBTMainText },
+                        isNavigating = true,
+                        source_last = "google_nav"
+                    )
+                }
+
+                // 2) 当前道路名称
+                if (roadName.isNotEmpty()) {
+                    postFieldsMutate { s ->
+                        s.value = s.value.copy(szPosRoadName = roadName, source_last = "google_nav")
+                    }
+                }
+
+                // 3) 下一转弯（remainingSteps 第一项）
+                val remainingSteps = navInfo.remainingSteps
+                if (remainingSteps.isNotEmpty()) {
+                    val next = remainingSteps[0]
+                    updateTbtEnhanced(
+                        szFarDirName = next.fullRoadName,
+                        nTBTDistNext = (next.distanceFromPrevStepMeters ?: -1).coerceAtLeast(0),
+                        nTBTTurnTypeNext = mapManeuverToTurnType(next.maneuver),
+                        szTBTMainTextNext = next.fullRoadName
+                    )
+                }
+
+                // 4) 剩余全程距离/时间
+                val finalDist = (navInfo.distanceToFinalDestinationMeters ?: 0).toLong()
+                val finalTime = (navInfo.timeToFinalDestinationSeconds ?: 0).toLong()
+                if (finalDist > 0) {
+                    updateRemaining(finalDist, finalTime)
+                }
+            }
+            NavState.STOPPED -> onNavigationStopped()
+            NavState.REROUTING -> Log.d(TAG, "Google Nav 重新规划路线中...")
+        }
+    }
+
     private fun postFieldsMutate(block: (MutableState<CarrotManFields>) -> Unit) {
         val st = carrotManFieldsState ?: return
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -109,7 +169,10 @@ class GoogleNavDataBridge(
 
     /**
      * 将 SDI 字段重置为默认值，用于 Google 导航开始或重新开始时调用
+     *
+     * SDK 7.0.0 中不再需要手动重置 SDI，由 [updateFromNavInfo] 自动管理。
      */
+    @Deprecated("SDK 7.0.0 不再需要手动重置，由 updateFromNavInfo 自动处理")
     fun resetSdiFields() {
         postFieldsMutate { s ->
             s.value = s.value.copy(
@@ -125,6 +188,7 @@ class GoogleNavDataBridge(
         }
     }
 
+    @Deprecated("SDK 7.0.0 位置数据由 LocationSensorManager/NavInfo 提供，不直接调用")
     fun updateLocation(lat: Double, lon: Double, heading: Float, speed: Float, accuracy: Float = 0f) {
         postFieldsMutate { s ->
             val cur = s.value
@@ -145,6 +209,7 @@ class GoogleNavDataBridge(
         }
     }
 
+    @Deprecated("SDK 7.0.0 使用 updateFromNavInfo(NavInfo) 替代")
     fun updateNaviInfo(turnType: Int, distance: Long, roadName: String, destLat: Double, destLon: Double, destName: String) {
         postFieldsMutate { s ->
             s.value = s.value.copy(
@@ -231,7 +296,10 @@ class GoogleNavDataBridge(
     /**
      * 更新当前道路名称
      * @param roadName 当前道路名称
+     *
+     * SDK 7.0.0 中此方法不再外部调用，道路名称由 [updateFromNavInfo] 自动提取。
      */
+    @Deprecated("SDK 7.0.0 道路名称由 updateFromNavInfo 自动提取")
     fun updateCurrentRoad(roadName: String) {
         postFieldsMutate { s ->
             s.value = s.value.copy(

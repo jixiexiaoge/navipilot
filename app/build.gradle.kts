@@ -33,8 +33,8 @@ android {
         applicationId = "com.example.navipilot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 260520
-        versionName = "v260520"
+        versionCode = 260530
+        versionName = "v260530"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -8,14 +8,15 @@ import android.util.Log
 import androidx.compose.runtime.MutableState
 import com.example.navipilot.BuildConfig
 import com.example.navipilot.CarrotManFields
-import com.google.android.libraries.navigation.NavigationApi
 import com.google.android.libraries.navigation.Navigator
-import com.google.android.libraries.navigation.NavigationApi.NavigatorListener
 import com.google.android.libraries.navigation.Waypoint
 import com.google.android.libraries.navigation.DisplayOptions
 import com.google.android.libraries.navigation.RoutingOptions
 import com.google.android.libraries.navigation.SimulationOptions
 import com.google.android.libraries.navigation.Navigator.RouteStatus
+import com.example.navipilot.CarrotManNetworkClient
+import com.google.android.libraries.mapsplatform.turnbyturn.model.NavInfo
+import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class GoogleNavManager(
     private val context: Context,
     private val carrotManFieldsState: MutableState<CarrotManFields>?
-) {
+) : GoogleNavInfoService.Companion.OnNavInfoListener {
     companion object {
         private const val TAG = "GoogleNavManager"
     }
@@ -50,6 +51,9 @@ class GoogleNavManager(
     // private var routeSegmentListener: (() -> Unit)? = null
     // private var trafficDataListener: (() -> Unit)? = null
 
+    // S7: 网络客户端引用，由 startNavigation 设置，供 RouteChangedListener 重发路线点
+    private var _currentNetworkClient: CarrotManNetworkClient? = null
+
     fun isReady(): Boolean = isInitialized && navigator != null
 
     /**
@@ -68,6 +72,9 @@ class GoogleNavManager(
         // 注册导航监听器
         registerNavigationListeners(nav)
 
+        // S7: 注册 NavInfo 服务以接收 TBT 数据
+        registerNavUpdates(nav)
+
         Log.i(TAG, "Navigator 已注入 GoogleNavManager，监听器已注册")
     }
 
@@ -76,10 +83,15 @@ class GoogleNavManager(
      */
     private fun registerNavigationListeners(nav: Navigator) {
         try {
-            // 1. 路线变化监听器
+            // 1. 路线变化监听器 + S5: 重新提取路线点/限速并发送
             routeChangedListener = Navigator.RouteChangedListener {
-                Log.i(TAG, "🔄 路线已变化")
-                // 路线变化时可以重新获取路线信息
+                Log.i(TAG, "🔄 路线已变化，重新提取路线点和限速")
+                extractSpeedLimitFromRoute()
+                val points = extractRoutePoints()
+                if (points.isNotEmpty()) {
+                    _currentNetworkClient?.sendRoutePointsViaTcp(points)
+                    Log.i(TAG, "✅ 路线变化后已重新发送路线点: ${points.size}个")
+                }
             }
             nav.addRouteChangedListener(routeChangedListener)
             Log.i(TAG, "✅ 已注册路线变化监听器")
@@ -171,51 +183,232 @@ class GoogleNavManager(
         }
     }
 
+    // ================================================================
+    // S7: NavInfo 服务注册/注销 — 接收 SDK 7.0.0 的 TBT 转弯数据
+    // ================================================================
+
     /**
-     * 初始化 Google Navigation SDK
-     * 必须在主线程调用，通常在页面 Composable 时触发
+     * 注册 NavInfo 服务，使 Navigation SDK 通过 Messenger IPC 发送 NavInfo 消息
+     * 失败时自动重试最多 3 次
      */
-    fun initializeNavigator(activity: Activity, onReady: () -> Unit = {}, onError: (Int, Int) -> Unit = { _, _ -> }) {
-        if (isInitialized) {
-            Log.w(TAG, "Navigator 已初始化，跳过")
-            onReady()
+    private fun registerNavUpdates(nav: Navigator, attempt: Int = 1) {
+        try {
+            val ok = nav.registerServiceForNavUpdates(
+                context.packageName,
+                GoogleNavInfoService::class.java.name,
+                3  // max remaining steps
+            )
+            if (ok) {
+                GoogleNavInfoService.setListener(this)
+                Log.i(TAG, "NavInfo 更新服务已注册 (attempt $attempt)")
+            } else if (attempt < 3) {
+                val delayMs = attempt * 2000L
+                Log.w(TAG, "registerServiceForNavUpdates 返回 false，${delayMs}ms 后重试 ($attempt/3)")
+                mainHandler.postDelayed({ registerNavUpdates(nav, attempt + 1) }, delayMs)
+            } else {
+                Log.w(TAG, "registerServiceForNavUpdates 失败（已重试3次）— 导航转弯数据不可用")
+            }
+        } catch (e: Exception) {
+            if (attempt < 3) {
+                val delayMs = attempt * 2000L
+                Log.w(TAG, "注册 NavInfo 服务异常: ${e.message}，${delayMs}ms 后重试 ($attempt/3)")
+                mainHandler.postDelayed({ registerNavUpdates(nav, attempt + 1) }, delayMs)
+            } else {
+                Log.e(TAG, "注册 NavInfo 服务失败（已重试3次）: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 注销 NavInfo 服务
+     */
+    private fun unregisterNavUpdates() {
+        try {
+            val ok = navigator?.unregisterServiceForNavUpdates() ?: false
+            GoogleNavInfoService.setListener(null)
+            if (ok) {
+                Log.i(TAG, "NavInfo 更新服务已注销")
+            } else {
+                Log.d(TAG, "unregisterServiceForNavUpdates 返回 false（可能未注册）")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "注销 NavInfo 服务失败: ${e.message}")
+        }
+    }
+
+    // ================================================================
+    // S7: OnNavInfoListener 实现 — 将 NavInfo → CarrotManFields
+    // ================================================================
+
+    override fun onNavInfoReceived(navInfo: NavInfo) {
+        try {
+            // 将 NavInfo 数据推送到桥接器，更新 TBT/距离/时间等字段
+            dataBridge?.updateFromNavInfo(navInfo)
+
+            // 路线变更时重新提取限速
+            if (navInfo.routeChanged) {
+                extractSpeedLimitFromRoute()
+            }
+
+            // 限速查询：通过当前步骤道路名称 + 坐标
+            val roadName = navInfo.currentStep?.fullRoadName ?: ""
+            if (roadName.isNotEmpty()) {
+                val lat = carrotManFieldsState?.value?.latitude ?: 0.0
+                val lon = carrotManFieldsState?.value?.longitude ?: 0.0
+                querySpeedLimitForCurrentRoad(lat, lon, roadName)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "处理 NavInfo 失败: ${e.message}")
+        }
+    }
+
+    // ================================================================
+    // 限速查询 — OSM Overpass API + 道路名称推断
+    // 替代已移除的 RouteSegment.getSpeedLimit()
+    // ================================================================
+
+    /** 限速缓存（key=道路名, value=km/h） */
+    private val speedLimitCache = mutableMapOf<String, Int>()
+    /** 当前正在查询限速的道路名（防止重复查询） */
+    private var pendingSpeedLimitRoad: String = ""
+    /** 上次有效限速值 */
+    private var lastSpeedLimitKmh: Int = 0
+
+    /**
+     * 提取当前道路限速（由 onNavInfoReceived 中的道路名称变化触发）
+     *
+     * 限速来源（三层策略）:
+     * 1) 缓存命中 → 即时返回
+     * 2) 道路名称关键词推断 → 快速回退
+     * 3) OSM Overpass API → 异步查询，更新缓存后覆盖
+     */
+    fun extractSpeedLimitFromRoute() {
+        // 实际查询由 onNavInfoReceived 通过道路名称触发
+        Log.d(TAG, "extractSpeedLimitFromRoute: 由道路名称变化触发")
+    }
+
+    /**
+     * 查询当前道路限速
+     * @param lat 当前纬度
+     * @param lon 当前经度
+     * @param roadName 当前道路名称
+     */
+    fun querySpeedLimitForCurrentRoad(lat: Double, lon: Double, roadName: String) {
+        if (roadName.isEmpty()) return
+        // 同一道路只查询一次
+        if (roadName == pendingSpeedLimitRoad) return
+        pendingSpeedLimitRoad = roadName
+
+        val currentSpeed = (carrotManFieldsState?.value?.gps_speed ?: 0.0).toInt()
+
+        // 1) 缓存
+        speedLimitCache[roadName]?.let { cached ->
+            lastSpeedLimitKmh = cached
+            dataBridge?.updateSpeedLimit(cached, currentSpeed, roadName)
+            Log.d(TAG, "限速(缓存): $cached km/h ($roadName)")
             return
         }
 
-        try {
-            NavigationApi.getNavigator(
-                activity,
-                object : NavigatorListener {
-                    override fun onNavigatorReady(navigator: Navigator) {
-                        Log.i(TAG, "Google Navigation SDK 初始化成功")
-                        this@GoogleNavManager._navigator = navigator
-                        isInitialized = true
-
-                        // 设置退出时行为
-                        navigator.setTaskRemovedBehavior(Navigator.TaskRemovedBehavior.QUIT_SERVICE)
-
-                        onReady()
-                    }
-
-                    override fun onError(errorCode: Int) {
-                        Log.e(TAG, "Google 导航错误: code=$errorCode")
-                        val msg = when (errorCode) {
-                            NavigationApi.ErrorCode.NOT_AUTHORIZED ->
-                                "API Key 无效或未授权使用 Navigation API"
-                            NavigationApi.ErrorCode.TERMS_NOT_ACCEPTED ->
-                                "用户未接受导航服务条款"
-                            else -> "导航错误: $errorCode"
-                        }
-                        Log.e(TAG, msg)
-                        // 根据 errorCode 判断是否需要调用 onError
-                        onError(errorCode, 0)
-                    }
-                }
-            )
-            Log.i(TAG, "Google Navigation SDK 初始化请求已发送")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Google Navigation SDK 初始化失败: ${e.message}", e)
+        // 2) 道路名称推断
+        val inferred = inferSpeedLimitFromRoadName(roadName)
+        if (inferred > 0) {
+            speedLimitCache[roadName] = inferred
+            lastSpeedLimitKmh = inferred
+            dataBridge?.updateSpeedLimit(inferred, currentSpeed, roadName)
+            Log.i(TAG, "限速(推断): $inferred km/h ($roadName)")
         }
+
+        // 3) OSM Overpass API 异步查询（更精确）
+        queryOverpassSpeedLimit(lat, lon, roadName)
+    }
+
+    /**
+     * 从道路名称关键词推断限速
+     */
+    private fun inferSpeedLimitFromRoadName(roadName: String): Int {
+        val name = roadName.lowercase().trim()
+        return when {
+            // 英文高速
+            name.contains("motorway") || name.contains("freeway") -> 120
+            name.contains("interstate") || name.contains("expressway") -> 110
+            name.contains("highway") -> 100
+            // 中文高速
+            name.contains("高速公路") || name.contains("高速") -> 120
+            name.contains("快速路") || name.contains("快速") -> 80
+            // 国道
+            name.contains("国道") -> 80
+            Regex("""\bg\d{1,3}\b""").containsMatchIn(name) -> 80
+            // 省道
+            name.contains("省道") -> 60
+            Regex("""\bs\d{1,3}\b""").containsMatchIn(name) -> 60
+            // 县道/乡道
+            name.contains("县道") || name.contains("乡道") -> 40
+            // 有名称的城市道路
+            name.length > 2 -> 50
+            // 未知
+            else -> 0
+        }
+    }
+
+    /**
+     * OSM Overpass API 异步查询限速
+     * 查询坐标周围 25m 内带 maxspeed 标签的道路
+     */
+    private fun queryOverpassSpeedLimit(lat: Double, lon: Double, roadName: String) {
+        val query = "[out:json];way(around:25,${"%.5f".format(lat)},${"%.5f".format(lon)})[\"highway\"][\"maxspeed\"];out tags 1;"
+        val url = "https://overpass-api.de/api/interpreter?data=${java.net.URLEncoder.encode(query, "utf-8")}"
+
+        Thread {
+            try {
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.setRequestProperty("User-Agent", "Navipilot/1.0 (Android)")
+
+                val response = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(response)
+                val elements = json.optJSONArray("elements") ?: return@Thread
+                if (elements.length() == 0) return@Thread
+
+                val tags = elements.optJSONObject(0)?.optJSONObject("tags") ?: return@Thread
+                val raw = tags.optString("maxspeed", "") ?: return@Thread
+                val speedLimit = parseMaxspeed(raw)
+
+                if (speedLimit > 0) {
+                    // 更新缓存
+                    speedLimitCache[roadName] = speedLimit
+                    lastSpeedLimitKmh = speedLimit
+                    val currentSpeed = (carrotManFieldsState?.value?.gps_speed ?: 0.0).toInt()
+                    mainHandler.post {
+                        dataBridge?.updateSpeedLimit(speedLimit, currentSpeed, roadName)
+                    }
+                    Log.i(TAG, "限速(OSM): $speedLimit km/h ($roadName)")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Overpass 查询失败: ${e.message} — 使用推断值")
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    /**
+     * 解析 OSM maxspeed 值
+     * 支持: "120", "120 km/h", "60 mph", "80\;120"（分段取最小）
+     */
+    private fun parseMaxspeed(raw: String): Int {
+        val parts = raw.split("\\", ";", " ")
+        var minSpeed = Int.MAX_VALUE
+        for (part in parts) {
+            val cleaned = part.trim().lowercase()
+                .replace("km/h", "").replace("kmh", "").replace("kph", "")
+                .replace("mph", "").trim()
+            val speed = cleaned.toIntOrNull()
+            if (speed != null && speed in 5..200) {
+                val inKmh = if (part.trim().lowercase().contains("mph")) (speed * 1.609).toInt()
+                           else speed
+                minSpeed = minOf(minSpeed, inKmh)
+            }
+        }
+        return if (minSpeed == Int.MAX_VALUE) 0 else minSpeed
     }
 
     /**
@@ -254,6 +447,9 @@ class GoogleNavManager(
             onRouteError?.invoke("目的地坐标无效")
             return
         }
+
+        // 保存网络客户端引用，供 RouteChangedListener 使用
+        _currentNetworkClient = networkClient
 
         Log.i(TAG, "开始导航: $destName")
         Log.i(TAG, "  起点: ($startLat, $startLon)")
@@ -388,13 +584,17 @@ class GoogleNavManager(
         simulate: Boolean = false,  // 默认使用真实 GPS 导航
         routeTimeoutMs: Long = 15_000,
         onNavigationStarted: (() -> Unit)? = null,
-        onRouteError: ((String) -> Unit)? = null
+        onRouteError: ((String) -> Unit)? = null,
+        networkClient: com.example.navipilot.CarrotManNetworkClient? = null
     ) {
         val nav = navigator ?: run {
             Log.e(TAG, "Navigator 未初始化，无法开始导航")
             onRouteError?.invoke("导航服务未初始化")
             return
         }
+
+        // 保存网络客户端引用，供 RouteChangedListener 使用
+        _currentNetworkClient = networkClient
 
         try {
             val destination = Waypoint.builder()
@@ -437,6 +637,13 @@ class GoogleNavManager(
                 when (code) {
                     RouteStatus.OK -> {
                         nav.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
+
+                        // 🆕 提取并发送路线点到 comma3 设备 (TCP 7709)
+                        if (networkClient != null) {
+                            extractAndSendRoutePoints(networkClient)
+                        } else {
+                            Log.w(TAG, "⚠️ networkClient 为 null，跳过路线点发送 (PlaceID)")
+                        }
 
                         // 模拟行程（参考官方示例：仅在 debug 构建中启用）
                         if (simulate) {
@@ -527,10 +734,14 @@ class GoogleNavManager(
                 }
             }
 
+            // S7: 注销 NavInfo 服务
+            unregisterNavUpdates()
+
             routeChangedListener = null
             remainingTimeOrDistanceChangedListener = null
             dataBridge = null
             _navigator = null
+            _currentNetworkClient = null
             isInitialized = false
 
             Log.i(TAG, "✅ GoogleNavManager 资源已清理")

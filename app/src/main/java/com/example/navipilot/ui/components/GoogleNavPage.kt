@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.delay
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.navipilot.CarrotManFields
 import com.example.navipilot.R
@@ -176,6 +177,25 @@ fun GoogleNavPage(
     // 🔧 修复: Navigator 初始化必须在 navView 创建后立即同步执行
     // 参考官方 NavViewActivity.kt，initializeNavigationApi 在 onCreate 中调用，不使用协程等待
     // 使用 navigatorInitialized 标志防止重复初始化
+
+    // 自动清除路线错误（30秒后）
+    LaunchedEffect(routeError) {
+        if (routeError != null) {
+            delay(30_000)
+            routeError = null
+        }
+    }
+
+    var retryNavigation by remember { mutableStateOf(false) }
+    LaunchedEffect(retryNavigation) {
+        if (retryNavigation && goalLat != 0.0 && goalLon != 0.0) {
+            retryNavigation = false
+            routeError = null
+            pendingNavigation = true
+            isRoutePlanning = true
+        }
+    }
+
     LaunchedEffect(navViewRef, navigatorInitialized) {
         val view = navViewRef ?: return@LaunchedEffect
         if (navigatorInitialized) return@LaunchedEffect  // 防止重复初始化
@@ -254,8 +274,12 @@ fun GoogleNavPage(
                                     val cameraUpdate = CameraUpdateFactory.newLatLngZoom(position, 15f)
                                     googleMap.moveCamera(cameraUpdate)
 
-                                    // 启用我的位置图层
-                                    googleMap.isMyLocationEnabled = true
+                                    // 启用我的位置图层（需定位权限，否则崩溃）
+                                    try {
+                                        googleMap.isMyLocationEnabled = true
+                                    } catch (e: SecurityException) {
+                                        Log.w(TAG, "定位权限未授予，无法启用 MyLocation 图层")
+                                    }
 
                                     googleMapRef = googleMap
 
@@ -429,6 +453,10 @@ fun GoogleNavPage(
                 navView.setHeaderEnabled(true)
                 // 默认开启限速图标
                 navView.setSpeedLimitIconEnabled(true)
+                // 应用初始 UI 状态
+                navView.setNavigationUiEnabled(navUiEnabled)
+                navView.setTripProgressBarEnabled(tripProgressBarEnabled)
+                navView.setForceNightMode(nightMode)
                 navViewRef = navView
                 
                 Log.i(TAG, "✅ NavigationView 已创建并初始化")
@@ -459,7 +487,7 @@ fun GoogleNavPage(
                     Text(
                         text = when {
                             !isReady && !navigatorInitialized -> localized("正在初始化 Google 导航...", "Initializing Google Navigation...")
-                            !isReady && navigatorInitialized -> localized("正在加载导航服务（可能需要几十秒）...", "Loading navigation service (may take a while)...")
+                            !isReady && navigatorInitialized -> localized("正在等待导航服务（可能需要几十秒，请接受服务条款）...", "Waiting for navigation service (may take a while, please accept ToS)...")
                             pendingNavigation || isRoutePlanning -> localized("正在规划路线...", "Planning route...")
                             else -> localized("正在加载 Google 导航...", "Loading Google Navigation...")
                         },
@@ -484,8 +512,20 @@ fun GoogleNavPage(
                 ) {
                     Text(error, color = Color.White)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = { routeError = null; safeBack() }) {
-                        Text(localized("返回", "Back"))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(onClick = { routeError = null; safeBack() }) {
+                            Text(localized("返回", "Back"))
+                        }
+                        if (goalLat != 0.0 && goalLon != 0.0) {
+                            Button(onClick = {
+                                routeError = null
+                                retryNavigation = true
+                            }) {
+                                Text(localized("重试", "Retry"))
+                            }
+                        }
                     }
                 }
             }

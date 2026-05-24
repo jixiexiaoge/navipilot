@@ -8,6 +8,7 @@ import com.amap.api.services.help.Inputtips
 import com.amap.api.services.help.InputtipsQuery
 import com.amap.api.services.help.Tip
 import com.example.navipilot.BuildConfig
+import java.util.Locale
 import java.util.TreeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -418,28 +419,42 @@ suspend fun searchPlaces(
     }
 
     // ===== AUTO 模式 =====
-    if (proxLat != null && proxLon != null && isInChina(proxLat, proxLon)) {
-        // 国内：高德优先 → 腾讯兜底
-        val gcjCoords = com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
-        val amapResults = searchPlacesAmap(androidContext, query, gcjCoords.first, gcjCoords.second)
-        if (amapResults.isNotEmpty()) {
-            return@withContext SearchResponse(
-                amapResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
-                "高德地图"
-            )
+    // 根据系统语言决定搜索策略：中文 → 国内高德/腾讯，非中文 → 统一谷歌搜索
+    val isChineseLocale = Locale.getDefault().language.startsWith("zh")
+    if (isChineseLocale) {
+        // 中文用户：国内高德优先 → 腾讯兜底，海外谷歌
+        if (proxLat != null && proxLon != null && isInChina(proxLat, proxLon)) {
+            val gcjCoords = com.example.navipilot.navigation.CoordinateConverter.wgs84ToGcj02(proxLat, proxLon)
+            val amapResults = searchPlacesAmap(androidContext, query, gcjCoords.first, gcjCoords.second)
+            if (amapResults.isNotEmpty()) {
+                return@withContext SearchResponse(
+                    amapResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
+                    "高德地图"
+                )
+            }
+            Log.w(TAG, "高德地图无结果，尝试腾讯")
+            val tencentResults = searchPlacesTencent(query, proxLat, proxLon)
+            if (tencentResults.isNotEmpty()) {
+                return@withContext SearchResponse(
+                    tencentResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
+                    "腾讯地图"
+                )
+            }
+            Log.w(TAG, "高德、腾讯均无结果")
+        } else {
+            Log.d(TAG, "中文用户海外/AUTO 模式，调用谷歌搜索")
+            val googleResults = searchPlacesGoogle(query, proxLat, proxLon)
+            if (googleResults.isNotEmpty()) {
+                return@withContext SearchResponse(
+                    googleResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
+                    "谷歌地图"
+                )
+            }
+            Log.w(TAG, "谷歌搜索无结果")
         }
-        Log.w(TAG, "高德地图无结果，尝试腾讯")
-        val tencentResults = searchPlacesTencent(query, proxLat, proxLon)
-        if (tencentResults.isNotEmpty()) {
-            return@withContext SearchResponse(
-                tencentResults.distinctBy { "${it.lat.toFloat()},${it.lon.toFloat()}" }.take(8),
-                "腾讯地图"
-            )
-        }
-        Log.w(TAG, "高德、腾讯均无结果")
     } else {
-        // 海外或无定位：谷歌搜索
-        Log.d(TAG, "海外/AUTO 模式，调用谷歌搜索")
+        // 非中文用户：统一使用谷歌搜索
+        Log.d(TAG, "非中文语言环境/AUTO 模式，调用谷歌搜索")
         val googleResults = searchPlacesGoogle(query, proxLat, proxLon)
         if (googleResults.isNotEmpty()) {
             return@withContext SearchResponse(

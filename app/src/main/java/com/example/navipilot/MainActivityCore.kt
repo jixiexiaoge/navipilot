@@ -31,6 +31,7 @@ import android.content.pm.PackageManager
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
+import com.example.navipilot.navigation.GoogleNavManager
 import com.example.navipilot.scoring.DrivingDataCollector
 
 
@@ -66,7 +67,7 @@ class MainActivityCore(
         /** 与停车/坐标等共用，保存用户选择的地图/导航源 */
         private const val PREF_CARROT_AMAP = "CarrotAmap"
         private const val KEY_USER_SELECTED_NAV_MODE = "user_selected_nav_mode"
-        private val VALID_USER_NAV_MODES = setOf("OSM", "AMAP", "TENCENT", "AMAP_MOBILE")
+        private val VALID_USER_NAV_MODES = setOf("OSM", "AMAP", "TENCENT", "AMAP_MOBILE", "GOOGLE")
         
         // 🆕 API基础URL配置
         // 优先使用IP方式，失败后切换到网站URL
@@ -119,7 +120,7 @@ class MainActivityCore(
             val raw = prefs.getString(KEY_USER_SELECTED_NAV_MODE, null)
             if (raw != null) {
                 val normalized = when (raw) {
-                    "BAIDU", "GOOGLE" -> "AMAP" // 国内单包：已移除百度/谷歌导航选项
+                    "BAIDU" -> "AMAP" // 国内单包：已移除百度导航选项
                     else -> raw
                 }
                 if (normalized in VALID_USER_NAV_MODES) {
@@ -265,7 +266,17 @@ class MainActivityCore(
     lateinit var networkManager: NetworkManager
     // 条件实验模式管理器
     lateinit var conditionalExperimentManager: ConditionalExperimentManager
-    
+
+    // Google 导航管理器（懒创建，首次进入 Google 模式时初始化，跨页面保持引用）
+    private var _googleNavManager: GoogleNavManager? = null
+    val googleNavManager: GoogleNavManager?
+        get() {
+            if (_googleNavManager == null) {
+                _googleNavManager = GoogleNavManager(context, carrotManFields)
+            }
+            return _googleNavManager
+        }
+
     /**
      * 安全获取 ConditionalExperimentManager（用于 UI 组件）
      * 如果未初始化，返回 null
@@ -1369,6 +1380,11 @@ class MainActivityCore(
                 autoOvertakeManager.cleanup()
                 Log.i(TAG, "🧹 自动超车管理器已清理")
             }
+
+            // 清理 Google 导航管理器
+            _googleNavManager?.destroy()
+            _googleNavManager = null
+            Log.i(TAG, "🧹 Google 导航管理器已清理")
             
             // 停止内存监控
             stopMemoryMonitoring()
