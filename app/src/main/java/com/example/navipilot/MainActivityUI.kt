@@ -72,6 +72,7 @@ import com.example.navipilot.ui.components.OsmMapView
 import com.example.navipilot.ui.components.ProfilePage
 import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
+import com.example.navipilot.ui.components.LaneCard
 import com.example.navipilot.ui.components.LedMatrixPreview
 import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.ui.components.OnboardingScreen
@@ -433,7 +434,10 @@ class MainActivityUI(
         var showAdvancedDialog by remember { mutableStateOf(false) }
         // 点击首页 LED 预览条：全屏 7706 JSON 调试
         var show7706JsonDebug by remember { mutableStateOf(false) }
+        // 车道信息卡片 / LED 预览切换（默认显示车道卡）
+        var showLaneCard by remember { mutableStateOf(true) }
         val carrotFieldsLive by core.carrotManFields
+        val currentLane = data?.overtakeStatus?.currentLane ?: 0
         val mapContext = LocalContext.current
 
         // ===== 面板显示用状态（由 OsmMapView 回调更新）=====
@@ -753,6 +757,9 @@ class MainActivityUI(
                     navMode = navMode,
                     onModeChange = onModeChange,
                     carrotManFields = carrotManFields,
+                    showLaneCard = showLaneCard,
+                    onLaneCardClick = { showLaneCard = false },
+                    currentLane = currentLane,
                     isPortrait = true,
                     userType = userType,
                     cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
@@ -792,6 +799,9 @@ class MainActivityUI(
                     navMode = navMode,
                     onModeChange = onModeChange,
                     carrotManFields = carrotManFields,
+                    showLaneCard = showLaneCard,
+                    onLaneCardClick = { showLaneCard = false },
+                    currentLane = currentLane,
                     isPortrait = false,
                     userType = userType,
                     cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
@@ -837,7 +847,7 @@ class MainActivityUI(
             Carrot7706JsonDebugOverlay(
                 fields = carrotFieldsLive,
                 networkClient = core.getNetworkClientSafely(),
-                onDismiss = { show7706JsonDebug = false },
+                onDismiss = { show7706JsonDebug = false; showLaneCard = true },
             )
         }
     }
@@ -1157,6 +1167,9 @@ class MainActivityUI(
         navMode: NavMode,
         onModeChange: (NavMode) -> Unit,
         carrotManFields: CarrotManFields,
+        showLaneCard: Boolean = true,
+        onLaneCardClick: () -> Unit = {},
+        currentLane: Int = 0,
         isPortrait: Boolean,
         userType: Int,
         cruiseSetSpeed: Int,
@@ -1320,16 +1333,31 @@ class MainActivityUI(
                 horizontalAlignment = if (isPortrait) Alignment.Start else Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (isPortrait) 10.dp else 12.dp)
             ) {
-                // 模拟 LED 预览在按钮网格上方
-                val hasRealtimeLedText = ledDisplayText.isNotBlank()
-                LedMatrixPreview(
-                    text = if (hasRealtimeLedText) ledDisplayText else "机械小鸽",
-                    color = if (hasRealtimeLedText) ledDisplayColor else Color(0xFFFF6B35),
-                    animCode = if (hasRealtimeLedText) ledAnimCode else 0,
-                    bitmapData = if (hasRealtimeLedText) ledDisplayBitmapData else emptyList(),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onLedPreviewClick,
-                )
+                // 车道信息卡 / LED 预览切换
+                if (showLaneCard) {
+                    val modelTotalLanes = if (carrotManFields.nLaneCount > 0) carrotManFields.nLaneCount
+                        else if (carrotManFields.laneInfoList.size >= 2) carrotManFields.laneInfoList.size
+                        else 0
+                    LaneCard(
+                        laneConfig = carrotManFields.laneInfoList,
+                        currentLane = currentLane,
+                        confidence = if (currentLane > 0 && carrotManFields.nLaneCount > 0) 0.7f else 0f,
+                        turnDist = carrotManFields.nTBTDist,
+                        turnText = carrotManFields.szTBTMainText,
+                        totalLanesFromModel = modelTotalLanes,
+                        onClick = onLaneCardClick,
+                    )
+                } else {
+                    val hasRealtimeLedText = ledDisplayText.isNotBlank()
+                    LedMatrixPreview(
+                        text = if (hasRealtimeLedText) ledDisplayText else "机械小鸽",
+                        color = if (hasRealtimeLedText) ledDisplayColor else Color(0xFFFF6B35),
+                        animCode = if (hasRealtimeLedText) ledAnimCode else 0,
+                        bitmapData = if (hasRealtimeLedText) ledDisplayBitmapData else emptyList(),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = onLedPreviewClick,
+                    )
+                }
                 if (isPortrait) {
                     // 竖屏：第一行 4 格（蓝速/地图/绿速/搜索），第二行 4 格（家/公司/实验/LED）；已移除第5位账户与第8位找车
                     Row(

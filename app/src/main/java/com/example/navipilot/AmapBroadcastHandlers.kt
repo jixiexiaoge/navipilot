@@ -1706,7 +1706,7 @@ class AmapBroadcastHandlers(
                     lastUpdateTime = System.currentTimeMillis()
                 )
                 
-                Log.i(TAG, "  🎯 已更新车道数量到CarrotMan字段: $driveWaySize 车道, 列表: ${laneInfoList.map { "${it.id}(${if(it.isRecommended) "推荐" else "普通"})" }}")
+                Log.i(TAG, "  🎯 已更新车道数量到CarrotMan字段: $driveWaySize 车道, 列表: ${laneInfoList.map { "${it.id}(trafficLaneType=${it.trafficLaneType},推荐=${it.isRecommended})" }}")
                 
             } else {
                 Log.w(TAG, "  ❌ 车道线信息无效或车道数量为0")

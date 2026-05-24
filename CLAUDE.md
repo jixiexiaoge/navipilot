@@ -6,57 +6,62 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/openpilot 设备联动，通过 UDP/TCP/HTTP 协议发送导航数据至 openpilot 设备辅助自动驾驶，同时提供驾驶行为评分。
 
-**版本**：v260516 (versionCode: 260516)
-**包名**：com.example.navipilot（源码命名空间已统一）
+**版本**：v260530 (versionCode: 260530)
+**包名**：com.example.navipilot
+**最低 SDK**：26 (Android 8.0)，**目标 SDK**：35
 
 ---
 
 ## 构建命令
 
 ```bash
-# Debug 构建（输出到 app/build/outputs/apk/debug/）
+# Debug 构建
 ./gradlew assembleDebug
 
 # Release 构建（需在 local.properties 配置签名密钥）
 ./gradlew assembleRelease
 
-# 运行单元测试
+# 运行所有单元测试
 ./gradlew test
 
-# 运行单测并过滤特定测试
-./gradlew test --tests "com.example.carrotamap.GeoUtilsTest"
+# 运行单个测试类
+./gradlew test --tests "com.example.navipilot.GeoUtilsTest"
 
-# 运行 instrumented test
+# 运行特定测试方法
+./gradlew test --tests "com.example.navipilot.GeoUtilsTest.distanceTo_samePoint_returnsZero"
+
+# 运行 instrumented 测试
 ./gradlew connectedAndroidTest
-
-# 清理构建
-./gradlew clean
 
 # 代码检查
 ./gradlew detekt
+
+# 清理
+./gradlew clean
 ```
 
-**ABI 配置**：通过 `navipilot.abis` 属性指定编译架构（**默认仅 `arm64-v8a`**，减少 APK 体积 40-50%）：
-```bash
-# 仅编译 arm64-v8a（默认）
-./gradlew assembleDebug
-
-# 同时编译 armeabi-v7a（增加 APK 体积）
-./gradlew assembleDebug -Pnavipilot.abis="arm64-v8a,armeabi-v7a"
-```
+**ABI 配置**：默认仅 arm64-v8a，通过 `-Pnavipilot.abis="arm64-v8a,armeabi-v7a"` 覆盖。
 
 ---
 
-## 本地配置
+## 测试规范
 
-`local.properties`（已在 .gitignore，勿提交）：
+- **框架**：JUnit 5 + Google Truth (assertThat) + MockK
+- **命名**：反引号方法名 + 蛇形风格，描述 Given_When_Then
+- **模式**：方法内用 `// Given` / `// When` / `// Then` 注释分段
+- **协程测试**：`kotlinx-coroutines-test`
+- **文件位置**：`app/src/test/java/com/example/navipilot/`
 
-| 属性 | 说明 |
-|------|------|
-| `sdk.dir` | Android SDK 路径 |
-| `AMAP_WEB_KEY` / `AMAP_WEB_SECRET` | 高德 Web 服务 REST API Key（可选，用于搜索兜底） |
+---
 
-高德 **Android** Key 绑定 SHA1 + 包名，写在 `AndroidManifest.xml` 的 `com.amap.api.v2.apikey`，与 Web Key 无关。
+## 构建注意事项
+
+1. **gradle.properties 关键配置**：`org.gradle.jvmargs=-Xmx12288m`，`android.r8.maxHeapSize=16g`（腾讯导航 SDK 较大）
+2. **Release 构建**：`isShrinkResources = false`（高德 JAR 的 final R class ids 与优化 shrinking 不兼容）
+3. **ProGuard**：`proguard-rules.pro`（第三方 SDK 全部保留）+ `security-config.pro`（日志移除 + 混淆字典 `dictionary.txt`）
+4. **AAPT2 R 类修补**：`patchRClass` Gradle 任务使用 ASM 将腾讯导航 SDK 的 `navix_*` 资源字段注入 `R.jar`，解决同名资源跨类型时的 `NoSuchFieldError`
+5. **Google API Key**：通过 `MAPS_API_KEY` 注入 `AndroidManifest.xml` 的 `com.google.android.geo.API_KEY` 元数据
+6. **Conflict exclusion**：排除 Google Play Services Maps/Location 传递依赖（Navigation SDK 已包含）
 
 ---
 
@@ -64,157 +69,72 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/ope
 
 ### 1. 协调器模式（MainActivity 四文件拆分）
 
-`MainActivity*.kt` 采用协调器模式拆分，实现关注点分离：
-
 ```
-MainActivity.kt          # 入口，协调生命周期
-├── MainActivityCore.kt   # 核心业务逻辑与状态管理（MVVM ViewModel 层）
-├── MainActivityUI.kt    # Compose UI 组件（View 层）
+MainActivity.kt           # 入口，协调生命周期
+├── MainActivityCore.kt   # 核心业务逻辑 + 状态管理（ViewModel 层）
+├── MainActivityUI.kt     # Compose UI 组件（View 层）
 └── MainActivityLifecycle.kt  # 生命周期与初始化
 ```
 
-### 2. Channel 背压控制（防止 20Hz 广播 OOM）
+### 2. MutableState 单一数据源（SSOT）
 
-高德广播频率约 20 Hz，直接处理会导致内存溢出。通过 `Channel<Intent>(Channel.BUFFERED)` 实现背压：
+`carrotManFields` 是 `MutableState<CarrotManFields>`，所有导航数据桥接器通过 `postFieldsMutate` + `Handler(Looper.getMainLooper())` 确保写操作在主线程进行。数据模型用 `copy()` 不可变更新。
+
+### 3. CarrotManFields 的 ART VerifyError 保护
+
+数据类构造参数过多会导致真机 `VerifyError`（copy$default 校验失败）。解决方案：
+- 腾讯/车道检测的「尾部」字段拆分到 `CarrotManTencentSlice` 嵌套 data class，通过 `withTencentSlice()` 扩展函数更新
+- 非构造函数字段用 `@Transient var`（如 `isNightMode`、`isOffRoute`）
+
+### 4. Channel 背压控制（防止 20Hz 广播 OOM）
 
 ```kotlin
 private val intentChannel = Channel<Intent>(Channel.BUFFERED) // 容量 64
-
-override fun onReceive(context: Context?, intent: Intent?) {
-    intentChannel.trySend(intent) // 非阻塞，满时丢弃旧数据
-}
-
-// 单协程顺序处理，防止内存溢出
+// 非阻塞发送，满时丢弃旧数据
+intentChannel.trySend(intent)
+// 单协程顺序处理
 receiverScope.launch {
-    for (intent in intentChannel) {
-        processIntent(intent)
-    }
+    for (intent in intentChannel) processIntent(intent)
 }
 ```
 
-### 3. 三模式导航互斥
-
-防止多个导航源同时更新状态导致数据冲突：
+### 5. 三模式导航互斥
 
 ```kotlin
 when (activeNavMode.value) {
     "AMAP" -> processAmapBroadcast(intent)
     "GOOGLE" -> processGoogleNavCallback(event)
     "TENCENT" -> processTencentNavCallback(event)
-    else -> return // 跳过
+    else -> return
 }
 ```
 
-### 4. 坐标系统适配器
+### 6. 坐标系统适配器
 
-高德/腾讯使用 GCJ-02，Google/OSM 使用 WGS-84。内部统一存储 WGS-84，边界转换：
+高德/腾讯 → GCJ-02，Google/OSM → WGS-84。内部统一存储 WGS-84，通过 `CoordinateConverter` 边界转换（迭代法求精确逆变换，收敛阈值 1e-9）。
 
-```kotlin
-object CoordinateConverter {
-    fun gcj02ToWgs84(lat: Double, lon: Double): Pair<Double, Double>
-    fun wgs84ToGcj02(lat: Double, lon: Double): Pair<Double, Double>
-}
-```
+### 7. 三帧防抖决策
 
-### 5. 三帧防抖决策
+传感器噪声避免误触发：连续 3 帧满足条件才输出决策。
 
-传感器噪声导致误触发超车，需要连续 3 帧都满足条件：
+### 8. 数据桥接器模式
 
-```kotlin
-private val recentDecisions = ArrayDeque<Boolean>(3)
-
-fun shouldOvertake(): Boolean {
-    recentDecisions.addLast(checkConditions())
-    if (recentDecisions.size > 3) recentDecisions.removeFirst()
-    return recentDecisions.size == 3 && recentDecisions.all { it }
-}
-```
-
----
-
-## 核心模块
-
-```
-com.example.navipilot/
-├── CarrotManDataModels.kt          # 数据模型（UDP 7706/TCP 7711 协议定义）
-├── CarrotParamClient.kt            # HTTP 7000 — comma3 参数读写 REST API
-├── CarrotManNetworkClient.kt       # UDP/TCP 导航数据发送
-├── AmapBroadcastManager.kt         # 高德车机版广播接收（Channel 背压控制）
-├── AmapBroadcastHandlers.kt        # 高德广播数据解析器
-├── XiaogeDataReceiver.kt           # 设备数据接收（TCP 7711，心跳 + 自动重连）
-├── AutoOvertakeManager.kt          # 自动超车辅助决策（三帧防抖 + ML Kit）
-├── ConditionalExperimentManager.kt # 条件实验模式管理器（7 种触发条件）
-├── LocationSensorManager.kt        # GPS 定位传感器管理
-├── NetworkManager.kt               # 网络层统一编排器
-├── DeviceManager.kt                # 设备生命周期管理
-├── PermissionManager.kt            # Android 权限管理
-│
-├── navigation/
-│   ├── AmapNavDataBridge.kt        # 高德导航数据桥接
-│   ├── GoogleNavManager.kt         # Google Navigation SDK 管理器（完整实现）
-│   ├── GoogleNavDataBridge.kt      # Google 导航数据桥接到 CarrotManFields
-│   ├── TencentNavDataBridge.kt     # 腾讯导航数据桥接（完整实现）
-│   ├── CoordinateConverter.kt      # GCJ-02 ↔ WGS-84 坐标转换
-│   ├── GeoUtils.kt                 # 地理计算工具
-│   └── TurnTypeTextInference.kt    # 转向类型文本推断
-│
-├── ui/components/
-│   ├── OsmMapView.kt               # OSM 地图组件（MapLibre GL）
-│   ├── AmapMobileNavPage.kt        # 高德手机 SDK 导航页（AMapNaviView 内嵌）
-│   ├── GoogleNavPage.kt            # Google NavigationView 嵌入式导航页面
-│   ├── TencentNavPage.kt           # 腾讯导航 SDK 页面（完整实现）
-│   ├── MapSearchService.kt         # 统一地点搜索（高德SDK > Web REST > 腾讯 > Photon）
-│   ├── LedMatrixManager.kt         # LED 点阵屏控制（蓝牙 + 20 级优先级引擎）
-│   ├── ModelSwitcherPage.kt        # openpilot 驾驶模型管理器
-│   ├── AutoSwitchExperimentPage.kt # 条件实验模式配置页
-│   ├── OnboardingScreen.kt         # 新手引导（5 页）
-│   ├── HelpPage.kt                 # 帮助中心（FAQ + WebView 管理器）
-│   ├── ProfilePage.kt              # 个人中心（评分概览、驾驶风格标签）
-│   ├── SshConfigDialog.kt          # SSH 连接配置弹窗
-│   └── PrivacyDialog.kt            # 隐私声明对话框
-│
-├── scoring/                        # 驾驶评分系统
-│   ├── DrivingScoreEngine.kt       # 五维评分引擎
-│   ├── DrivingDataCollector.kt     # 数据采集器
-│   └── DrivingSession.kt           # 驾驶会话数据模型
-│
-├── data/
-│   ├── PreferenceRepository.kt     # 偏好设置仓库
-│   ├── ModelDownloadManager.kt     # 模型下载管理
-│   ├── ModelDownloadState.kt       # 下载状态
-│   └── SshConnectionManager.kt     # SSH 连接管理（SSHJ）
-│
-├── di/AppModule.kt                 # Koin 依赖注入模块
-│
-└── ui/
-    ├── driving/
-    │   ├── DrivingReportScreen.kt      # 驾驶报告界面（五维雷达图）
-    │   └── DrivingReportShareImage.kt  # 分享图片生成
-    │
-    ├── discovery/
-    │   └── CommaDeviceDiscovery.kt     # comma3 设备发现（NSD/mDNS）
-    │
-    └── theme/
-        ├── Color.kt                    # Material 3 配色
-        ├── Theme.kt                    # 主题定义
-        └── Type.kt                     # 字体排版
-```
+每个导航 SDK 有自己的 `*NavDataBridge`（如 `GoogleNavDataBridge`），负责**将 SDK 特有的导航事件/回调映射到 `CarrotManFields` 的 44 个 UDP 字段**，通过 `postFieldsMutate` 保证线程安全。
 
 ---
 
 ## 关键数据流
 
 ```
-导航数据源（高德/腾讯/OSM/Google）
+导航数据源（高德/腾讯/Google）
     ↓ 广播/SDK 回调
-广播/SDK 管理器 (AmapBroadcastManager, GoogleNavManager, TencentNaviManager)
+广播/SDK 管理器
     ↓ 更新中央状态
-MutableState<CarrotManFields> (SSOT 单一数据源)
-    ↓ 订阅状态
-├── NetworkManager → CarrotManNetworkClient → UDP 7706 / TCP 7709 → comma3
-└── Compose UI（响应式渲染）
+MutableState<CarrotManFields> (SSOT)
+    ├── NetworkManager → CarrotManNetworkClient → UDP 7706 / TCP 7709 → comma3
+    └── Compose UI（响应式渲染）
 
-comma3 设备 → XiaogeDataReceiver（UDP 7705）→ AutoOvertakeManager → ZMQ 7710
+comma3 设备 → XiaogeDataReceiver (TCP 7711) → AutoOvertakeManager → ZMQ 7710
 ```
 
 ---
@@ -223,17 +143,19 @@ comma3 设备 → XiaogeDataReceiver（UDP 7705）→ AutoOvertakeManager → ZM
 
 | 端口/协议 | 方向 | 用途 |
 |----------|------|------|
-| **UDP 7706** | → comma3 | 实时导航数据（GPS、限速、TBT、电子眼） |
-| **TCP 7709** | → comma3 | 路线规划成功后的路线点坐标 |
-| **TCP 7711** | ← comma3 | 接收设备状态（carState、modelV2、controlsState JSON） |
-| **HTTP 7000** | ↔ comma3 | 参数读写 REST API (`/api/param_set`, `/api/params_bulk`) |
-| **ZMQ 7710** | → comma3 | 控制命令（超车变道指令） |
+| **UDP 7706** | → comma3 | 实时导航数据（GPS、限速、TBT、电子眼），~5 Hz |
+| **TCP 7709** | → comma3 | 路线规划完成后的路线点坐标 |
+| **TCP 7711** | ← comma3 | 设备状态（carState、modelV2、controlsState JSON），5s 心跳 |
+| **HTTP 7000** | ↔ comma3 | 参数读写 REST API |
+| **ZMQ 7710** | → comma3 | 超车变道指令 |
+
+**UDP 7706 负载**：44 字段 JSON，含基础通信(3)、GPS(5)、目的地(3)、限速(1/道路类别)、SDI 电子眼(7)、SDI Plus(6)、TBT 转弯(9)、剩余路程(3)、导航 GPS(4)、命令通道(2) 及内部辅助字段。
+
+**TCP 7711 重连策略**：指数退避 2s → 5s → 10s → 20s → 30s max。
 
 ---
 
 ## 导航模式
-
-应用支持多种导航模式，通过 `NavModeSwitcher` 切换：
 
 | 模式 | 坐标系 | 集成方式 | 成本 | 状态 |
 |------|--------|----------|------|------|
@@ -241,16 +163,68 @@ comma3 设备 → XiaogeDataReceiver（UDP 7705）→ AutoOvertakeManager → ZM
 | **AMAP_MOBILE（高德手机 SDK）** | GCJ-02 | AMapNaviView 内嵌 | 免费 | ✅ 生产就绪 |
 | **GOOGLE** | WGS-84 | Google Navigation SDK v7.0.0 | 需 API Key | ✅ 生产就绪 |
 | **TENCENT** | GCJ-02 | 腾讯导航 SDK v7.5.0 | 需授权 | ✅ 完整实现 |
-| **OSM** | WGS-84 | OpenStreetMap + MapLibre GL | 免费 | ⚠️ 框架就绪 |
+| **OSM** | WGS-84 | MapLibre GL | 免费 | ⚠️ 框架就绪 |
+
+---
+
+## 核心模块
+
+```
+com.example.navipilot/
+├── MainActivity*.kt              # 入口 + 协调器（4 文件拆分）
+├── CarrotManDataModels.kt        # UDP/TCP 协议数据模型
+├── CarrotManFields.kt            # 中央状态容器（SSOT）
+├── CarrotManNetworkClient.kt     # UDP 7706 + TCP 7709 发送
+├── CarrotParamClient.kt          # HTTP 7000 参数读写
+├── NetworkManager.kt             # 网络层统一编排
+├── XiaogeDataReceiver.kt         # TCP 7711 设备数据接收
+├── AmapBroadcastManager.kt       # 高德车机版广播接收
+├── AmapBroadcastHandlers.kt      # 高德广播数据解析器
+├── AutoOvertakeManager.kt        # 自动超车辅助决策
+├── ConditionalExperimentManager.kt # 条件实验模式
+│
+├── navigation/                   # 导航数据桥接（每模式一个 Bridge）
+│   ├── AmapNavDataBridge.kt
+│   ├── GoogleNavManager.kt       # Google Navigation SDK 管理
+│   ├── GoogleNavDataBridge.kt
+│   ├── TencentNavDataBridge.kt
+│   ├── CoordinateConverter.kt    # GCJ-02 ↔ WGS-84
+│   └── GeoUtils.kt
+│
+├── ui/components/                # Compose UI 组件
+│   ├── GoogleNavPage.kt          # Google NavigationView 内嵌
+│   ├── AmapMobileNavPage.kt      # 高德手机 SDK 导航页
+│   ├── TencentNavPage.kt         # 腾讯导航 SDK 页面
+│   ├── OsmMapView.kt             # MapLibre GL 地图
+│   ├── MapSearchService.kt       # 统一地点搜索（高德SDK→Web REST→腾讯→Photon 兜底）
+│   └── LedMatrixManager.kt       # LED 点阵屏控制（蓝牙 + 20 级优先级）
+│
+├── scoring/                      # 驾驶评分
+│   ├── DrivingScoreEngine.kt     # 五维评分引擎
+│   └── DrivingDataCollector.kt
+│
+├── data/                         # 数据层
+│   ├── PreferenceRepository.kt
+│   ├── ModelDownloadManager.kt
+│   └── SshConnectionManager.kt   # SSHJ
+│
+├── di/AppModule.kt               # Koin DI
+└── LocationSensorManager.kt      # GPS 定位传感器
+```
 
 ---
 
 ## 依赖技术
 
-- **语言**：Kotlin
-- **UI**：Jetpack Compose + Material 3
-- **地图**：MapLibre（OSM）、高德合并 JAR（导航+搜索+定位）、腾讯导航 SDK
-- **网络**：OkHttp、Kotlin Coroutines、ZeroMQ (JeroMQ)
-- **依赖注入**：Koin
-- **安全**：EncryptedSharedPreferences
-- **ML**：Google ML Kit 车道检测
+| 类别 | 技术 |
+|------|------|
+| 语言/UI | Kotlin 2.1, Jetpack Compose + Material 3 |
+| 异步 | Kotlin Coroutines + Flow + Channel |
+| DI | Koin 3.5.3 |
+| 网络 | OkHttp 4.12 + Gson + JeroMQ 0.6.0 |
+| 地图 | MapLibre GL 11.8 (OSM), 高德合并 JAR, 腾讯导航 SDK 7.5.0, Google Navigation SDK 7.0.0 |
+| SSH | SSHJ 0.38 + BouncyCastle 1.77 |
+| 测试 | JUnit 5 + Google Truth + MockK |
+| 存储 | EncryptedSharedPreferences + DataStore |
+| 日志 | Timber 5.0.1 |
+| 播放 | Media3 ExoPlayer 1.2.1 |
