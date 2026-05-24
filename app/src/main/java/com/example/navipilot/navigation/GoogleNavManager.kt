@@ -658,7 +658,18 @@ class GoogleNavManager(
                         nav.startGuidance()
 
                         carrotManFieldsState?.let { state ->
+                            // 🆕 P0: 从路线段提取目的地坐标（Place ID 方式无显式坐标）
+                            val goalLat = try {
+                                nav.routeSegments?.lastOrNull()
+                                    ?.latLngs?.lastOrNull()?.latitude ?: 0.0
+                            } catch (_: Exception) { 0.0 }
+                            val goalLon = try {
+                                nav.routeSegments?.lastOrNull()
+                                    ?.latLngs?.lastOrNull()?.longitude ?: 0.0
+                            } catch (_: Exception) { 0.0 }
                             state.value = state.value.copy(
+                                goalPosX = goalLon,
+                                goalPosY = goalLat,
                                 szGoalName = destName,
                                 isNavigating = true,
                                 source_last = "google_nav"

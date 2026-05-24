@@ -153,7 +153,8 @@ class MainActivityCore(
     fun updateMapServiceType() {
         // 嵌入第三方 SDK 导航时不自动切换 OSM/车机高德
         if (activeNavMode.value == "TENCENT" ||
-            activeNavMode.value == "AMAP_MOBILE"
+            activeNavMode.value == "AMAP_MOBILE" ||
+            activeNavMode.value == "GOOGLE"
         ) {
             return
         }
@@ -174,7 +175,8 @@ class MainActivityCore(
     fun markAmapBroadcastReceived() {
         lastAmapBroadcastTime.value = System.currentTimeMillis()
         if (activeNavMode.value != "TENCENT" &&
-            activeNavMode.value != "AMAP_MOBILE"
+            activeNavMode.value != "AMAP_MOBILE" &&
+            activeNavMode.value != "GOOGLE"
         ) {
             activeNavMode.value = "AMAP"
         }

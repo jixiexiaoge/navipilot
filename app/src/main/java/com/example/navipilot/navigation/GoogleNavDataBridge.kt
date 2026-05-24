@@ -143,6 +143,9 @@ class GoogleNavDataBridge(
                 if (finalDist > 0) {
                     updateRemaining(finalDist, finalTime)
                 }
+
+                // 🆕 P0: 从 GPS 数据回填导航位置字段（Google SDK 不提供道路吸附坐标）
+                syncNavPositionFromGps()
             }
             NavState.STOPPED -> onNavigationStopped()
             NavState.REROUTING -> Log.d(TAG, "Google Nav 重新规划路线中...")
@@ -257,6 +260,30 @@ class GoogleNavDataBridge(
             s.value = s.value.copy(
                 nGoPosDist = distMeters.toInt(),
                 nGoPosTime = timeSeconds.toInt(),
+                source_last = "google_nav"
+            )
+        }
+    }
+
+    /**
+     * 🆕 P0: 从 GPS 数据回填导航位置字段
+     *
+     * Google Navigation SDK 7.0.0 不提供道路吸附坐标（vpPosPointLat/Lon）
+     * 和导航方向角（nPosAngle），用手机 GPS 数据作为 fallback 填充，
+     * 确保 comma3 至少能收到定位数据。
+     *
+     * 由 [updateFromNavInfo] 每个 NavInfo 回调自动调用（约 1-2 秒/次）。
+     */
+    private fun syncNavPositionFromGps() {
+        val cur = carrotManFieldsState?.value ?: return
+        if (cur.latitude == 0.0 && cur.longitude == 0.0) return
+        val speedKmh = (cur.gps_speed * 3.6).toInt().coerceAtLeast(0)
+        postFieldsMutate { s ->
+            s.value = s.value.copy(
+                vpPosPointLat = cur.latitude,
+                vpPosPointLon = cur.longitude,
+                nPosAngle = cur.heading,
+                nPosSpeed = speedKmh.toDouble(),
                 source_last = "google_nav"
             )
         }

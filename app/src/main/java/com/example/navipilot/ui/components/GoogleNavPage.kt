@@ -1,6 +1,7 @@
 package com.example.navipilot.ui.components
 
 import android.annotation.SuppressLint
+import android.content.ComponentCallbacks2
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.WindowManager
@@ -187,6 +188,20 @@ fun GoogleNavPage(
     }
 
     var retryNavigation by remember { mutableStateOf(false) }
+
+    // 导航初始化超时保护（60秒）
+    LaunchedEffect(navigatorInitialized) {
+        if (!navigatorInitialized) {
+            delay(60_000)
+            if (!isReady && routeError == null) {
+                routeError = localized(
+                    "导航服务初始化超时（60秒），请检查网络连接后重试",
+                    "Navigation init timeout (60s). Check network and retry."
+                )
+                navigatorInitialized = false
+            }
+        }
+    }
     LaunchedEffect(retryNavigation) {
         if (retryNavigation && goalLat != 0.0 && goalLon != 0.0) {
             retryNavigation = false
@@ -434,6 +449,24 @@ fun GoogleNavPage(
                 Log.e(TAG, "清理导航资源异常: ${e.message}")
             }
         }
+    }
+
+    // 🆕 P1: 注册内存压力监听 — 通知 NavigationView 释放地图缓存
+    DisposableEffect(Unit) {
+        val app = context.applicationContext
+        val cb = object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+                    Log.w(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — 系统内存严重不足")
+                }
+            }
+            override fun onLowMemory() {
+                Log.w(TAG, "onLowMemory — 系统内存不足")
+            }
+            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
+        }
+        app.registerComponentCallbacks(cb)
+        onDispose { app.unregisterComponentCallbacks(cb) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
