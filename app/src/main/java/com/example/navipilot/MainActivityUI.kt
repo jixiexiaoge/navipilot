@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,6 +74,7 @@ import com.example.navipilot.ui.components.ProfilePage
 import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
 import com.example.navipilot.ui.components.LaneCard
+import com.example.navipilot.ui.components.LaneChangeReminder
 import com.example.navipilot.ui.components.LedMatrixPreview
 import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.ui.components.OnboardingScreen
@@ -440,6 +442,14 @@ class MainActivityUI(
         val currentLane = data?.overtakeStatus?.currentLane ?: 0
         val mapContext = LocalContext.current
 
+        // 变道提醒管理器（SoundPool + 冷却）
+        val laneChangeReminder = remember {
+            LaneChangeReminder(mapContext)
+        }
+        DisposableEffect(Unit) {
+            onDispose { laneChangeReminder.cleanup() }
+        }
+
         // ===== 面板显示用状态（由 OsmMapView 回调更新）=====
         var isLedConnected by remember { mutableStateOf(false) }
         var homeAddressSet by remember { mutableStateOf(false) }
@@ -781,7 +791,8 @@ class MainActivityUI(
                     onHomeNavClick = { homeNavTrigger++ },
                     onHomeNavLongClick = { homeNavLongTrigger++ },
                     onCompanyNavClick = { companyNavTrigger++ },
-                    onCompanyNavLongClick = { companyNavLongTrigger++ }
+                    onCompanyNavLongClick = { companyNavLongTrigger++ },
+                    laneChangeReminder = laneChangeReminder,
                 )
             }
         } else {
@@ -823,7 +834,8 @@ class MainActivityUI(
                     onHomeNavClick = { homeNavTrigger++ },
                     onHomeNavLongClick = { homeNavLongTrigger++ },
                     onCompanyNavClick = { companyNavTrigger++ },
-                    onCompanyNavLongClick = { companyNavLongTrigger++ }
+                    onCompanyNavLongClick = { companyNavLongTrigger++ },
+                    laneChangeReminder = laneChangeReminder,
                 )
             }
         }
@@ -1191,7 +1203,8 @@ class MainActivityUI(
         onHomeNavClick: () -> Unit,
         onHomeNavLongClick: () -> Unit,
         onCompanyNavClick: () -> Unit,
-        onCompanyNavLongClick: () -> Unit
+        onCompanyNavLongClick: () -> Unit,
+        laneChangeReminder: LaneChangeReminder? = null
     ) {
         val panelContext = LocalContext.current
         val scrollState = rememberScrollState()
@@ -1346,6 +1359,7 @@ class MainActivityUI(
                         turnText = carrotManFields.szTBTMainText,
                         totalLanesFromModel = modelTotalLanes,
                         onClick = onLaneCardClick,
+                        laneChangeReminder = laneChangeReminder,
                     )
                 } else {
                     val hasRealtimeLedText = ledDisplayText.isNotBlank()

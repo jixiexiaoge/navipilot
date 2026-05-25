@@ -1,6 +1,6 @@
 package com.example.navipilot.ui.components
 
-import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,15 +55,33 @@ fun LaneCard(
     totalLanesFromModel: Int, // openpilot 模型估算的总车道数（兜底）
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    laneChangeReminder: LaneChangeReminder? = null,
 ) {
     val hasLaneData = laneConfig.size >= 2
     val totalLanes = if (hasLaneData) laneConfig.size else totalLanesFromModel.coerceAtLeast(0)
+
+    // ── 变道提醒音效触发 ─────────────────────
+    val recLanes = remember(laneConfig) { laneConfig.filter { it.isRecommended } }
+    val hasRecLanes = recLanes.isNotEmpty()
+    val needLaneChange = remember(currentLane, hasRecLanes, recLanes, laneConfig) {
+        if (currentLane <= 0 || !hasRecLanes) false
+        else !recLanes.any { it.driveWayNumber == currentLane || (laneConfig.indexOf(it) + 1 == currentLane) }
+    }
+    LaunchedEffect(needLaneChange, currentLane) {
+        if (needLaneChange) {
+            laneChangeReminder?.checkAndRemind(laneConfig, currentLane)
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(CardBg)
+            .background(if (needLaneChange) CardBg else CardBg)
+            .then(
+                if (needLaneChange) Modifier.border(1.dp, UrgentColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                else Modifier
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 5.dp),
     ) {
@@ -70,6 +92,11 @@ fun LaneCard(
                 confidence = confidence,
                 turnDist = turnDist,
                 turnText = turnText,
+                needLaneChange = needLaneChange,
+                laneChangeDirection = if (needLaneChange && hasRecLanes) {
+                    val firstRecIdx = laneConfig.indexOfFirst { it.isRecommended }
+                    if (currentLane < firstRecIdx + 1) "RIGHT" else "LEFT"
+                } else null,
             )
         } else if (totalLanes >= 2) {
             // 有车道计数但无详细配置 → 简化显示
@@ -97,6 +124,8 @@ private fun LaneStripContent(
     confidence: Float,
     turnDist: Int,
     turnText: String,
+    needLaneChange: Boolean = false,
+    laneChangeDirection: String? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -135,14 +164,74 @@ private fun LaneStripContent(
                     ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = laneIdx.toString(),
-                        fontSize = 14.sp,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCurrent) CurrentLaneColor else NumColor,
-                        textAlign = TextAlign.Center,
-                    )
+                    val ctx = LocalContext.current
+                    val laneResId = remember(lane.id) {
+                        listOf(
+                            "landfront_recommend_${lane.id}",
+                            "landfront_${lane.id}",
+                            "landback_${lane.id}"
+                        ).firstNotNullOfOrNull { name ->
+                            val id = ctx.resources.getIdentifier(name, "drawable", ctx.packageName)
+                            if (id != 0) id else null
+                        } ?: 0
+                    }
+                    if (laneResId != 0) {
+                        Image(
+                            painter = painterResource(id = laneResId),
+                            contentDescription = null,
+                            modifier = Modifier.size(26.dp),
+                            colorFilter = ColorFilter.tint(
+                                when {
+                                    isCurrent -> CurrentLaneColor
+                                    isRec -> RecommendedBorder
+                                    else -> Color.White.copy(alpha = 0.85f)
+                                }
+                            ),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        Text(
+                            text = laneIdx.toString(),
+                            fontSize = 14.sp,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCurrent) CurrentLaneColor else NumColor,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
+            }
+        }
+
+        // — 第 2 行：变道方向指示器 ────────────
+        if (needLaneChange && laneChangeDirection != null) {
+            val arrow = if (laneChangeDirection == "LEFT") "◀◀◀" else "▶▶▶"
+            val dirText = if (laneChangeDirection == "LEFT")
+                localized("请向左变道", "← Change left")
+            else
+                localized("请向右变道", "→ Change right")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(UrgentColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = arrow,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = UrgentColor,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = dirText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = UrgentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -153,6 +242,7 @@ private fun LaneStripContent(
             turnDist = turnDist,
             turnText = turnText,
             confidence = confidence,
+            needLaneChange = needLaneChange,
         )
     }
 }
@@ -271,6 +361,7 @@ private fun GuidanceRow(
     turnDist: Int,
     turnText: String,
     confidence: Float,
+    needLaneChange: Boolean = false,
 ) {
     val recommendedLanes = lanes.filter { it.isRecommended }
     val hasRecLanes = recommendedLanes.isNotEmpty()
@@ -278,8 +369,14 @@ private fun GuidanceRow(
         it.driveWayNumber == currentLane || (lanes.indexOf(it) + 1 == currentLane)
     }
 
+    // 当需要变道时用醒目背景
+    val rowBg = if (needLaneChange) UrgentColor.copy(alpha = 0.08f) else Color.Transparent
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 1.dp)
+            .background(rowBg, RoundedCornerShape(3.dp)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 引导建议
@@ -290,16 +387,20 @@ private fun GuidanceRow(
             }
             inRecommendedLane -> "✓ ${localized("保持车道", "Keep lane")}"
             currentLane < lanes.indexOfFirst { it.isRecommended } + 1 ->
-                "→ ${localized("向右变道", "Move right")}"
-            else -> "← ${localized("向左变道", "Move left")}"
+                "▶ ${localized("向右变道", "Move right")}"
+            else -> "◀ ${localized("向左变道", "Move left")}"
         }
 
         if (guidanceText.isNotEmpty()) {
             Text(
                 text = guidanceText,
                 fontSize = 10.sp,
-                color = if (inRecommendedLane) CurrentLaneColor else GuidanceColor,
-                fontWeight = if (!inRecommendedLane && hasRecLanes) FontWeight.Medium else FontWeight.Normal,
+                color = if (inRecommendedLane) CurrentLaneColor
+                       else if (needLaneChange) UrgentColor
+                       else GuidanceColor,
+                fontWeight = if (needLaneChange) FontWeight.Bold
+                       else if (!inRecommendedLane && hasRecLanes) FontWeight.Medium
+                       else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -308,15 +409,19 @@ private fun GuidanceRow(
             Spacer(Modifier.weight(1f))
         }
 
-        // 置信度指示点
+        // 置信度指示点（需要变道时显示为红色脉冲点）
         Spacer(Modifier.width(4.dp))
         val confidenceColor = when {
+            needLaneChange -> UrgentColor
             confidence >= 0.8f -> ConfidenceGreen
             confidence >= 0.5f -> ConfidenceYellow
             else -> ConfidenceRed
         }
         Box(
-            modifier = Modifier.size(5.dp).clip(CircleShape).background(confidenceColor)
+            modifier = Modifier
+                .size(if (needLaneChange) 6.dp else 5.dp)
+                .clip(CircleShape)
+                .background(confidenceColor)
         )
     }
 }

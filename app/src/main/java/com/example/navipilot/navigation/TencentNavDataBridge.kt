@@ -483,11 +483,21 @@ class TencentNavDataBridge(
                 val laneInfoList = mutableListOf<LaneInfo>()
                 items?.forEach { item ->
                     if (item != null) {
-                        val name = safeGet(item, "getName", "") ?: ""
+                        // 直接读 name 字段（getName() getter 在模拟导航下可能返回空）
+                        val rawName = try {
+                            val f = item.javaClass.getDeclaredField("name")
+                            f.isAccessible = true
+                            (f.get(item) as? String) ?: ""
+                        } catch (_: Exception) {
+                            safeGet(item, "getName", "") ?: ""
+                        }
                         val recommend = try {
                             item.javaClass.getField("recommend").getBoolean(item)
                         } catch (_: Exception) { false }
-                        laneInfoList.add(LaneInfo(id = name, isRecommended = recommend))
+                        // 腾讯 name 格式 "X_Y" → 取 X 作为车道类型（匹配 landback_X）
+                        val laneId = if (rawName.contains("_")) rawName.substringBefore("_") else rawName
+                        laneInfoList.add(LaneInfo(id = laneId, isRecommended = recommend))
+                        Log.d(TAG, "onWillShowLaneGuide: rawName='$rawName' → laneId='$laneId' recommend=$recommend")
                     }
                 }
                 updateField { fields ->
