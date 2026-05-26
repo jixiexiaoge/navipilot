@@ -20,7 +20,6 @@ import com.google.android.libraries.navigation.SpeedingListener
 import com.example.navipilot.CarrotManNetworkClient
 import com.google.android.libraries.mapsplatform.turnbyturn.model.NavInfo
 import kotlin.math.roundToInt
-import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -85,10 +84,9 @@ class GoogleNavManager(
      */
     private fun registerNavigationListeners(nav: Navigator) {
         try {
-            // 1. 路线变化监听器 + S5: 重新提取路线点/限速并发送
+            // 1. 路线变化监听器 + S5: 重新提取路线点并发送
             routeChangedListener = Navigator.RouteChangedListener {
-                Log.i(TAG, "🔄 路线已变化，重新提取路线点和限速")
-                extractSpeedLimitFromRoute()
+                Log.i(TAG, "🔄 路线已变化，重新提取路线点")
                 val points = extractRoutePoints()
                 if (points.isNotEmpty()) {
                     _currentNetworkClient?.sendRoutePointsViaTcp(points)
@@ -255,172 +253,11 @@ class GoogleNavManager(
         try {
             // 将 NavInfo 数据推送到桥接器，更新 TBT/距离/时间等字段
             dataBridge?.updateFromNavInfo(navInfo)
-
-            // 路线变更时重新提取限速
-            if (navInfo.routeChanged) {
-                extractSpeedLimitFromRoute()
-            }
-
-            // 限速查询：通过当前步骤道路名称 + 坐标
-            val roadName = navInfo.currentStep?.fullRoadName ?: ""
-            if (roadName.isNotEmpty()) {
-                val lat = carrotManFieldsState?.value?.latitude ?: 0.0
-                val lon = carrotManFieldsState?.value?.longitude ?: 0.0
-                querySpeedLimitForCurrentRoad(lat, lon, roadName)
-            }
         } catch (e: Exception) {
             Log.w(TAG, "处理 NavInfo 失败: ${e.message}")
         }
     }
 
-    // ================================================================
-    // 限速查询 — OSM Overpass API + 道路名称推断
-    // 替代已移除的 RouteSegment.getSpeedLimit()
-    // ================================================================
-
-    /** 限速缓存（key=道路名, value=km/h） */
-    private val speedLimitCache = mutableMapOf<String, Int>()
-    /** 当前正在查询限速的道路名（防止重复查询） */
-    private var pendingSpeedLimitRoad: String = ""
-    /** 上次有效限速值 */
-    private var lastSpeedLimitKmh: Int = 0
-
-    /**
-     * 提取当前道路限速（由 onNavInfoReceived 中的道路名称变化触发）
-     *
-     * 限速来源（三层策略）:
-     * 1) 缓存命中 → 即时返回
-     * 2) 道路名称关键词推断 → 快速回退
-     * 3) OSM Overpass API → 异步查询，更新缓存后覆盖
-     */
-    fun extractSpeedLimitFromRoute() {
-        // 实际查询由 onNavInfoReceived 通过道路名称触发
-        Log.d(TAG, "extractSpeedLimitFromRoute: 由道路名称变化触发")
-    }
-
-    /**
-     * 查询当前道路限速
-     * @param lat 当前纬度
-     * @param lon 当前经度
-     * @param roadName 当前道路名称
-     */
-    fun querySpeedLimitForCurrentRoad(lat: Double, lon: Double, roadName: String) {
-        if (roadName.isEmpty()) return
-        // 同一道路只查询一次
-        if (roadName == pendingSpeedLimitRoad) return
-        pendingSpeedLimitRoad = roadName
-
-        val currentSpeed = (carrotManFieldsState?.value?.gps_speed ?: 0.0).toInt()
-
-        // 1) 缓存
-        speedLimitCache[roadName]?.let { cached ->
-            lastSpeedLimitKmh = cached
-            dataBridge?.updateSpeedLimit(cached, currentSpeed, roadName)
-            Log.d(TAG, "限速(缓存): $cached km/h ($roadName)")
-            return
-        }
-
-        // 2) 道路名称推断
-        val inferred = inferSpeedLimitFromRoadName(roadName)
-        if (inferred > 0) {
-            speedLimitCache[roadName] = inferred
-            lastSpeedLimitKmh = inferred
-            dataBridge?.updateSpeedLimit(inferred, currentSpeed, roadName)
-            Log.i(TAG, "限速(推断): $inferred km/h ($roadName)")
-        }
-
-        // 3) OSM Overpass API 异步查询（更精确）
-        queryOverpassSpeedLimit(lat, lon, roadName)
-    }
-
-    /**
-     * 从道路名称关键词推断限速
-     */
-    private fun inferSpeedLimitFromRoadName(roadName: String): Int {
-        val name = roadName.lowercase().trim()
-        return when {
-            // 英文高速
-            name.contains("motorway") || name.contains("freeway") -> 120
-            name.contains("interstate") || name.contains("expressway") -> 110
-            name.contains("highway") -> 100
-            // 中文高速
-            name.contains("高速公路") || name.contains("高速") -> 120
-            name.contains("快速路") || name.contains("快速") -> 80
-            // 国道
-            name.contains("国道") -> 80
-            Regex("""\bg\d{1,3}\b""").containsMatchIn(name) -> 80
-            // 省道
-            name.contains("省道") -> 60
-            Regex("""\bs\d{1,3}\b""").containsMatchIn(name) -> 60
-            // 县道/乡道
-            name.contains("县道") || name.contains("乡道") -> 40
-            // 有名称的城市道路
-            name.length > 2 -> 50
-            // 未知
-            else -> 0
-        }
-    }
-
-    /**
-     * OSM Overpass API 异步查询限速
-     * 查询坐标周围 25m 内带 maxspeed 标签的道路
-     */
-    private fun queryOverpassSpeedLimit(lat: Double, lon: Double, roadName: String) {
-        val query = "[out:json];way(around:25,${"%.5f".format(lat)},${"%.5f".format(lon)})[\"highway\"][\"maxspeed\"];out tags 1;"
-        val url = "https://overpass-api.de/api/interpreter?data=${java.net.URLEncoder.encode(query, "utf-8")}"
-
-        Thread {
-            try {
-                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                conn.setRequestProperty("User-Agent", "Navipilot/1.0 (Android)")
-
-                val response = conn.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(response)
-                val elements = json.optJSONArray("elements") ?: return@Thread
-                if (elements.length() == 0) return@Thread
-
-                val tags = elements.optJSONObject(0)?.optJSONObject("tags") ?: return@Thread
-                val raw = tags.optString("maxspeed", "") ?: return@Thread
-                val speedLimit = parseMaxspeed(raw)
-
-                if (speedLimit > 0) {
-                    // 更新缓存
-                    speedLimitCache[roadName] = speedLimit
-                    lastSpeedLimitKmh = speedLimit
-                    val currentSpeed = (carrotManFieldsState?.value?.gps_speed ?: 0.0).toInt()
-                    mainHandler.post {
-                        dataBridge?.updateSpeedLimit(speedLimit, currentSpeed, roadName)
-                    }
-                    Log.i(TAG, "限速(OSM): $speedLimit km/h ($roadName)")
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Overpass 查询失败: ${e.message} — 使用推断值")
-            }
-        }.apply { isDaemon = true }.start()
-    }
-
-    /**
-     * 解析 OSM maxspeed 值
-     * 支持: "120", "120 km/h", "60 mph", "80\;120"（分段取最小）
-     */
-    private fun parseMaxspeed(raw: String): Int {
-        val parts = raw.split("\\", ";", " ")
-        var minSpeed = Int.MAX_VALUE
-        for (part in parts) {
-            val cleaned = part.trim().lowercase()
-                .replace("km/h", "").replace("kmh", "").replace("kph", "")
-                .replace("mph", "").trim()
-            val speed = cleaned.toIntOrNull()
-            if (speed != null && speed in 5..200) {
-                val inKmh = if (part.trim().lowercase().contains("mph")) (speed * 1.609).toInt()
-                           else speed
-                minSpeed = minOf(minSpeed, inKmh)
-            }
-        }
-        return if (minSpeed == Int.MAX_VALUE) 0 else minSpeed
-    }
 
     // ================================================================
     // SpeedingListener 限速反算 — 通过 SDK 超速比例百分比反推道路限速
@@ -457,10 +294,6 @@ class GoogleNavManager(
 
         val roadName = carrotManFieldsState?.value?.szPosRoadName ?: ""
         val currentSpeedKmh = (gpsSpeedMs * 3.6).toInt()
-
-        // 更新缓存
-        if (roadName.isNotEmpty()) speedLimitCache[roadName] = limitKmh
-        lastSpeedLimitKmh = limitKmh
 
         // 推送到 CarrotManFields
         dataBridge?.updateSpeedLimit(limitKmh, currentSpeedKmh, roadName)
