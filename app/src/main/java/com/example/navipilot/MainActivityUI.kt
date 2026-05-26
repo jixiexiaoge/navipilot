@@ -641,6 +641,7 @@ class MainActivityUI(
                                     goalName = core.carrotManFields.value.szGoalName,
                                     currentLat = currentNavStartLat,
                                     currentLon = currentNavStartLon,
+                                    networkClient = core.networkManager.getNetworkClient(),
                                     onEnterAmapMobileMode = { core.switchToAmapMobileMode() },
                                     onExitAmapMobileMode = { core.exitAmapMobileMode() },
                                     onBack = {

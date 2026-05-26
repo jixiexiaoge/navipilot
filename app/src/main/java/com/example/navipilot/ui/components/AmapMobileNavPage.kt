@@ -414,6 +414,7 @@ fun AmapMobileNavPage(
     goalName: String,
     currentLat: Double,
     currentLon: Double,
+    networkClient: com.example.navipilot.CarrotManNetworkClient? = null,
     onEnterAmapMobileMode: () -> Unit = {},
     onExitAmapMobileMode: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -881,6 +882,21 @@ fun AmapMobileNavPage(
                                         val ok = navi.startNavi(naviType)
                                         Log.i(TAG, "startNavi($naviType)=$ok")
                                         if (ok) {
+                                            // 提取路线点并发送至 comma3 (TCP 7709)
+                                            val client = networkClient
+                                            if (client != null) {
+                                                try {
+                                                    val points = dataBridge.extractRoutePointsFromAmap(navi)
+                                                    if (points.isNotEmpty()) {
+                                                        client.sendRoutePointsViaTcp(points)
+                                                        Log.i(TAG, "✅ 高德路线点已发送至 comma3: ${points.size}个点")
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Log.w(TAG, "路线点发送失败: ${e.message}")
+                                                }
+                                            } else {
+                                                Log.w(TAG, "⚠️ networkClient 为 null，跳过路线点发送")
+                                            }
                                             naviView.post {
                                                 try {
                                                     // 导航开始后，恢复跟车视图
