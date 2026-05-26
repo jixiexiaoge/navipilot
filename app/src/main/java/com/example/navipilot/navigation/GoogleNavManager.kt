@@ -14,8 +14,12 @@ import com.google.android.libraries.navigation.DisplayOptions
 import com.google.android.libraries.navigation.RoutingOptions
 import com.google.android.libraries.navigation.SimulationOptions
 import com.google.android.libraries.navigation.Navigator.RouteStatus
+import com.google.android.libraries.navigation.SpeedAlertOptions
+import com.google.android.libraries.navigation.SpeedAlertSeverity
+import com.google.android.libraries.navigation.SpeedingListener
 import com.example.navipilot.CarrotManNetworkClient
 import com.google.android.libraries.mapsplatform.turnbyturn.model.NavInfo
+import kotlin.math.roundToInt
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -45,9 +49,7 @@ class GoogleNavManager(
     // 监听器引用（用于清理）
     private var routeChangedListener: Navigator.RouteChangedListener? = null
     private var remainingTimeOrDistanceChangedListener: Navigator.RemainingTimeOrDistanceChangedListener? = null
-    // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
-    // private var locationListener: ((android.location.Location) -> Unit)? = null
-    // private var speedingListener: ((com.google.android.libraries.navigation.SpeedingUpdatedInfo) -> Unit)? = null
+    private var speedingListener: SpeedingListener? = null
     // private var routeSegmentListener: (() -> Unit)? = null
     // private var trafficDataListener: (() -> Unit)? = null
 
@@ -118,10 +120,19 @@ class GoogleNavManager(
             )
             Log.i(TAG, "✅ 已注册剩余时间/距离监听器")
 
-            // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
-            // 位置、超速、路段变化等监听器在 7.0.0 中不再可用
-            // 如需这些功能，请考虑降级到 6.x 版本或使用替代方案
-            Log.i(TAG, "⚠️ Google Navigation SDK 7.0.0 已移除位置/超速/路段监听器 API")
+            // 3. 速度告警监听器 (SpeedingListener) — SDK 7.0.0 可用
+            // 通过 onSpeedingUpdated 的 percentageAboveLimit 反算道路限速
+            val speedAlertOptions = SpeedAlertOptions.Builder()
+                .setSpeedAlertThresholdPercentage(SpeedAlertSeverity.MINOR, 5f)
+                .setSpeedAlertThresholdPercentage(SpeedAlertSeverity.MAJOR, 10f)
+                .setSeverityUpgradeDurationSeconds(5.0)
+                .build()
+            nav.setSpeedAlertOptions(speedAlertOptions)
+            speedingListener = SpeedingListener { percentageAboveLimit, _ ->
+                onSpeedingUpdated(percentageAboveLimit)
+            }
+            nav.setSpeedingListener(speedingListener)
+            Log.i(TAG, "✅ 已注册 SpeedingListener（通过超速比例反算限速）")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ 注册导航监听器失败: ${e.message}", e)
@@ -409,6 +420,76 @@ class GoogleNavManager(
             }
         }
         return if (minSpeed == Int.MAX_VALUE) 0 else minSpeed
+    }
+
+    // ================================================================
+    // SpeedingListener 限速反算 — 通过 SDK 超速比例百分比反推道路限速
+    // ================================================================
+
+    /** SpeedingListener 更新节流（避免高频写入 CarrotManFields） */
+    private var lastSpeedingUpdateMs = 0L
+    private val SPEEDING_UPDATE_INTERVAL_MS = 2000L
+
+    /**
+     * SpeedingListener 回调：利用 percentageAboveLimit 反推道路限速
+     *
+     * 原理：percentageAboveLimit = ((currentSpeed - speedLimit) / speedLimit) × 100
+     *      → speedLimit = currentSpeed / (1 + percentageAboveLimit / 100)
+     *
+     * 由于 percentage 是纯比值，与单位无关。SDK 内部使用 km/h 或 mph 计算，
+     * 我们先用 km/h 试算，若结果不合常理则按 mph 重算。
+     */
+    private fun onSpeedingUpdated(percentageAboveLimit: Float) {
+        // 节流
+        val now = System.currentTimeMillis()
+        if (now - lastSpeedingUpdateMs < SPEEDING_UPDATE_INTERVAL_MS) return
+        lastSpeedingUpdateMs = now
+
+        // 必须有 GPS 速度
+        val gpsSpeedMs = carrotManFieldsState?.value?.gps_speed ?: return
+        if (gpsSpeedMs <= 0.0) return
+
+        val limitKmh = calculateSpeedLimitFromPercentage(gpsSpeedMs.toFloat(), percentageAboveLimit)
+        if (limitKmh < 10 || limitKmh > 250) {
+            Log.d(TAG, "SpeedingListener 反算限速 $limitKmh km/h 不合理，跳过")
+            return
+        }
+
+        val roadName = carrotManFieldsState?.value?.szPosRoadName ?: ""
+        val currentSpeedKmh = (gpsSpeedMs * 3.6).toInt()
+
+        // 更新缓存
+        if (roadName.isNotEmpty()) speedLimitCache[roadName] = limitKmh
+        lastSpeedLimitKmh = limitKmh
+
+        // 推送到 CarrotManFields
+        dataBridge?.updateSpeedLimit(limitKmh, currentSpeedKmh, roadName)
+        Log.i(TAG, "限速(SpeedingListener): $limitKmh km/h (当前速度=${currentSpeedKmh}km/h, 超速${"%.1f".format(percentageAboveLimit)}%)")
+    }
+
+    /**
+     * 从 GPS 速度和超速百分比反算限速
+     *
+     * 先按 km/h 试算，结果若在合理范围(20~200)内则直接使用；
+     * 若不在范围内，按 mph 试算后转 km/h。
+     * SDK 会自动根据设备地区决定使用 km/h 或 mph，我们通过试探法确定。
+     */
+    private fun calculateSpeedLimitFromPercentage(gpsSpeedMs: Float, pct: Float): Int {
+        if (pct <= 0f) return 0
+
+        // 方案 A：假设 SDK 使用 km/h
+        val speedKmh = gpsSpeedMs * 3.6f
+        val limitKmh = speedKmh / (1f + pct / 100f)
+        if (limitKmh in 20f..200f) return limitKmh.roundToInt()
+
+        // 方案 B：假设 SDK 使用 mph（US/UK）
+        val speedMph = gpsSpeedMs * 2.237f
+        val limitMph = speedMph / (1f + pct / 100f)
+        val limitFromMph = limitMph * 1.609f
+        if (limitFromMph in 20f..200f) return limitFromMph.roundToInt()
+
+        // 兜底
+        return limitKmh.roundToInt()
     }
 
     /**
@@ -729,8 +810,8 @@ class GoogleNavManager(
                 remainingTimeOrDistanceChangedListener?.let {
                     nav.removeRemainingTimeOrDistanceChangedListener(it)
                 }
-                // Note: Google Navigation SDK 7.0.0 移除了以下监听器 API
-                // locationListener, speedingListener, routeSegmentListener 不再需要移除
+                // 清理 SpeedingListener（set null 取消注册）
+                speedingListener?.let { nav.setSpeedingListener(null) }
 
                 // 官方示例：清理模拟器位置 + 释放 navigator 资源
                 try {
