@@ -365,18 +365,52 @@ class AmapNavDataBridge(
     }
 
     override fun updateCameraInfo(cameras: Array<out AMapNaviCameraInfo>?) {
-        if (cameras.isNullOrEmpty() || carrotManFieldsState == null) return
+        if (carrotManFieldsState == null) return
+        // 无摄像头 → 清除所有 SDI 字段
+        if (cameras.isNullOrEmpty()) {
+            postFieldsMutate { s ->
+                s.value = s.value.copy(
+                    nSdiType = -1, nSdiSpeedLimit = 0, nSdiDist = 0,
+                    nSdiPlusType = -1, nSdiPlusSpeedLimit = 0, nSdiPlusDist = 0,
+                    source_last = "amap_mobile"
+                )
+            }
+            return
+        }
         val c = cameras[0]
+        val dist = c.cameraDistance.coerceAtLeast(0)
+        val shouldClear = dist <= 20
         val sdiType = AmapBroadcastHandlers.mapAmapCameraTypeToSdi(c.cameraType)
+
         postFieldsMutate { s ->
             val cur = s.value
-            s.value = cur.copy(
-                nSdiType = sdiType,
-                nSdiSpeedLimit = c.cameraSpeed,
-                nSdiDist = c.cameraDistance.coerceAtLeast(0),
-                nAmapCameraType = c.cameraType,
-                source_last = "amap_mobile"
-            )
+            // 主摄像头
+            var updated = if (shouldClear) {
+                cur.copy(nSdiType = -1, nSdiSpeedLimit = 0, nSdiDist = 0, source_last = "amap_mobile")
+            } else {
+                cur.copy(
+                    nSdiType = sdiType,
+                    nSdiSpeedLimit = c.cameraSpeed,
+                    nSdiDist = dist,
+                    nAmapCameraType = c.cameraType,
+                    nRoadLimitSpeed = if (cur.nRoadLimitSpeed <= 0 && c.cameraSpeed > 0) c.cameraSpeed else cur.nRoadLimitSpeed,
+                    source_last = "amap_mobile"
+                )
+            }
+            // 第二摄像头 → nSdiPlus
+            if (cameras.size >= 2) {
+                val c2 = cameras[1]
+                val d2 = c2.cameraDistance.coerceAtLeast(0)
+                updated = if (d2 <= 20) {
+                    updated.copy(nSdiPlusType = -1, nSdiPlusSpeedLimit = 0, nSdiPlusDist = 0)
+                } else {
+                    val sdi2 = AmapBroadcastHandlers.mapAmapCameraTypeToSdi(c2.cameraType)
+                    updated.copy(nSdiPlusType = sdi2, nSdiPlusSpeedLimit = c2.cameraSpeed, nSdiPlusDist = d2)
+                }
+            } else {
+                updated = updated.copy(nSdiPlusType = -1, nSdiPlusSpeedLimit = 0, nSdiPlusDist = 0)
+            }
+            s.value = updated
         }
     }
 

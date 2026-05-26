@@ -21,6 +21,18 @@ class GoogleNavDataBridge(
     companion object {
         private const val TAG = "GoogleNavBridge"
 
+        /** 从路名推断道路类别（Google Nav SDK 不直接提供 roadcate） */
+        fun inferRoadcateFromName(roadName: String, current: Int): Int {
+            if (roadName.isEmpty()) return current
+            val u = roadName.uppercase()
+            if (u.contains("HIGHWAY") || u.contains("FREEWAY") || u.contains("INTERSTATE") ||
+                u.contains("MOTORWAY") || u.contains("EXPRESSWAY") ||
+                roadName.contains("高速") || roadName.contains("快速路") ||
+                roadName.matches(Regex(".*[GS]\\d{1,4}.*"))
+            ) return 10
+            return if (current == 8) 6 else current  // 未知路名降级为普通道路
+        }
+
         /**
          * Google Maneuver type → nTBTTurnType 映射
          *
@@ -102,7 +114,6 @@ class GoogleNavDataBridge(
             NavState.ENROUTE -> {
                 val currentStep = navInfo.currentStep ?: return
 
-                // 预先计算所有值，合并为单次状态更新，避免多次 recompose
                 val maneuver = currentStep.maneuver
                 val turnType = mapManeuverToTurnType(maneuver)
                 val roadName = currentStep.fullRoadName ?: ""
@@ -117,10 +128,25 @@ class GoogleNavDataBridge(
                 val finalDist = (navInfo.distanceToFinalDestinationMeters ?: 0).toLong()
                 val finalTime = (navInfo.timeToFinalDestinationSeconds ?: 0).toLong()
 
+                // 尝试从 StepInfo 反射读取限速（SDK 7.0 可能暴露此方法）
+                val stepSpeedLimit = try {
+                    val v = currentStep.javaClass.getMethod("getSpeedLimitKph").invoke(currentStep)
+                    (v as? Int)?.takeIf { it > 0 } ?: (v as? Double)?.toInt()?.takeIf { it > 0 } ?: 0
+                } catch (_: Exception) { 0 }
+
                 // 单次合并更新，减少 Compose recompose 次数
                 postFieldsMutate { s ->
                     val cur = s.value
                     val gpsSpeedKmh = (cur.gps_speed * 3.6).toInt().coerceAtLeast(0)
+                    // 限速优先级：StepInfo反射 > SpeedingListener缓存
+                    val newLimit = if (stepSpeedLimit > 0) stepSpeedLimit else cur.nRoadLimitSpeed
+                    // roadcate：有限速时用限速推断，否则用路名推断
+                    val newRoadcate = when {
+                        newLimit >= 100 -> 10
+                        newLimit > 0 -> 6
+                        roadName.isNotEmpty() -> inferRoadcateFromName(roadName, cur.roadcate)
+                        else -> cur.roadcate
+                    }
                     s.value = cur.copy(
                         nTBTTurnType = turnType,
                         nTBTDist = distanceToTurn,
@@ -133,6 +159,9 @@ class GoogleNavDataBridge(
                         szTBTMainTextNext = nextRoadName ?: cur.szTBTMainTextNext,
                         nGoPosDist = if (finalDist > 0) finalDist.toInt() else cur.nGoPosDist,
                         nGoPosTime = if (finalDist > 0) finalTime.toInt() else cur.nGoPosTime,
+                        nRoadLimitSpeed = newLimit,
+                        roadcate = newRoadcate,
+                        roadType = newRoadcate,
                         // GPS 回填导航位置字段（SDK 不提供道路吸附坐标）
                         vpPosPointLat = if (cur.latitude != 0.0) cur.latitude else cur.vpPosPointLat,
                         vpPosPointLon = if (cur.longitude != 0.0) cur.longitude else cur.vpPosPointLon,
