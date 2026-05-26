@@ -20,6 +20,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.collections.HashMap
 
 // Compose相关导入
@@ -123,7 +124,7 @@ class CarrotManNetworkClient(
 
     // 网络状态管理
     private var isRunning = false
-    private var discoveredDevices = mutableMapOf<String, DeviceInfo>()
+    private val discoveredDevices = ConcurrentHashMap<String, DeviceInfo>()
     private var currentTargetDevice: DeviceInfo? = null
     
     // 动态端口配置（基于逆向分析）
@@ -142,6 +143,7 @@ class CarrotManNetworkClient(
     private var dataSendJob: Job? = null
     private var autoSendJob: Job? = null
     private var deviceCheckJob: Job? = null
+    private var heartbeatJob: Job? = null
     
     // 数据统计管理
     private var carrotIndex = 0L
@@ -265,8 +267,8 @@ class CarrotManNetworkClient(
         dataSendJob?.cancel()
         autoSendJob?.cancel()
         deviceCheckJob?.cancel()
-        
-        // 心跳任务由协程管理，无需单独停止
+        heartbeatJob?.cancel()
+        heartbeatJob = null
         
         listenSocket?.close()
         dataSocket?.close()
@@ -415,32 +417,6 @@ class CarrotManNetworkClient(
         }
     }
     
-    // 解析OpenpPilot状态数据（基于逆向分析的BroadcastData字段）
-    private fun parseOpenpilotStatus(jsonData: JSONObject) {
-        try {
-            // 基于逆向分析的完整字段解析
-            val isOnRoad = jsonData.optBoolean("IsOnroad", false)
-            val carrotRouteActive = jsonData.optBoolean("CarrotRouteActive", false)
-            val active = jsonData.optBoolean("active", false)
-            val xState = jsonData.optInt("xState", 0)
-            val trafficState = jsonData.optInt("trafficState", 0)
-            val vEgoKph = jsonData.optInt("v_ego_kph", 0)
-            val vCruiseKph = jsonData.optInt("v_cruise_kph", 0)
-            val tbtDist = jsonData.optInt("tbt_dist", 0)
-            val sdiDist = jsonData.optInt("sdi_dist", 0)
-            val logCarrot = jsonData.optString("log_carrot", "")
-            val carrot2 = jsonData.optString("Carrot2", "")
-            
-            //Log.d(TAG, "📊 OpenpPilot状态: 在路上=$isOnRoad, 路线激活=$carrotRouteActive, 活跃=$active")
-            //Log.d(TAG, "📊 状态码: xState=$xState, 交通=$trafficState, 速度=${vEgoKph}km/h")
-            Log.d(TAG, "📊 距离: TBT=${tbtDist}m, SDI=${sdiDist}m")
-            
-        } catch (e: Exception) {
-            Log.w(TAG, "解析OpenpPilot状态失败: ${e.message}")
-        }
-    }
-    
-
     // 检查JSON数据是否为OpenpPilot状态数据
     private fun isOpenpilotStatusData(jsonObject: JSONObject): Boolean {
         // OpenpPilot状态数据的特征字段
@@ -486,37 +462,13 @@ class CarrotManNetworkClient(
         //Log.d(TAG, "📊 添加后状态: 已发现设备=${discoveredDevices.size}, 当前连接=${currentTargetDevice?.ip ?: "无"}")
     }
     
-    // 智能设备连接评估（简化逻辑：有JSON广播就连接）
-    private fun evaluateDeviceConnection(newDevice: DeviceInfo) {
-        Log.i(TAG, "🔍 评估设备连接: 新设备=$newDevice, 当前设备=${currentTargetDevice?.toString()}")
-        
-        // 简化逻辑：如果新设备IP与当前设备不同，就切换连接
-        if (currentTargetDevice == null || newDevice.ip != currentTargetDevice?.ip) {
-            Log.i(TAG, "🔄 切换设备连接: ${currentTargetDevice?.ip ?: "无"} -> ${newDevice.ip}")
-            connectToDevice(newDevice)
-        } else {
-            //Log.d(TAG, "✅ 设备IP相同，保持当前连接: ${newDevice.ip}")
-            // 更新设备活跃时间
-            val deviceKey = "${newDevice.ip}:${newDevice.port}"
-            if (discoveredDevices.containsKey(deviceKey)) {
-                discoveredDevices[deviceKey] = newDevice.copy(lastSeen = System.currentTimeMillis())
-            }
-        }
-    }
-    
-    
-    
     // 连接到指定的Comma3设备
     fun connectToDevice(device: DeviceInfo) {
         //Log.i(TAG, "🔗 开始连接到Comma3设备: $device")
 
         currentTargetDevice = device
-        dataSendJob?.cancel()
-        
-        // 重置心跳时间，让心跳任务开始工作
+        // 重置心跳时间，让心跳任务立即发送第一次心跳
         lastHeartbeatTime = 0L
-        
-        startDataTransmission()
 
         // 保存连接状态到SharedPreferences
         saveNetworkStatus(true, device.toString())
@@ -556,25 +508,12 @@ class CarrotManNetworkClient(
         return capabilities
     }
     
-    // 启动数据传输任务（心跳已移至独立定时器）
-    private fun startDataTransmission() {
-        dataSendJob = networkScope.launch {
-            Log.i(TAG, "✅ 启动数据传输任务 - 设备: ${currentTargetDevice?.ip}")
-            
-            // 数据传输任务现在主要用于其他数据发送
-            // 心跳由独立定时器处理
-            while (isRunning && currentTargetDevice != null) {
-                delay(DATA_SEND_INTERVAL)
-            }
-            Log.d(TAG, "数据传输任务已停止")
-        }
-    }
-    
     /**
-     * 启动心跳任务 - 使用协程避免Socket冲突
+     * 启动心跳任务 - 保存 Job 引用以便 stop() 时可以取消
      */
     private fun startHeartbeatTask() {
-        networkScope.launch {
+        heartbeatJob?.cancel()
+        heartbeatJob = networkScope.launch {
             Log.i(TAG, "💓 启动心跳任务")
             
             while (isRunning) {
@@ -657,33 +596,6 @@ class CarrotManNetworkClient(
                 }
             }
             Log.d(TAG, "设备健康检查服务已停止")
-        }
-    }
-    
-    // 简化的设备健康检查
-    private suspend fun performDeviceHealthCheck() {
-        val currentTime = System.currentTimeMillis()
-        
-        // 清理长时间未活跃的设备
-        val timeout = DEVICE_TIMEOUT * 2
-        val inactiveDevices = discoveredDevices.values.filter { device ->
-            currentTime - device.lastSeen > timeout
-        }
-        
-        inactiveDevices.forEach { device ->
-            val deviceKey = "${device.ip}:${device.port}"
-            discoveredDevices.remove(deviceKey)
-            Log.d(TAG, "移除离线设备: $device")
-        }
-        
-        // 如果当前设备离线，断开连接
-        currentTargetDevice?.let { device ->
-            if (!device.isActive() && currentTime - device.lastSeen > timeout) {
-                Log.w(TAG, "当前设备离线，断开连接: $device")
-                currentTargetDevice = null
-                dataSendJob?.cancel()
-                onConnectionStatusChanged?.invoke(false, "设备离线")
-            }
         }
     }
     
@@ -1108,7 +1020,8 @@ class CarrotManNetworkClient(
         
         isNetworkRecovering = true
         reconnectAttempts = 0
-        
+        reconnectDelay = 2000L  // 重置退避延迟
+
         networkScope.launch {
             performIntelligentNetworkRecovery()
         }

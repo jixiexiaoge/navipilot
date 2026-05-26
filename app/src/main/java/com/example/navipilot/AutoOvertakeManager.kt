@@ -216,66 +216,47 @@ class AutoOvertakeManager(
             return style
         }
         
-        /**
-         * 🆕 获取自适应参数 (E)
-         */
-        @Suppress("UNCHECKED_CAST")
-        fun <T : Number> getAdaptiveParameter(key: String, defaultValue: T): T {
+        /** 获取 Float 类型自适应参数（类型安全，无泛型强转） */
+        fun getAdaptiveParameter(key: String, defaultValue: Float): Float {
             val style = getDrivingStyle()
             return when (key) {
-                "SPEED_DIFF_THRESHOLD" -> {
-                    val base = defaultValue.toFloat()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> base * 1.5f  // 保守模式需要更大速度差 (15km/h)
-                        DRIVING_STYLE_AGGRESSIVE -> base * 0.7f    // 激进模式较小速度差即可超车 (7km/h)
-                        else -> base
-                    }
-                    adjusted as T
+                "SPEED_DIFF_THRESHOLD" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> defaultValue * 1.5f
+                    DRIVING_STYLE_AGGRESSIVE   -> defaultValue * 0.7f
+                    else -> defaultValue
                 }
-                "EARLY_OVERTAKE_SPEED_RATIO" -> {
-                    val base = defaultValue.toFloat()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> base * 0.8f  // 只有更慢才提前超车 (64%)
-                        DRIVING_STYLE_AGGRESSIVE -> base * 1.1f    // 接近巡航也提前超车 (88%)
-                        else -> base
-                    }
-                    adjusted.coerceIn(0.5f, 0.95f) as T
+                "EARLY_OVERTAKE_SPEED_RATIO" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> (defaultValue * 0.8f).coerceIn(0.5f, 0.95f)
+                    DRIVING_STYLE_AGGRESSIVE   -> (defaultValue * 1.1f).coerceIn(0.5f, 0.95f)
+                    else -> defaultValue
                 }
-                "RETURN_MIN_SPEED_ADVANTAGE" -> {
-                    val base = defaultValue.toFloat()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> base * 1.5f  // 保守模式需要更大优势才回位 (12km/h)
-                        DRIVING_STYLE_AGGRESSIVE -> base * 0.5f    // 激进模式少量优势即回位 (4km/h)
-                        else -> base
-                    }
-                    adjusted as T
+                "RETURN_MIN_SPEED_ADVANTAGE" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> defaultValue * 1.5f
+                    DRIVING_STYLE_AGGRESSIVE   -> defaultValue * 0.5f
+                    else -> defaultValue
                 }
-                "MAX_LEAD_DISTANCE" -> {
-                    val base = defaultValue.toFloat()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> base * 0.8f  // 保守模式关注更近的前车
-                        DRIVING_STYLE_AGGRESSIVE -> base * 1.2f    // 激进模式关注更远的前车
-                        else -> base
-                    }
-                    adjusted as T
+                "MAX_LEAD_DISTANCE" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> defaultValue * 0.8f
+                    DRIVING_STYLE_AGGRESSIVE   -> defaultValue * 1.2f
+                    else -> defaultValue
                 }
-                "MIN_TURN_DIST" -> {
-                    val base = defaultValue.toFloat()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> base * 1.5f  // 保守模式提前 3km 停止超车
-                        DRIVING_STYLE_AGGRESSIVE -> base * 0.7f    // 激进模式提前 1.4km 停止超车
-                        else -> base
-                    }
-                    adjusted as T
+                "MIN_TURN_DIST" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> defaultValue * 1.5f
+                    DRIVING_STYLE_AGGRESSIVE   -> defaultValue * 0.7f
+                    else -> defaultValue
                 }
-                "ACTION_COOLDOWN" -> {
-                    val base = defaultValue.toLong()
-                    val adjusted = when (style) {
-                        DRIVING_STYLE_CONSERVATIVE -> (base * 1.5).toLong() // 冷却 30s
-                        DRIVING_STYLE_AGGRESSIVE -> (base * 0.5).toLong()   // 冷却 10s
-                        else -> base
-                    }
-                    adjusted as T
+                else -> defaultValue
+            }
+        }
+
+        /** 获取 Long 类型自适应参数（类型安全，无泛型强转） */
+        fun getAdaptiveParameter(key: String, defaultValue: Long): Long {
+            val style = getDrivingStyle()
+            return when (key) {
+                "ACTION_COOLDOWN" -> when (style) {
+                    DRIVING_STYLE_CONSERVATIVE -> (defaultValue * 1.5).toLong()
+                    DRIVING_STYLE_AGGRESSIVE   -> (defaultValue * 0.5).toLong()
+                    else -> defaultValue
                 }
                 else -> defaultValue
             }
@@ -821,7 +802,7 @@ class AutoOvertakeManager(
         // 1. 🆕 检查转弯距离：如果距离转弯点小于2000米，禁止超车 (🆕 自适应距离: E)
         val adaptiveMinTurnDist = config.getAdaptiveParameter("MIN_TURN_DIST", MIN_TURN_DIST.toFloat()).toInt()
         if (data.tbtDist > 0 && data.tbtDist < adaptiveMinTurnDist) {
-            return CheckResult.Fail("接近转弯点 (< ${data.tbtDist}m)")
+            return CheckResult.Fail("接近转弯点 (距离${data.tbtDist}m < 阈值${adaptiveMinTurnDist}m)")
         }
         
         // 2. 若系统正在变道，禁止新的超车（快速失败）
@@ -1573,13 +1554,23 @@ class AutoOvertakeManager(
     }
 
     /**
-     * 清理资源
+     * 清理资源，释放 SoundPool 等原生资源
      */
     fun cleanup() {
         try {
             cancelPendingLaneChange()
             resetLaneMemory()
             logThrottleMap.clear()
+            // 释放 SoundPool 原生资源（避免内存泄漏）
+            soundPool?.release()
+            soundPool = null
+            soundIdLeft = null
+            soundIdRight = null
+            soundIdLeftConfirm = null
+            soundIdRightConfirm = null
+            soundIdGoto = null
+            soundLoadedMap.clear()
+            lastLaneReminderTime = 0L
             Log.i(TAG, "🧹 自动超车管理器资源已清理")
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ 清理自动超车管理器资源失败: ${e.message}")

@@ -102,50 +102,46 @@ class GoogleNavDataBridge(
             NavState.ENROUTE -> {
                 val currentStep = navInfo.currentStep ?: return
 
-                // 1) 当前步骤 — 转弯类型、道路名称、距离
+                // 预先计算所有值，合并为单次状态更新，避免多次 recompose
                 val maneuver = currentStep.maneuver
                 val turnType = mapManeuverToTurnType(maneuver)
                 val roadName = currentStep.fullRoadName ?: ""
-                val distanceToTurn = (navInfo.distanceToCurrentStepMeters ?: 0).toLong()
+                val distanceToTurn = (navInfo.distanceToCurrentStepMeters ?: 0).toInt().coerceAtLeast(0)
 
+                val remainingSteps = navInfo.remainingSteps
+                val nextStep = if (remainingSteps.isNotEmpty()) remainingSteps[0] else null
+                val nextTurnType = nextStep?.let { mapManeuverToTurnType(it.maneuver) } ?: -1
+                val nextDist = nextStep?.distanceFromPrevStepMeters?.coerceAtLeast(0) ?: -1
+                val nextRoadName = nextStep?.fullRoadName
+
+                val finalDist = (navInfo.distanceToFinalDestinationMeters ?: 0).toLong()
+                val finalTime = (navInfo.timeToFinalDestinationSeconds ?: 0).toLong()
+
+                // 单次合并更新，减少 Compose recompose 次数
                 postFieldsMutate { s ->
-                    s.value = s.value.copy(
+                    val cur = s.value
+                    val gpsSpeedKmh = (cur.gps_speed * 3.6).toInt().coerceAtLeast(0)
+                    s.value = cur.copy(
                         nTBTTurnType = turnType,
-                        nTBTDist = distanceToTurn.toInt().coerceAtLeast(0),
-                        szTBTMainText = roadName.ifEmpty { s.value.szTBTMainText },
+                        nTBTDist = distanceToTurn,
+                        szTBTMainText = roadName.ifEmpty { cur.szTBTMainText },
+                        szNearDirName = roadName.ifEmpty { cur.szNearDirName },
+                        szPosRoadName = if (roadName.isNotEmpty()) roadName else cur.szPosRoadName,
+                        szFarDirName = nextRoadName ?: cur.szFarDirName,
+                        nTBTDistNext = if (nextDist >= 0) nextDist else cur.nTBTDistNext,
+                        nTBTTurnTypeNext = if (nextTurnType >= 0) nextTurnType else cur.nTBTTurnTypeNext,
+                        szTBTMainTextNext = nextRoadName ?: cur.szTBTMainTextNext,
+                        nGoPosDist = if (finalDist > 0) finalDist.toInt() else cur.nGoPosDist,
+                        nGoPosTime = if (finalDist > 0) finalTime.toInt() else cur.nGoPosTime,
+                        // GPS 回填导航位置字段（SDK 不提供道路吸附坐标）
+                        vpPosPointLat = if (cur.latitude != 0.0) cur.latitude else cur.vpPosPointLat,
+                        vpPosPointLon = if (cur.longitude != 0.0) cur.longitude else cur.vpPosPointLon,
+                        nPosAngle = cur.heading,
+                        nPosSpeed = gpsSpeedKmh.toDouble(),
                         isNavigating = true,
                         source_last = "google_nav"
                     )
                 }
-
-                // 2) 当前道路名称
-                if (roadName.isNotEmpty()) {
-                    postFieldsMutate { s ->
-                        s.value = s.value.copy(szPosRoadName = roadName, source_last = "google_nav")
-                    }
-                }
-
-                // 3) 下一转弯（remainingSteps 第一项）
-                val remainingSteps = navInfo.remainingSteps
-                if (remainingSteps.isNotEmpty()) {
-                    val next = remainingSteps[0]
-                    updateTbtEnhanced(
-                        szFarDirName = next.fullRoadName,
-                        nTBTDistNext = (next.distanceFromPrevStepMeters ?: -1).coerceAtLeast(0),
-                        nTBTTurnTypeNext = mapManeuverToTurnType(next.maneuver),
-                        szTBTMainTextNext = next.fullRoadName
-                    )
-                }
-
-                // 4) 剩余全程距离/时间
-                val finalDist = (navInfo.distanceToFinalDestinationMeters ?: 0).toLong()
-                val finalTime = (navInfo.timeToFinalDestinationSeconds ?: 0).toLong()
-                if (finalDist > 0) {
-                    updateRemaining(finalDist, finalTime)
-                }
-
-                // 🆕 P0: 从 GPS 数据回填导航位置字段（Google SDK 不提供道路吸附坐标）
-                syncNavPositionFromGps()
             }
             NavState.STOPPED -> onNavigationStopped()
             NavState.REROUTING -> Log.d(TAG, "Google Nav 重新规划路线中...")
@@ -260,30 +256,6 @@ class GoogleNavDataBridge(
             s.value = s.value.copy(
                 nGoPosDist = distMeters.toInt(),
                 nGoPosTime = timeSeconds.toInt(),
-                source_last = "google_nav"
-            )
-        }
-    }
-
-    /**
-     * 🆕 P0: 从 GPS 数据回填导航位置字段
-     *
-     * Google Navigation SDK 7.0.0 不提供道路吸附坐标（vpPosPointLat/Lon）
-     * 和导航方向角（nPosAngle），用手机 GPS 数据作为 fallback 填充，
-     * 确保 comma3 至少能收到定位数据。
-     *
-     * 由 [updateFromNavInfo] 每个 NavInfo 回调自动调用（约 1-2 秒/次）。
-     */
-    private fun syncNavPositionFromGps() {
-        val cur = carrotManFieldsState?.value ?: return
-        if (cur.latitude == 0.0 && cur.longitude == 0.0) return
-        val speedKmh = (cur.gps_speed * 3.6).toInt().coerceAtLeast(0)
-        postFieldsMutate { s ->
-            s.value = s.value.copy(
-                vpPosPointLat = cur.latitude,
-                vpPosPointLon = cur.longitude,
-                nPosAngle = cur.heading,
-                nPosSpeed = speedKmh.toDouble(),
                 source_last = "google_nav"
             )
         }

@@ -436,7 +436,7 @@ class MainActivityCore(
                     
                     // 通过NetworkManager发送模式切换到设备
                     if (::networkManager.isInitialized) {
-                        CoroutineScope(Dispatchers.Main).launch {
+                        coreScope.launch {
                             try {
                                 val result = networkManager.sendModeChangeToComma3(mode)
                                 if (result.isSuccess) {
@@ -455,12 +455,11 @@ class MainActivityCore(
                 "com.example.navipilot.CHANGE_AUTO_TURN_CONTROL" -> {
                     val mode = intent.getIntExtra("mode", 2)
                     val modeNames = arrayOf("禁用控制", "自动变道", "控速变道", "导航限速")
-                    
+
                     Log.i(TAG, "🔄 收到自动转向控制模式切换广播: ${modeNames[mode]} (AutoTurnControl=$mode)")
-                    
-                    // 通过NetworkManager发送自动转向控制模式切换到设备
+
                     if (::networkManager.isInitialized) {
-                        CoroutineScope(Dispatchers.Main).launch {
+                        coreScope.launch {
                             try {
                                 val result = networkManager.sendAutoTurnControlChangeToComma3(mode)
                                 if (result.isSuccess) {
@@ -953,37 +952,23 @@ class MainActivityCore(
             
             Log.i(TAG, "📍 准备发送导航确认: name=$goalName, lat=$goalLat, lon=$goalLon")
             
-            // 在后台协程中发送
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            // 使用 coreScope 而非匿名 CoroutineScope，与 Activity 生命周期绑定
+            coreScope.launch(Dispatchers.IO) {
                 try {
                     val result = networkManager.sendNavigationConfirmationToComma3(goalName, goalLat, goalLon)
-                    if (result.isSuccess) {
-                        Log.i(TAG, "✅ 导航确认发送成功")
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            android.widget.Toast.makeText(
-                                activity,
-                                "✅ 导航确认已发送",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    } else {
-                        Log.e(TAG, "❌ 导航确认发送失败: ${result.exceptionOrNull()?.message}")
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            android.widget.Toast.makeText(
-                                activity,
-                                "❌ 导航确认发送失败",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
+                    withContext(Dispatchers.Main) {
+                        if (result.isSuccess) {
+                            Log.i(TAG, "✅ 导航确认发送成功")
+                            android.widget.Toast.makeText(activity, "✅ 导航确认已发送", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            Log.e(TAG, "❌ 导航确认发送失败: ${result.exceptionOrNull()?.message}")
+                            android.widget.Toast.makeText(activity, "❌ 导航确认发送失败", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ 导航确认发送异常: ${e.message}", e)
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        android.widget.Toast.makeText(
-                            activity,
-                            "❌ 发送失败: ${e.message}",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(activity, "❌ 发送失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
             }
