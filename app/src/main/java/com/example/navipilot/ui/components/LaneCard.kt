@@ -1,5 +1,12 @@
 package com.example.navipilot.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -7,6 +14,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -73,14 +84,28 @@ fun LaneCard(
         }
     }
 
+    // 需要变道时边框脉冲动画
+    val pulseTransition = rememberInfiniteTransition(label = "laneChangePulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "borderAlpha"
+    )
+    val borderAlpha = if (needLaneChange) pulseAlpha else 0f
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (needLaneChange) CardBg else CardBg)
+            .background(CardBg)
             .then(
-                if (needLaneChange) Modifier.border(1.dp, UrgentColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                else Modifier
+                if (needLaneChange) Modifier.border(
+                    1.5.dp, UrgentColor.copy(alpha = borderAlpha), RoundedCornerShape(8.dp)
+                ) else Modifier
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 5.dp),
@@ -204,29 +229,30 @@ private fun LaneStripContent(
 
         // — 第 2 行：变道方向指示器 ────────────
         if (needLaneChange && laneChangeDirection != null) {
-            val arrow = if (laneChangeDirection == "LEFT") "◀◀◀" else "▶▶▶"
-            val dirText = if (laneChangeDirection == "LEFT")
-                localized("请向左变道", "← Change left")
+            val isLeft = laneChangeDirection == "LEFT"
+            val dirText = if (isLeft)
+                localized("请向左变道", "Change left")
             else
-                localized("请向右变道", "→ Change right")
+                localized("请向右变道", "Change right")
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(UrgentColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 4.dp, vertical = 3.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = arrow,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = UrgentColor,
+                Icon(
+                    imageVector = if (isLeft) Icons.AutoMirrored.Filled.ArrowBack
+                                  else Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = UrgentColor,
+                    modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = dirText,
-                    fontSize = 11.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = UrgentColor,
                     maxLines = 1,
@@ -305,7 +331,7 @@ private fun SimpleLaneContent(
         if (turnDist > 0 && turnText.isNotEmpty()) {
             Text(
                 text = "${turnDist}m后${turnText}",
-                fontSize = 10.sp,
+                fontSize = 14.sp,
                 color = GuidanceColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -328,7 +354,7 @@ private fun NoLaneDataHint(turnDist: Int, turnText: String) {
         if (turnDist > 0 && turnText.isNotEmpty()) {
             Text(
                 text = "${turnDist}m ${turnText}",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = GuidanceColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -336,7 +362,7 @@ private fun NoLaneDataHint(turnDist: Int, turnText: String) {
         } else {
             Text(
                 text = localized("车道数据获取中", "Lane data..."),
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = NumColor,
             )
         }
@@ -394,7 +420,7 @@ private fun GuidanceRow(
         if (guidanceText.isNotEmpty()) {
             Text(
                 text = guidanceText,
-                fontSize = 10.sp,
+                fontSize = 14.sp,
                 color = if (inRecommendedLane) CurrentLaneColor
                        else if (needLaneChange) UrgentColor
                        else GuidanceColor,

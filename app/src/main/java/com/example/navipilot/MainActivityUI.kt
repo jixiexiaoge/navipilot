@@ -44,6 +44,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,6 +62,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.navipilot.ui.theme.Surface800
+import com.example.navipilot.ui.theme.Surface900
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -528,6 +532,77 @@ class MainActivityUI(
             }
         } ?: 0
 
+        // 共享 OsmMapView Composable，消除两处重复调用
+        val osmMapView: @Composable () -> Unit = {
+            OsmMapView(
+                latitude = carrotManFields.vpPosPointLat,
+                longitude = carrotManFields.vpPosPointLon,
+                bearing = carrotManFields.nPosAngle,
+                speedKmh = carrotManFields.vEgoKph.toDouble(),
+                isNavigating = carrotManFields.isNavigating,
+                goalLon = carrotManFields.goalPosX,
+                goalLat = carrotManFields.goalPosY,
+                goalName = carrotManFields.szGoalName,
+                remainDist = carrotManFields.nGoPosDist,
+                remainTime = carrotManFields.nGoPosTime,
+                nextTurnDist = carrotManFields.nTBTDist,
+                nextTurnType = carrotManFields.nTBTTurnType,
+                nextTurnText = carrotManFields.szTBTMainText,
+                laneInfoList = carrotManFields.laneInfoList,
+                trafficState = carrotManFields.trafficLightState,
+                leftSec = carrotManFields.trafficLightCountdown,
+                trafficLightDirection = carrotManFields.amap_traffic_light_dir,
+                isVideoExpanded = isVideoExpanded,
+                onToggleVideo = { isVideoExpanded = !isVideoExpanded },
+                isDataCardExpanded = isDataCardExpanded,
+                onToggleDataCard = { isDataCardExpanded = true },
+                onPageChange = { page -> core.currentPage = page },
+                onOpenTencentEmbeddedNav = {
+                    core.userSelectedMode = "TENCENT"
+                    core.persistUserSelectedNavMode()
+                },
+                onOpenAmapMobileEmbeddedNav = {
+                    core.userSelectedMode = "AMAP_MOBILE"
+                    core.persistUserSelectedNavMode()
+                },
+                onOpenGoogleEmbeddedNav = {
+                    core.userSelectedMode = "GOOGLE"
+                    core.persistUserSelectedNavMode()
+                },
+                cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
+                carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
+                onBlueRingClick = {
+                    MainActivityUIComponents.startSimulatedNavigation(mapContext, carrotManFields)
+                },
+                onGreenRingClick = onLaunchAmap,
+                onHomeNavClick = { MainActivityUIComponents.sendHomeNavigationToAmap(mapContext) },
+                onCompanyNavClick = { MainActivityUIComponents.sendCompanyNavigationToAmap(mapContext) },
+                userType = userType,
+                onShowAdvancedDialog = { showAdvancedDialog = true },
+                isAutopilotActive = carrotManFields.active,
+                mapServiceType = mapService,
+                networkClient = core.getNetworkClientSafely(),
+                carrotManFieldsState = core.carrotManFields,
+                activeNavMode = core.activeNavMode,
+                xiaogeData = data,
+                gpsAccuracy = gpsAccuracy.toFloat(),
+                positionMode = positionMode,
+                parkedLocation = parkedLocPair,
+                onNavigateToParked = { navigateToParkedCar() },
+                commaConnectionState = commaConnectionState,
+                searchShowTrigger = searchShowTrigger,
+                ledMatrixTrigger = ledMatrixTrigger,
+                homeNavTrigger = homeNavTrigger,
+                homeNavLongTrigger = homeNavLongTrigger,
+                companyNavTrigger = companyNavTrigger,
+                companyNavLongTrigger = companyNavLongTrigger,
+                onLedConnectionChange = { isLedConnected = it },
+                onHomeAddressChange = { homeAddressSet = it },
+                onCompanyAddressChange = { companyAddressSet = it },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         // 地图区 Composable lambda（复用于竖屏/横屏两种布局）
         val mapZoneContent: @Composable () -> Unit = {
             val isNavActive = carrotManFields.isNavigating
@@ -599,155 +674,11 @@ class MainActivityUI(
                                 )
                             }
                         }
-                        else -> OsmMapView(
-                            latitude = carrotManFields.vpPosPointLat,
-                            longitude = carrotManFields.vpPosPointLon,
-                            bearing = carrotManFields.nPosAngle,
-                            speedKmh = carrotManFields.vEgoKph.toDouble(),
-                            isNavigating = carrotManFields.isNavigating,
-                            goalLon = carrotManFields.goalPosX,
-                            goalLat = carrotManFields.goalPosY,
-                            goalName = carrotManFields.szGoalName,
-                            remainDist = carrotManFields.nGoPosDist,
-                            remainTime = carrotManFields.nGoPosTime,
-                            nextTurnDist = carrotManFields.nTBTDist,
-                            nextTurnType = carrotManFields.nTBTTurnType,
-                            nextTurnText = carrotManFields.szTBTMainText,
-                            laneInfoList = carrotManFields.laneInfoList,
-                            trafficState = carrotManFields.trafficLightState,
-                            leftSec = carrotManFields.trafficLightCountdown,
-                            trafficLightDirection = carrotManFields.amap_traffic_light_dir,
-                            isVideoExpanded = isVideoExpanded,
-                            onToggleVideo = { isVideoExpanded = !isVideoExpanded },
-                            isDataCardExpanded = isDataCardExpanded,
-                            onToggleDataCard = { isDataCardExpanded = true },
-                            onPageChange = { page ->
-                                core.currentPage = page
-                            },
-                            onOpenTencentEmbeddedNav = {
-                                core.userSelectedMode = "TENCENT"
-                                core.persistUserSelectedNavMode()
-                            },
-                            onOpenAmapMobileEmbeddedNav = {
-                                core.userSelectedMode = "AMAP_MOBILE"
-                                core.persistUserSelectedNavMode()
-                            },
-                            onOpenGoogleEmbeddedNav = {
-                                core.userSelectedMode = "GOOGLE"
-                                core.persistUserSelectedNavMode()
-                            },
-                            cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
-                            carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
-                            onBlueRingClick = {
-                                MainActivityUIComponents.startSimulatedNavigation(mapContext, carrotManFields)
-                            },
-                            onGreenRingClick = onLaunchAmap,
-                            onHomeNavClick = {
-                                MainActivityUIComponents.sendHomeNavigationToAmap(mapContext)
-                            },
-                            onCompanyNavClick = {
-                                MainActivityUIComponents.sendCompanyNavigationToAmap(mapContext)
-                            },
-                            userType = userType,
-                            onShowAdvancedDialog = { showAdvancedDialog = true },
-                            isAutopilotActive = carrotManFields.active,
-                            mapServiceType = mapService,
-                            networkClient = core.getNetworkClientSafely(),
-                            carrotManFieldsState = core.carrotManFields,
-                            activeNavMode = core.activeNavMode,
-                            xiaogeData = data,
-                            gpsAccuracy = gpsAccuracy.toFloat(),
-                            positionMode = positionMode,
-                            parkedLocation = parkedLocPair,
-                            onNavigateToParked = { navigateToParkedCar() },
-                            commaConnectionState = commaConnectionState,
-                            searchShowTrigger = searchShowTrigger,
-                            ledMatrixTrigger = ledMatrixTrigger,
-                            homeNavTrigger = homeNavTrigger,
-                            homeNavLongTrigger = homeNavLongTrigger,
-                            companyNavTrigger = companyNavTrigger,
-                            companyNavLongTrigger = companyNavLongTrigger,
-                            onLedConnectionChange = { isLedConnected = it },
-                            onHomeAddressChange = { homeAddressSet = it },
-                            onCompanyAddressChange = { companyAddressSet = it },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        else -> osmMapView()
                     }
                 }
                 // 非导航中：统一显示 OSM 地图
-                else -> OsmMapView(
-                    latitude = carrotManFields.vpPosPointLat,
-                    longitude = carrotManFields.vpPosPointLon,
-                    bearing = carrotManFields.nPosAngle,
-                    speedKmh = carrotManFields.vEgoKph.toDouble(),
-                    isNavigating = carrotManFields.isNavigating,
-                    goalLon = carrotManFields.goalPosX,
-                    goalLat = carrotManFields.goalPosY,
-                    goalName = carrotManFields.szGoalName,
-                    remainDist = carrotManFields.nGoPosDist,
-                    remainTime = carrotManFields.nGoPosTime,
-                    nextTurnDist = carrotManFields.nTBTDist,
-                    nextTurnType = carrotManFields.nTBTTurnType,
-                    nextTurnText = carrotManFields.szTBTMainText,
-                    laneInfoList = carrotManFields.laneInfoList,
-                    trafficState = carrotManFields.trafficLightState,
-                    leftSec = carrotManFields.trafficLightCountdown,
-                    trafficLightDirection = carrotManFields.amap_traffic_light_dir,
-                    isVideoExpanded = isVideoExpanded,
-                    onToggleVideo = { isVideoExpanded = !isVideoExpanded },
-                    isDataCardExpanded = isDataCardExpanded,
-                    onToggleDataCard = { isDataCardExpanded = true },
-                    onPageChange = { page ->
-                        core.currentPage = page
-                    },
-                    onOpenTencentEmbeddedNav = {
-                        core.userSelectedMode = "TENCENT"
-                        core.persistUserSelectedNavMode()
-                    },
-                    onOpenAmapMobileEmbeddedNav = {
-                        core.userSelectedMode = "AMAP_MOBILE"
-                        core.persistUserSelectedNavMode()
-                    },
-                    onOpenGoogleEmbeddedNav = {
-                        core.userSelectedMode = "GOOGLE"
-                        core.persistUserSelectedNavMode()
-                    },
-                    cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
-                    carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
-                    onBlueRingClick = {
-                        MainActivityUIComponents.startSimulatedNavigation(mapContext, carrotManFields)
-                    },
-                    onGreenRingClick = onLaunchAmap,
-                    onHomeNavClick = {
-                        MainActivityUIComponents.sendHomeNavigationToAmap(mapContext)
-                    },
-                    onCompanyNavClick = {
-                        MainActivityUIComponents.sendCompanyNavigationToAmap(mapContext)
-                    },
-                    userType = userType,
-                    onShowAdvancedDialog = { showAdvancedDialog = true },
-                    isAutopilotActive = carrotManFields.active,
-                    mapServiceType = mapService,
-                    networkClient = core.getNetworkClientSafely(),
-                    carrotManFieldsState = core.carrotManFields,
-                    activeNavMode = core.activeNavMode,
-                    xiaogeData = data,
-                    gpsAccuracy = gpsAccuracy.toFloat(),
-                    positionMode = positionMode,
-                    parkedLocation = parkedLocPair,
-                    onNavigateToParked = { navigateToParkedCar() },
-                    commaConnectionState = commaConnectionState,
-                    searchShowTrigger = searchShowTrigger,
-                    ledMatrixTrigger = ledMatrixTrigger,
-                    homeNavTrigger = homeNavTrigger,
-                    homeNavLongTrigger = homeNavLongTrigger,
-                    companyNavTrigger = companyNavTrigger,
-                    companyNavLongTrigger = companyNavLongTrigger,
-                    onLedConnectionChange = { isLedConnected = it },
-                    onHomeAddressChange = { homeAddressSet = it },
-                    onCompanyAddressChange = { companyAddressSet = it },
-                    modifier = Modifier.fillMaxSize()
-                )
+                else -> osmMapView()
             }
         }
 
@@ -874,8 +805,8 @@ class MainActivityUI(
         iconTint: Color = Color.White,
         onClick: () -> Unit
     ) {
-        val boxDp = 42.dp
-        val iconDp = 21.dp
+        val boxDp = 48.dp
+        val iconDp = 22.dp
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Box(
                 modifier = Modifier
@@ -902,7 +833,7 @@ class MainActivityUI(
         onLongClick: () -> Unit
     ) {
         val bg = if (addressSet) Color(0xFF1E293B).copy(alpha = 0.75f) else Color(0xFF334155).copy(alpha = 0.85f)
-        val boxDp = 42.dp
+        val boxDp = 48.dp
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Box(
                 modifier = Modifier
@@ -931,8 +862,8 @@ class MainActivityUI(
                 value = value,
                 color = color,
                 onClick = onClick,
-                diameter = 40.dp,
-                valueTextSize = 10.sp
+                diameter = 48.dp,
+                valueTextSize = 11.sp
             )
         }
     }
@@ -963,7 +894,7 @@ class MainActivityUI(
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF334155).copy(alpha = 0.9f))
                     .clickable { onClick() },
@@ -1244,13 +1175,22 @@ class MainActivityUI(
         }
 
         val coroutineScope = rememberCoroutineScope()
-        val tileBg = Color(0xFF1E293B).copy(alpha = 0.72f)
-        val ledBg = if (isLedConnected) Color(0xFF10B981).copy(alpha = 0.9f) else tileBg
-        val searchBg = when (commaConnectionState) {
-            1 -> Color(0xFF10B981).copy(alpha = 0.9f) // 已连接 → 绿色
-            2 -> Color(0xFFEF4444).copy(alpha = 0.9f) // 异常 → 浅红
-            else -> tileBg // 未连接 → 默认
+        val tileBg = Surface800.copy(alpha = 0.72f)
+        val ledBg by animateColorAsState(
+            targetValue = if (isLedConnected) Color(0xFF10B981).copy(alpha = 0.9f) else tileBg,
+            animationSpec = tween(durationMillis = 400),
+            label = "ledBgColor"
+        )
+        val searchBgTarget = when (commaConnectionState) {
+            1 -> Color(0xFF10B981).copy(alpha = 0.9f)
+            2 -> Color(0xFFEF4444).copy(alpha = 0.9f)
+            else -> tileBg
         }
+        val searchBg by animateColorAsState(
+            targetValue = searchBgTarget,
+            animationSpec = tween(durationMillis = 500),
+            label = "searchBgColor"
+        )
         var isExperimentalMode by remember(carrotParamClient) { mutableStateOf<Boolean?>(null) }
 
         LaunchedEffect(carrotParamClient) {
@@ -1330,9 +1270,7 @@ class MainActivityUI(
 
         Box(
             modifier = modifier.background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B))
-                )
+                Brush.verticalGradient(colors = listOf(Surface900, Surface800))
             )
         ) {
             Column(
