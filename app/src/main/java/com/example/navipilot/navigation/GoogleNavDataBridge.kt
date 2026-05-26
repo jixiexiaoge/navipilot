@@ -138,14 +138,22 @@ class GoogleNavDataBridge(
                 postFieldsMutate { s ->
                     val cur = s.value
                     val gpsSpeedKmh = (cur.gps_speed * 3.6).toInt().coerceAtLeast(0)
-                    // 限速优先级：StepInfo反射 > SpeedingListener缓存
-                    val newLimit = if (stepSpeedLimit > 0) stepSpeedLimit else cur.nRoadLimitSpeed
+                    // 限速优先级：StepInfo反射 > SpeedingListener缓存 > 道路类别推断兜底
+                    // 关键：nRoadLimitSpeed=0 时 comma3 会忽略整个导航数据块，必须给非零值
+                    val inferredRoadcate = if (roadName.isNotEmpty())
+                        inferRoadcateFromName(roadName, cur.roadcate) else cur.roadcate
+                    val newLimit = when {
+                        stepSpeedLimit > 0 -> stepSpeedLimit
+                        cur.nRoadLimitSpeed > 0 -> cur.nRoadLimitSpeed   // 保持上次超速时获得的值
+                        inferredRoadcate == 10 -> 120  // 高速/快速路推断兜底
+                        roadName.isNotEmpty() -> 60    // 有路名但未知限速 → 60km/h 兜底
+                        else -> 0
+                    }
                     // roadcate：有限速时用限速推断，否则用路名推断
                     val newRoadcate = when {
                         newLimit >= 100 -> 10
-                        newLimit > 0 -> 6
-                        roadName.isNotEmpty() -> inferRoadcateFromName(roadName, cur.roadcate)
-                        else -> cur.roadcate
+                        newLimit > 0 -> inferredRoadcate.takeIf { it > 0 } ?: 6
+                        else -> inferredRoadcate
                     }
                     s.value = cur.copy(
                         nTBTTurnType = turnType,
