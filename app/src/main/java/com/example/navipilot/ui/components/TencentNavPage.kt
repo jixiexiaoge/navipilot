@@ -127,6 +127,8 @@ fun TencentNavPage(
     // ===== 屏幕常亮：MainActivity已全局设置FLAG_KEEP_SCREEN_ON，此处无需重复管理 =====
     // 🔧 修复：移除onDispose中的clearFlags，避免退出导航页面后全局屏幕常亮被清除
 
+    val composableScope = rememberCoroutineScope()
+
     // ===== 超速语音警告 =====
     val ttsEngine = remember { mutableStateOf<TextToSpeech?>(null) }
     var lastOverspeedAlertTime by remember { mutableLongStateOf(0L) }
@@ -866,7 +868,7 @@ fun TencentNavPage(
                                     Log.i(TAG, "🎮 模拟导航已启动 → 北京天安门, 60km/h")
                                     
                                     // 🔍 5秒后运行诊断，检查数据完整性
-                                    CoroutineScope(Dispatchers.Main).launch {
+                                    composableScope.launch {
                                         delay(5000)
                                         dataBridge.diagnoseSimulationData()
                                     }

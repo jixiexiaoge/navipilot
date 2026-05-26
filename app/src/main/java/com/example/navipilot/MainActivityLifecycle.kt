@@ -10,6 +10,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -30,6 +32,9 @@ class MainActivityLifecycle(
         private const val TAG = AppConstants.Logging.MAIN_ACTIVITY_TAG
     }
     
+    // 生命周期绑定的协程作用域，onDestroy 时统一取消
+    private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     // 网络状态监控Job
     private var networkStatusMonitoringJob: Job? = null
 
@@ -157,6 +162,9 @@ class MainActivityLifecycle(
         Log.i(TAG, "🔧 MainActivity正在销毁，清理资源...")
 
         try {
+            // 先取消生命周期 scope，子协程随即停止
+            lifecycleScope.cancel()
+
             // 🔧 立即停止监控协程（轻量级操作，可以同步执行）
             stopNetworkStatusMonitoring()
             stopConditionalExperimentCheck()
@@ -450,7 +458,7 @@ class MainActivityLifecycle(
      */
     private fun startNetworkStatusMonitoring() {
         // 🔧 关键修复：使用Job跟踪协程，确保可以在onDestroy时停止
-        networkStatusMonitoringJob = CoroutineScope(Dispatchers.Main).launch {
+        networkStatusMonitoringJob = lifecycleScope.launch {
             try {
                 while (isActive) { // 使用isActive检查协程是否被取消
                     try {
@@ -506,7 +514,7 @@ class MainActivityLifecycle(
      * 启动条件实验模式检查循环
      */
     private fun startConditionalExperimentCheck() {
-        conditionalExperimentCheckJob = CoroutineScope(Dispatchers.Default).launch {
+        conditionalExperimentCheckJob = lifecycleScope.launch(Dispatchers.Default) {
             try {
                 while (isActive) {
                     try {
@@ -584,7 +592,7 @@ class MainActivityLifecycle(
     private fun performInitialLocationUpdate() {
         Log.i(TAG, "🚀 执行初始位置更新...")
 
-        CoroutineScope(Dispatchers.Main).launch {
+        lifecycleScope.launch {
             try {
                 val currentFields = core.carrotManFields.value
                 val latitude = if (currentFields.vpPosPointLat != 0.0) currentFields.vpPosPointLat else 39.9042
@@ -606,7 +614,7 @@ class MainActivityLifecycle(
      */
     private fun startSelfCheckProcess() {
         // 使用IO调度器在后台线程执行初始化，避免阻塞主线程
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 Log.i(TAG, "🚀 开始异步自检查流程...")
                 
@@ -677,13 +685,13 @@ class MainActivityLifecycle(
                 updateSelfCheckStatusAsync("系统管理器", "正在并行初始化...", false)
                 
                 // 并行执行三个管理器的初始化
-                val amapJob = CoroutineScope(Dispatchers.IO).launch {
+                val amapJob = launch(Dispatchers.IO) {
                     initializeAmapManagers()
                 }
-                val broadcastJob = CoroutineScope(Dispatchers.IO).launch {
+                val broadcastJob = launch(Dispatchers.IO) {
                     initializeBroadcastManager()
                 }
-                val deviceJob = CoroutineScope(Dispatchers.IO).launch {
+                val deviceJob = launch(Dispatchers.IO) {
                     initializeDeviceManager()
                 }
                 
@@ -738,7 +746,7 @@ class MainActivityLifecycle(
                 if (fetchedUserType in 2..4 || fetchedUserType == 0) {
                     updateSelfCheckStatusAsync("使用统计", "后台更新中...", false)
                     // 异步执行使用时长更新，不阻塞启动流程
-                    CoroutineScope(Dispatchers.IO).launch {
+                    launch(Dispatchers.IO) {
                         try {
                             // 获取最新的使用时长（检查是否已初始化）
                             val durationMinutes = core.deviceManager.getTotalUsageDurationMinutes()
@@ -858,7 +866,7 @@ class MainActivityLifecycle(
                 context = activity,
                 onDataReceived = { data ->
                     // 🆕 确保数据立即更新到主线程，保证UI实时刷新
-                    CoroutineScope(Dispatchers.Main).launch {
+                    lifecycleScope.launch {
                     // 🆕 从carrotManFields获取tbtDist（如果JSON中没有或为0，使用carrotManFields的值）
                     val tbtDist = if (data?.tbtDist != null && data.tbtDist > 0) {
                         data.tbtDist  // 优先使用JSON中的值
@@ -908,7 +916,7 @@ class MainActivityLifecycle(
                     // 🆕 重连失败回调：提示用户重启app
                     Log.e(TAG, "❌ TCP连接失败，已尝试3次重连，请重启app")
                     // 在主线程显示Toast提示
-                    CoroutineScope(Dispatchers.Main).launch {
+                    lifecycleScope.launch {
                         android.widget.Toast.makeText(
                             activity,
                             "TCP连接失败，已尝试3次重连\n请重启app恢复连接",
@@ -1056,7 +1064,7 @@ class MainActivityLifecycle(
     // ===============================
     
     private fun startOnroadMonitoring() {
-        CoroutineScope(Dispatchers.Main).launch {
+        lifecycleScope.launch {
             var wasCollecting = false
             var lastSpeed = 0f
             var lastUpdateTime = System.currentTimeMillis()

@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -53,6 +55,9 @@ class NetworkManager(
     
     // 网络状态更新定时器
     private var networkStatusUpdateJob: Job? = null
+
+    // 生命周期绑定的协程作用域（SupervisorJob 确保单个子协程失败不影响其他）
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     // 🆕 CarrotMan命令索引 - 用于Python端检测命令变化
     private var carrotCmdIndex = 0
@@ -90,7 +95,7 @@ class NetworkManager(
             carrotNetworkClient = CarrotManNetworkClient(context)
 
             carrotNetworkClient.setOnDeviceDiscovered { device ->
-                CoroutineScope(Dispatchers.Main).launch {
+                managerScope.launch {
                     // 避免重复添加设备
                     if (!discoveredDevicesList.any { it.ip == device.ip }) {
                         // 限制设备列表大小，避免内存无限增长
@@ -112,7 +117,7 @@ class NetworkManager(
             }
             
             carrotNetworkClient.setOnConnectionStatusChanged { connected, message ->
-                CoroutineScope(Dispatchers.Main).launch {
+                managerScope.launch {
                     networkConnectionStatus.value = if (connected) "✅ $message" else "❌ $message"
                     
                     // 获取当前连接的设备信息
@@ -133,13 +138,13 @@ class NetworkManager(
             }
             
             carrotNetworkClient.setOnDataSent { packetCount ->
-                CoroutineScope(Dispatchers.Main).launch {
+                managerScope.launch {
                     networkStatistics.value = carrotNetworkClient.getConnectionStatus()
                 }
             }
 
             carrotNetworkClient.setOnOpenpilotStatusReceived { jsonData ->
-                CoroutineScope(Dispatchers.Main).launch {
+                managerScope.launch {
                     parseOpenpilotStatusData(jsonData)
                 }
             }
@@ -465,10 +470,10 @@ class NetworkManager(
      */
     fun sendCarrotManDataToComma3() {
         if (::carrotNetworkClient.isInitialized) {
-            CoroutineScope(Dispatchers.IO).launch {
+            managerScope.launch(Dispatchers.IO) {
                 try {
                     val fields = carrotManFields.value
-                    
+
                     // 🚀 性能优化：差分发送检测
                     val hasChange = NetworkPerformanceUtils.hasSignificantChange(
                         old = lastSentFields,
@@ -521,7 +526,7 @@ class NetworkManager(
      */
     fun sendDestinationToComma3(longitude: Double, latitude: Double, name: String, address: String = "") {
         if (::carrotNetworkClient.isInitialized) {
-            CoroutineScope(Dispatchers.IO).launch {
+            managerScope.launch(Dispatchers.IO) {
                 try {
                     // 目的地更新功能已移除，只记录日志
                     Log.i(TAG, "🎯 目的地信息: $name ($latitude, $longitude)")
@@ -1031,7 +1036,7 @@ class NetworkManager(
             return
         }
 
-        CoroutineScope(Dispatchers.IO).launch {
+        managerScope.launch(Dispatchers.IO) {
             try {
                 Log.d(TAG, "📡 准备发送控制指令到设备（重复发送模式）")
 
@@ -1062,7 +1067,7 @@ class NetworkManager(
                     Log.i(TAG, "✅ 变道指令已发送完成（3次重复）: $command $arg")
                     
                     // 延迟清理命令字段，确保 desire_helper.py 有时间设置计数器
-                    CoroutineScope(Dispatchers.Main).launch {
+                    managerScope.launch {
                         delay(150) // 150ms后清理，确保计数器已设置
                         carrotManFields.value = carrotManFields.value.copy(
                             carrotCmd = "",
@@ -1074,9 +1079,9 @@ class NetworkManager(
                     // 速度命令：只发送一次，cruise.py 会立即处理（一次性执行）
                     carrotNetworkClient.sendCarrotManDataImmediately(carrotManFields.value)
                     Log.i(TAG, "✅ 速度指令已发送（单次）: $command $arg")
-                    
+
                     // 立即清理命令字段，避免重复处理
-                    CoroutineScope(Dispatchers.Main).launch {
+                    managerScope.launch {
                         delay(100) // 100ms后清理，确保cruise.py已处理
                         carrotManFields.value = carrotManFields.value.copy(
                             carrotCmd = "",
@@ -1108,7 +1113,7 @@ class NetworkManager(
      * 每3秒更新一次网络状态到SharedPreferences
      */
     private fun startNetworkStatusUpdate() {
-        networkStatusUpdateJob = CoroutineScope(Dispatchers.IO).launch {
+        networkStatusUpdateJob = managerScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
                     // 获取当前连接状态
@@ -1172,6 +1177,7 @@ class NetworkManager(
         try {
             // 停止网络状态更新
             stopNetworkStatusUpdate()
+            managerScope.cancel()
 
             // 清除网络状态
             saveNetworkStatusToPrefs(false, "")
