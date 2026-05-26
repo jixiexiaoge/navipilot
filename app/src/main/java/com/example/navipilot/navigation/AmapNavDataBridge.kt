@@ -83,43 +83,6 @@ class AmapNavDataBridge(
     companion object {
         private const val TAG = "AmapNavBridge"
 
-        /** 高德道路等级 → 限速（km/h）推断映射 */
-        private fun mapRoadClassToSpeedLimit(roadClass: Int): Int {
-            return when (roadClass) {
-                1 -> 120   // 高速公路 Expressway
-                2 -> 100   // 城市快速路 Urban expressway
-                3 -> 80    // 国道 National road
-                4 -> 70    // 省道 Provincial road
-                5 -> 60    // 县道 County road
-                6 -> 50    // 乡道 Township road
-                7 -> 60    // 主要城市道路 Major urban road
-                8 -> 50    // 一般城市道路 General urban road
-                else -> 60 // 默认
-            }
-        }
-
-        /**
-         * 从 [AMapNaviPath] 中获取当前道路的 roadClass → 推断限速
-         * 用于在 [onUpdateNaviSpeedLimitSection] 未触发时提供兜底
-         */
-        fun inferSpeedLimitFromLink(navi: com.amap.api.navi.AMapNavi?, info: NaviInfo): Int {
-            if (navi == null) return 0
-            return try {
-                val path = navi.naviPath ?: return 0
-                val steps = path.steps ?: return 0
-                val stepIdx = info.curStep
-                val linkIdx = info.curLink
-                if (stepIdx < 0 || stepIdx >= steps.size) return 0
-                val links = steps[stepIdx].links ?: return 0
-                if (linkIdx < 0 || linkIdx >= links.size) return 0
-                val roadClass = links[linkIdx].roadClass
-                mapRoadClassToSpeedLimit(roadClass)
-            } catch (e: Exception) {
-                Log.w(TAG, "inferSpeedLimitFromLink 异常", e)
-                0
-            }
-        }
-
         /** 高德导航图标类型 → 与车机/Python 对齐的 nTBTTurnType（简化映射，可随路测扩充） */
         fun mapAmapIconToTurnType(iconType: Int): Int {
             return when (iconType) {
@@ -360,15 +323,6 @@ class AmapNavDataBridge(
 
         postFieldsMutate { s ->
             val cur = s.value
-            // 🔧 P3 兜底: onUpdateNaviSpeedLimitSection/camera/facility 均未提供限速时，从道路等级推断
-            var limit = cur.nRoadLimitSpeed
-            if (limit <= 0) {
-                val inferred = inferSpeedLimitFromLink(navi, info)
-                if (inferred > 0) {
-                    Log.d(TAG, "⚡ 道路等级推断限速: ${inferred}km/h")
-                    limit = inferred
-                }
-            }
             // 🆕 目的地坐标（反射方式提取，兼容旧版 SDK）
             val goalPosX = try { info.javaClass.getMethod("getEndLng").invoke(info) as? Double ?: cur.goalPosX } catch (_: Exception) { cur.goalPosX }
             val goalPosY = try { info.javaClass.getMethod("getEndLat").invoke(info) as? Double ?: cur.goalPosY } catch (_: Exception) { cur.goalPosY }
@@ -382,8 +336,7 @@ class AmapNavDataBridge(
                 szNearDirName = tbtText,
                 szPosRoadName = curRoad,
                 nPosSpeed = info.currentSpeed.toDouble(),
-                nRoadLimitSpeed = limit,
-                roadcate = if (limit > 0) inferRoadcate(limit, cur.roadcate, curRoad) else cur.roadcate,
+                // nRoadLimitSpeed/roadcate 由 onUpdateNaviSpeedLimitSection 独立更新
                 // 🆕 P0: 补充 NOA 增强字段
                 exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
                 goalPosX = goalPosX,
@@ -422,8 +375,6 @@ class AmapNavDataBridge(
                 nSdiSpeedLimit = c.cameraSpeed,
                 nSdiDist = c.cameraDistance.coerceAtLeast(0),
                 nAmapCameraType = c.cameraType,
-                // 🆕 回退：当 onUpdateNaviSpeedLimitSection 未提供限速时，用摄像头限速填充
-                nRoadLimitSpeed = if (cur.nRoadLimitSpeed <= 0 && c.cameraSpeed > 0) c.cameraSpeed else cur.nRoadLimitSpeed,
                 source_last = "amap_mobile"
             )
         }
@@ -567,8 +518,6 @@ class AmapNavDataBridge(
                         tollEntranceName = tollEntranceName.ifBlank { cur.tencentSlice.tollEntranceName },
                         tollExitName = tollExitName.ifBlank { cur.tencentSlice.tollExitName }
                     ),
-                    // 🆕 回退：当 onUpdateNaviSpeedLimitSection 未提供限速时，用交通设施限速填充
-                    nRoadLimitSpeed = if (cur.nRoadLimitSpeed <= 0 && lim > 0) lim else cur.nRoadLimitSpeed,
                     lastUpdateTime = now,
                     source_last = "amap_mobile"
                 )
