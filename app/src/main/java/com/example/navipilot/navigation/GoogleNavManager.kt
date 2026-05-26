@@ -21,6 +21,14 @@ import com.example.navipilot.CarrotManNetworkClient
 import com.google.android.libraries.mapsplatform.turnbyturn.model.NavInfo
 import kotlin.math.roundToInt
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 
 /**
  * Google 导航管理器
@@ -54,6 +62,13 @@ class GoogleNavManager(
 
     // S7: 网络客户端引用，由 startNavigation 设置，供 RouteChangedListener 重发路线点
     private var _currentNetworkClient: CarrotManNetworkClient? = null
+
+    // Google Roads Speed Limits API — 协程范围与 OkHttp 客户端
+    private val roadsApiScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val roadsApiHttpClient by lazy { OkHttpClient() }
+    /** Roads API 最后请求时间戳（节流：最短间隔 30 秒） */
+    private var lastRoadsApiRequestMs = 0L
+    private val ROADS_API_INTERVAL_MS = 30_000L
 
     fun isReady(): Boolean = isInitialized && navigator != null
 
@@ -253,8 +268,85 @@ class GoogleNavManager(
         try {
             // 将 NavInfo 数据推送到桥接器，更新 TBT/距离/时间等字段
             dataBridge?.updateFromNavInfo(navInfo)
+
+            // 若当前没有可靠限速，尝试调用 Google Roads API 补充
+            val fields = carrotManFieldsState?.value
+            if (fields != null && fields.nRoadLimitSpeed <= 0
+                && fields.latitude != 0.0 && fields.longitude != 0.0) {
+                queryRoadsApiSpeedLimit(fields.latitude, fields.longitude)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "处理 NavInfo 失败: ${e.message}")
+        }
+    }
+
+    // ================================================================
+    // Google Roads Speed Limits API — 在 SpeedingListener 不可用时补充限速
+    // 参考：https://developers.google.com/maps/documentation/roads/speed-limits
+    // ================================================================
+
+    /**
+     * 通过 Google Roads Speed Limits API 查询当前位置道路限速。
+     *
+     * 触发条件：
+     *   - [carrotManFieldsState].nRoadLimitSpeed <= 0（无可靠限速时才查询）
+     *   - GPS 坐标有效
+     *   - 距上次请求 ≥ [ROADS_API_INTERVAL_MS]（节流，避免超配额）
+     *
+     * API 配额：免费层 2500 次/天，节流 30s 间隔约最多 2880 次/天，实际导航远不到上限。
+     */
+    private fun queryRoadsApiSpeedLimit(lat: Double, lon: Double) {
+        val now = System.currentTimeMillis()
+        if (now - lastRoadsApiRequestMs < ROADS_API_INTERVAL_MS) return
+        lastRoadsApiRequestMs = now
+
+        val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+        if (apiKey.isBlank()) {
+            Log.d(TAG, "Google API Key 未配置，跳过 Roads API 查询")
+            return
+        }
+
+        roadsApiScope.launch {
+            try {
+                val url = "https://roads.googleapis.com/v1/speedLimits" +
+                    "?path=${"%.6f".format(lat)},${"%.6f".format(lon)}" +
+                    "&key=$apiKey"
+                val request = Request.Builder().url(url).get().build()
+                val response = roadsApiHttpClient.newCall(request).execute()
+                val body = response.body?.string()
+                response.body?.close()
+
+                if (!response.isSuccessful || body.isNullOrBlank()) {
+                    Log.d(TAG, "Roads API 响应异常: HTTP ${response.code}")
+                    return@launch
+                }
+
+                val json = JSONObject(body)
+                val limitsArr = json.optJSONArray("speedLimits") ?: return@launch
+                if (limitsArr.length() == 0) return@launch
+
+                val first = limitsArr.getJSONObject(0)
+                val rawLimit = first.optDouble("speedLimit", 0.0).toInt()
+                val units = first.optString("units", "KPH")
+                // Roads API 返回 KPH 或 MPH
+                val limitKmh = if (units.equals("MPH", ignoreCase = true)) {
+                    (rawLimit * 1.609).toInt()
+                } else rawLimit
+
+                if (limitKmh in 10..250) {
+                    Log.i(TAG, "🛣️ Roads API 限速: ${limitKmh}km/h (units=$units, raw=$rawLimit)")
+                    val roadName = carrotManFieldsState?.value?.szPosRoadName ?: ""
+                    val curSpeed = ((carrotManFieldsState?.value?.gps_speed ?: 0.0) * 3.6).toInt()
+                    // 更新到 CarrotManFields（在主线程执行）
+                    mainHandler.post {
+                        dataBridge?.updateSpeedLimit(limitKmh, curSpeed, roadName)
+                    }
+                } else {
+                    Log.d(TAG, "Roads API 返回限速 $limitKmh 不合理，跳过")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Roads API 查询失败: ${e.message}")
+            }
         }
     }
 
@@ -668,6 +760,9 @@ class GoogleNavManager(
             _navigator = null
             _currentNetworkClient = null
             isInitialized = false
+
+            // 清理 Roads API 协程范围
+            try { roadsApiScope.cancel() } catch (_: Exception) {}
 
             Log.i(TAG, "✅ GoogleNavManager 资源已清理")
         } catch (e: Exception) {

@@ -327,6 +327,15 @@ class AmapNavDataBridge(
             val goalPosX = try { info.javaClass.getMethod("getEndLng").invoke(info) as? Double ?: cur.goalPosX } catch (_: Exception) { cur.goalPosX }
             val goalPosY = try { info.javaClass.getMethod("getEndLat").invoke(info) as? Double ?: cur.goalPosY } catch (_: Exception) { cur.goalPosY }
             val szGoalName = try { info.javaClass.getMethod("getEndName").invoke(info) as? String ?: "" } catch (_: Exception) { cur.szGoalName }
+            // 🆕 启动兜底：nRoadLimitSpeed=0 时从路名推断，避免 comma3 忽略整个导航数据块
+            // onUpdateNaviSpeedLimitSection 是真实限速源，本推断仅作「导航起步阶段」的临时填充
+            val (startupLimit, startupRoadcate) = if (cur.nRoadLimitSpeed <= 0 && curRoad.isNotEmpty()) {
+                val rc = inferRoadcate(0, cur.roadcate, curRoad)
+                val lim = if (rc == 10) 120 else 60
+                lim to rc
+            } else {
+                cur.nRoadLimitSpeed to cur.roadcate
+            }
             s.value = cur.copy(
                 nGoPosDist = info.pathRetainDistance,
                 nGoPosTime = info.pathRetainTime,
@@ -336,7 +345,11 @@ class AmapNavDataBridge(
                 szNearDirName = tbtText,
                 szPosRoadName = curRoad,
                 nPosSpeed = info.currentSpeed.toDouble(),
-                // nRoadLimitSpeed/roadcate 由 onUpdateNaviSpeedLimitSection 独立更新
+                // nRoadLimitSpeed 优先由 onUpdateNaviSpeedLimitSection 提供真实值；
+                // 若尚未触发（导航起步阶段）则用路名推断兜底，确保 comma3 不忽略数据
+                nRoadLimitSpeed = startupLimit,
+                roadcate = startupRoadcate,
+                roadType = startupRoadcate,
                 // 🆕 P0: 补充 NOA 增强字段
                 exitNameInfo = exitName.ifBlank { cur.exitNameInfo },
                 goalPosX = goalPosX,
