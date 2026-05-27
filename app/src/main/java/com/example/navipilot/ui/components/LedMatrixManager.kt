@@ -147,7 +147,7 @@ class LedMatrixManager(private val context: Context) {
      */
     sealed class DisplayCommand {
         data class Text(val text: String, val color: Int?, val animation: AnimationType) : DisplayCommand()
-        data object BlueLine : DisplayCommand()
+        data class BlueLine(val animation: AnimationType = AnimationType.STATIC) : DisplayCommand()
     }
 
     /**
@@ -188,6 +188,9 @@ class LedMatrixManager(private val context: Context) {
     // BLE 写入队列 — 防止并发写入触发 GATT_CONGESTED，前一包 onCharacteristicWrite 确认后才发下一包
     private val writeQueue = ArrayDeque<ByteArray>()
     @Volatile private var writeInFlight = false
+
+    // 发送序列号 — 递增后旧的 postDelayed 回调自动忽略，防止时序重叠
+    @Volatile private var sendGeneration = 0
 
     // 自动重连状态
     @Volatile private var lastConnectedDevice: BluetoothDevice? = null
@@ -343,16 +346,23 @@ class LedMatrixManager(private val context: Context) {
         else device.connectGatt(context, false, gattCallback)
     }
 
-    @SuppressLint("MissingPermission")
-    fun disconnect() {
-        // 手动断开：不自动重连
-        lastConnectedDevice = null
-        autoReconnectAttempts = MAX_AUTO_RECONNECT
+    /** 内部清理：停止重连、清空队列、关闭 GATT */
+    private fun cleanupInternal(stopReconnect: Boolean = true) {
+        if (stopReconnect) {
+            lastConnectedDevice = null
+            autoReconnectAttempts = MAX_AUTO_RECONNECT
+        }
         handler.removeCallbacksAndMessages(null)
+        stopScan()
         synchronized(writeQueue) { writeQueue.clear() }
         writeInFlight = false
         try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
         bluetoothGatt = null; txCharacteristic = null; rxCharacteristic = null; handshakeDone = false
+    }
+
+    @SuppressLint("MissingPermission")
+    fun disconnect() {
+        cleanupInternal()
         updateState(State.IDLE, "已断开")
     }
 
@@ -545,17 +555,12 @@ class LedMatrixManager(private val context: Context) {
 
     private fun updatePreviewDisplayState(text: String, color: Int?, animation: AnimationType) {
         if (text.isBlank()) return
-        val effectiveAnim = if (text.length > 4 && animation == AnimationType.STATIC) {
-            AnimationType.SCROLL_LEFT
-        } else {
-            animation
-        }
         val charBitmaps = LedMatrixBitmapRenderer.renderTextToColumnMajor(text)
         val displayColor = if (color != null) ComposeColor(color) else ComposeColor.White
         _currentDisplayState.value = DisplayState(
             text = text,
             color = displayColor,
-            animCode = effectiveAnim.code,
+            animCode = animation.code,
             bitmapData = charBitmaps
         )
     }
@@ -564,13 +569,14 @@ class LedMatrixManager(private val context: Context) {
 
     fun sendText(text: String, color: Int? = null, animation: AnimationType = AnimationType.STATIC) {
         if (text.isBlank()) return
+        // 超过4个字符自动滚动（屏幕 64px / 16px = 4字符）
+        val effectiveAnim = if (text.length > 4 && animation == AnimationType.STATIC) AnimationType.SCROLL_LEFT else animation
+
         if (!isReadyToSend()) {
-            updatePreviewDisplayState(text, color, animation)
+            updatePreviewDisplayState(text, color, effectiveAnim)
             return
         }
 
-        // 超过4个字符自动滚动（屏幕 64px / 16px = 4字符），从右向左滚动
-        val effectiveAnim = if (text.length > 4 && animation == AnimationType.STATIC) AnimationType.SCROLL_LEFT else animation
         updateState(State.SENDING, "发送: $text")
         updatePreviewDisplayState(text, color, effectiveAnim)
 
@@ -592,10 +598,13 @@ class LedMatrixManager(private val context: Context) {
      */
     @SuppressLint("MissingPermission")
     private fun sendIPixelFrame(text: String, color: Int?, animCode: Int) {
+        val gen = ++sendGeneration
         // 不清屏 — 通过正确的 content_hash (CRC32) 让设备识别新帧并直接覆盖
         sendSelectPage(0x65)
 
         handler.postDelayed({
+            if (gen != sendGeneration) return@postDelayed
+
             val charBitmaps = mutableListOf<Triple<Char, Int, ByteArray>>()
             for (ch in text) {
                 val rendered = LedMatrixBitmapRenderer.renderCharToColumnMajor(ch)
@@ -627,7 +636,10 @@ class LedMatrixManager(private val context: Context) {
             val frame = buildIPixelFrame(charPayload, charCount, animCode, r, g, b, isColor)
             Log.i(TAG, "📤 iPixel帧: ${frame.size}B, ${charCount}字, anim=$animCode")
             writeToDevice(frame)
-            handler.postDelayed({ updateState(State.CONNECTED, "已发送: $text") }, 300)
+            handler.postDelayed({
+                if (gen != sendGeneration) return@postDelayed
+                updateState(State.CONNECTED, "已发送: $text")
+            }, 300)
         }, 200)
     }
 
@@ -654,10 +666,10 @@ class LedMatrixManager(private val context: Context) {
     /**
      * 发送蓝色横线效果到 LED 点阵屏
      * 16x64 的屏幕，点亮中间 6 行（行 5-10），宽度 64 列
-     * 效果：中间一条蓝色横线（智驾小蓝灯）
+     * @param animation 动画效果：AP激活用 BREATHE，人工驾驶用 STATIC
      */
     @SuppressLint("MissingPermission")
-    fun sendDebugBlueLine() {
+    fun sendDebugBlueLine(animation: AnimationType = AnimationType.STATIC) {
         if (!isReadyToSend()) {
             Log.w(TAG, "设备未就绪，无法发送调试图案")
             return
@@ -667,8 +679,11 @@ class LedMatrixManager(private val context: Context) {
             return
         }
 
+        val gen = ++sendGeneration
         sendSelectPage(0x65)
         handler.postDelayed({
+            if (gen != sendGeneration) return@postDelayed
+
             // 16×16 列优先位图：中间 6 行（行5~10）点亮，形成横线
             // 行 5-7 → upper byte bit5~7；行 8-10 → lower byte bit0~2
             val colBitmap = ByteArray(32)
@@ -693,11 +708,14 @@ class LedMatrixManager(private val context: Context) {
                 System.arraycopy(rotatedBitmap, 0, charPayload, off + 6, 32)
             }
 
-            val frame = buildIPixelFrame(charPayload, charCount, AnimationType.STATIC.code, r, g, b, true)
-            Log.i(TAG, "📤 调试蓝色横线: ${frame.size}B")
+            val frame = buildIPixelFrame(charPayload, charCount, animation.code, r, g, b, true)
+            Log.i(TAG, "📤 蓝色横线: ${frame.size}B anim=${animation.code}")
             updateState(State.SENDING, "发送蓝线...")
             writeToDevice(frame)
-            handler.postDelayed({ updateState(State.CONNECTED, "已发送蓝线") }, 300)
+            handler.postDelayed({
+                if (gen != sendGeneration) return@postDelayed
+                updateState(State.CONNECTED, "已发送蓝线")
+            }, 300)
         }, 200)
     }
 
@@ -937,6 +955,7 @@ class LedMatrixManager(private val context: Context) {
     private var lastAutoAnim: AnimationType = AnimationType.STATIC
     private var lastAutoSendTime: Long = 0
     private var lastDisplayIsBlueLine: Boolean = false  // 当前显示是否为蓝线图案
+    private var lastBlueLineAnim: AnimationType = AnimationType.STATIC
     private var speedHistory = mutableListOf<Int>()
     private var autoDisplayEnabled: Boolean = true
     private var stoppedSince: Long = 0L
@@ -972,7 +991,7 @@ class LedMatrixManager(private val context: Context) {
         // 防抖: 相同内容不重复发送，但至少每10秒刷新一次
         val isSame = when (command) {
             is DisplayCommand.Text -> command.text == lastAutoText && command.color == lastAutoColor && command.animation == lastAutoAnim
-            is DisplayCommand.BlueLine -> lastDisplayIsBlueLine
+            is DisplayCommand.BlueLine -> lastDisplayIsBlueLine && command.animation == lastBlueLineAnim
         }
         if (isSame && (now - lastAutoSendTime) < 10_000) {
             return
@@ -994,89 +1013,94 @@ class LedMatrixManager(private val context: Context) {
                 }
             }
             is DisplayCommand.BlueLine -> {
+                val blueLine = command as DisplayCommand.BlueLine
                 lastDisplayIsBlueLine = true
+                lastBlueLineAnim = blueLine.animation
                 lastAutoSendTime = now
                 if (isReadyToSend()) {
-                    Log.i(TAG, "📤 自动模式: 发送蓝线")
-                    sendDebugBlueLine()
+                    sendDebugBlueLine(blueLine.animation)
                 }
             }
         }
     }
 
     /**
-     * 优先级决策引擎 (v5)
+     * 优先级决策引擎 (v6)
      *
-     * P0   注意避让（盲区）          P1   限速{N}（测速 ≤200m，红/黄）
-     * P1.5 测速预警（201~500m，黄）  P2   红灯停（车速=0）
-     * P3   绿灯行（车速=0）          P4   停车等待（车速=0超3秒）
-     * P5   正在减速                  P6   弯道减速
-     * P7   正在左转/右转（方向盘）   P8~P15 TBT转弯导航
-     * P15.5 即将到达（剩余≤200m）   P16  智驾蓝灯（智驾跟车/巡航）
-     * P17  地图领航（导航中）        P18  智驾蓝灯（车道保持）
-     * P19  限速提醒（道路限速）      P20  欢迎语（仅首次连接后）
+     * 层级 | 场景                          | 显示效果
+     * ------|-------------------------------|----------------
+     *  P0   | 盲区警告（左/右）             | "注意避让" 红色呼吸
+     *  P1   | 测速相机 ≤200m               | "测速{N}" 红(超速)/黄(预警)
+     * P1.5  | 测速相机 201~500m             | "测速{N}" 黄色静态
+     *  P2   | 红灯停                        | "红灯停" 红色
+     *  P3   | 绿灯行                        | "绿灯行" 绿色
+     *  P4   | 停车 >3s                      | "停车等待" 红色
+     *  P5   | 减速中                        | "正在减速" 橙色
+     *  P6   | 弯道减速 (ATC)                | "弯道减速" 橙色
+     *  P7   | 大角度转向                    | "正在左/右转" 蓝/绿
+     * P8-15 | TBT 导航指令                  | 转弯/变道/掉头等
+     * P15.5 | 即将到达 ≤200m                | "即将到达" 绿色
+     *  P16  | AP 激活 → 蓝线呼吸            | 蓝线 + 呼吸动画
+     *  P17  | 导航中                        | 导航文字 / "地图领航" 紫色
+     *  P18  | 人工驾驶（道路限速/蓝线静态）  | "限速{N}" 白 / 蓝线静态
+     *  P19  | 兜底                          | 保持上次内容
      */
     private fun resolveDisplay(d: AutoDisplayData): DisplayCommand {
         val now = System.currentTimeMillis()
 
-        // 未上路且未导航 → 欢迎语（仅首次连接后显示一次）
+        // === 离车状态：欢迎语或保持 ===
         if (!d.isOnroad && !d.isNavigating) {
             if (!welcomeShown) {
                 welcomeShown = true
                 return DisplayCommand.Text("CP搭子 Carrot Pilot智驾领航外挂", 0xFF33CCFF.toInt(), AnimationType.SCROLL_LEFT)
             }
-            // 已显示过欢迎语，保持上次内容或静默
+            // 离车超过30秒冲刷一次显示
+            if (now - lastAutoSendTime > 30_000) {
+                return DisplayCommand.Text("CP搭子", 0xFF33CCFF.toInt(), AnimationType.STATIC)
+            }
             return DisplayCommand.Text(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
         }
 
         val hasLead = d.leadDistance in 1f..30f && d.leadProb > 0.5f
 
-        // === P0: 注意避让 — 盲区警告 (红色呼吸) ===
+        // === P0: 盲区警告 (红色呼吸) ===
         if (d.leftBlindspot || d.rightBlindspot) {
             return DisplayCommand.Text("注意避让", 0xFFFF3333.toInt(), AnimationType.BREATHE)
         }
 
-        // === P1: 限速{N} — 测速近距离 ≤200m (红/黄) ===
+        // === P1: 测速相机近距离 ≤200m ===
         if (d.nSdiDist in 20..200 && d.nSdiSpeedLimit > 0 && d.nSdiType >= 0) {
             val over = d.vEgoKph > d.nSdiSpeedLimit
             val color = if (over) 0xFFFF0000.toInt() else 0xFFFFAA00.toInt()
-            return DisplayCommand.Text("限速${d.nSdiSpeedLimit}", color, if (over) AnimationType.BREATHE else AnimationType.STATIC)
+            return DisplayCommand.Text("测速${d.nSdiSpeedLimit}", color, if (over) AnimationType.BREATHE else AnimationType.STATIC)
         }
 
-        // === P1.5: 测速预警 — 远距离 201~500m (黄静态，提前感知) ===
+        // === P1.5: 测速相机远距离 201~500m (黄色预警) ===
         if (d.nSdiDist in 201..500 && d.nSdiSpeedLimit > 0 && d.nSdiType >= 0) {
-            return DisplayCommand.Text("限速${d.nSdiSpeedLimit}", 0xFFFFDD00.toInt(), AnimationType.STATIC)
+            return DisplayCommand.Text("测速${d.nSdiSpeedLimit}", 0xFFFFDD00.toInt(), AnimationType.STATIC)
         }
 
-        // === P2: 红灯停 — 车速=0且无前车时 (红) ===
+        // === P2-P3: 交通灯 ===
         if (d.vEgoKph == 0 && d.trafficState == 1 && !hasLead) {
             return DisplayCommand.Text("红灯停", 0xFFFF0000.toInt(), AnimationType.STATIC)
         }
-
-        // === P3: 绿灯行 — 车速=0且无前车时 (绿) ===
         if (d.vEgoKph == 0 && d.trafficState == 2 && !hasLead) {
             return DisplayCommand.Text("绿灯行", 0xFF00FF00.toInt(), AnimationType.STATIC)
         }
 
-        // === P4: 停车等待 — 车速=0超过3秒 (红) ===
+        // === P4: 停车等待 (车速=0 >3s) ===
         if (d.vEgoKph == 0 && d.isOnroad && stoppedSince > 0 && (now - stoppedSince) > 3000) {
             return DisplayCommand.Text("停车等待", 0xFFFF4444.toInt(), AnimationType.STATIC)
         }
 
-        // === P5: 正在减速 (橙) ===
+        // === P5-P7: 驾驶事件 ===
         if (isDecelerating(d.vEgoKph)) {
             return DisplayCommand.Text("正在减速", 0xFFFF6600.toInt(), AnimationType.STATIC)
         }
-
-        // === P6: 弯道减速 (橙) ===
         if ((d.atcType.isNotEmpty() && d.atcType != "none") ||
             (d.vTurnSpeed > 0 && d.vEgoKph > 20 && d.vTurnSpeed < d.vEgoKph - 5)) {
             return DisplayCommand.Text("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
         }
-
-        // === P7: 正在左转/右转 — 方向盘大角度 ===
-        // steeringAngleDeg: 正值=左转, 负值=右转（驾驶员视角）
-        // 90°阈值：城市行驶中 60° 过于敏感，90° 更符合实际转弯感知
         if (d.vEgoKph > 10 && kotlin.math.abs(d.steeringAngleDeg) > 90) {
             return if (d.steeringAngleDeg > 0) {
                 DisplayCommand.Text("正在左转", 0xFF00CCFF.toInt(), AnimationType.STATIC)
@@ -1085,27 +1109,26 @@ class LedMatrixManager(private val context: Context) {
             }
         }
 
-        // === P8~P15: TBT 转弯导航指令 ===
+        // === P8~P15: TBT 导航指令 ===
         if (d.nTBTDist in 5..300 && d.nTBTTurnType > 0) {
             val xTurn = turnTypeToXTurnInfo(d.nTBTTurnType)
             val result = resolveTurnDisplay(d, xTurn)
             if (result != null) return result
         }
 
-        // === P15.5: 即将到达（剩余路程 ≤200m）===
+        // === P15.5: 即将到达 ===
         if (d.nGoPosDist in 1..200) {
             return DisplayCommand.Text("即将到达", 0xFF00FF00.toInt(), AnimationType.STATIC)
         }
 
-        // === P16: 智驾蓝灯（智驾跟车/巡航）===
+        // === P16: AP 激活 → 蓝线呼吸 ===
         if (d.isOnroad && d.active) {
-            return DisplayCommand.BlueLine
+            return DisplayCommand.BlueLine(AnimationType.BREATHE)
         }
 
-        // === P17: 地图领航 — 导航中 (紫) ===
+        // === P17: 导航中 (紫色) ===
         if (d.isNavigating) {
             return if (d.szTBTMainText.isNotBlank()) {
-                // 超过4字才需要滚动（屏幕64px / 16px = 4字）
                 val anim = if (d.szTBTMainText.length > 4) AnimationType.SCROLL_LEFT else AnimationType.STATIC
                 DisplayCommand.Text(d.szTBTMainText, 0xFFAA66FF.toInt(), anim)
             } else {
@@ -1113,15 +1136,15 @@ class LedMatrixManager(private val context: Context) {
             }
         }
 
-        // === P18: 智驾蓝灯（车道保持）|| 限速提醒 ===
+        // === P18: 人工驾驶 — 道路限速 / 蓝线静态 ===
         if (d.isOnroad) {
             if (d.nRoadLimitSpeed > 0 && d.vEgoKph > d.nRoadLimitSpeed - 5) {
                 return DisplayCommand.Text("限速${d.nRoadLimitSpeed}", 0xFFFFFFFF.toInt(), AnimationType.STATIC)
             }
-            return DisplayCommand.BlueLine
+            return DisplayCommand.BlueLine(AnimationType.STATIC)
         }
 
-        // === P19(默认): 保持上次内容 ===
+        // === P19(兜底): 保持上次内容 ===
         return DisplayCommand.Text(lastAutoText.ifEmpty { "CP搭子" }, 0xFF33CCFF.toInt(), AnimationType.STATIC)
     }
 
@@ -1169,33 +1192,22 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
-     * 减速检测: 最近3秒内速度持续下降超过 8km/h 且当前速度>15km/h
+     * 减速检测: 约3秒窗口总降幅 ≥8km/h 且当前速度为窗口最低值（允许传感器噪声波动）
      */
     private fun isDecelerating(currentSpeed: Int): Boolean {
         if (speedHistory.size < 4 || currentSpeed < 15) return false
-        val oldest = speedHistory[0]
+        val oldest = speedHistory.first()
         val drop = oldest - currentSpeed
         if (drop < 8) return false
-        for (i in 1 until speedHistory.size) {
-            if (speedHistory[i] > speedHistory[i - 1] + 2) return false
-        }
-        return true
+        // 宽松：当前速度是窗口最低值即可，不要求每步严格递减
+        return currentSpeed <= speedHistory.drop(1).minOrNull() ?: currentSpeed
     }
 
     // ===== 生命周期 =====
 
     @SuppressLint("MissingPermission")
     fun destroy() {
-        // 先阻止自动重连 + 撤销所有 handler 回调，再关闭 GATT
-        // 避免 sendIPixelFrame/sendDebugBlueLine 的 200ms 延迟 lambda 向已关闭 GATT 写入
-        lastConnectedDevice = null
-        autoReconnectAttempts = MAX_AUTO_RECONNECT
-        handler.removeCallbacksAndMessages(null)
-        stopScan()
-        synchronized(writeQueue) { writeQueue.clear() }
-        writeInFlight = false
-        try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
-        bluetoothGatt = null; txCharacteristic = null; rxCharacteristic = null; handshakeDone = false
+        cleanupInternal()
         updateState(State.IDLE, "已销毁")
     }
 }

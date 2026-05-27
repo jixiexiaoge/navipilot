@@ -661,7 +661,6 @@ com.example.navipilot/
 │   ├── ProfilePage.kt                  # 个人中心（评分概览）
 │   ├── OnboardingScreen.kt             # 新手引导（5 页）
 │   ├── HelpPage.kt                     # 帮助中心
-│   ├── SshConfigDialog.kt              # SSH 连接配置弹窗
 │   ├── PrivacyDialog.kt                # 隐私声明对话框
 │   └── Carrot7706JsonDebugOverlay.kt   # UDP 7706 数据调试层
 │
