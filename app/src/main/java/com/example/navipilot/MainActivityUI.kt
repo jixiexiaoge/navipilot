@@ -1299,6 +1299,7 @@ class MainActivityUI(
                         totalLanesFromModel = modelTotalLanes,
                         onClick = onLaneCardClick,
                         laneChangeReminder = laneChangeReminder,
+                        turnType = carrotManFields.nTBTTurnType,
                     )
                 } else {
                     val hasRealtimeLedText = ledDisplayText.isNotBlank()

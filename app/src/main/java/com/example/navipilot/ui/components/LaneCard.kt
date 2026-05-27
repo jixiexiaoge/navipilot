@@ -55,34 +55,77 @@ private val ConfidenceRed = Color(0xFFEF4444)
  * - 有车道数据：显示车道位置条 + 绿色框(当前车道) + 蓝色底(推荐车道) + 引导文字
  * - 有车道计数但无详细配置：显示简化编号
  * - 无车道数据：显示简化引导信息
+ *
+ * @param turnType  前方转弯类型（nTBTTurnType）：12=左转,13=右转,51=直行,14=掉头 等
  */
 @Composable
 fun LaneCard(
     laneConfig: List<LaneInfo>,
-    currentLane: Int,       // 1-based, 0=未知
-    confidence: Float,      // 0.0~1.0
+    currentLane: Int,          // 1-based, 0=未知
+    confidence: Float,         // 0.0~1.0
     turnDist: Int,
     turnText: String,
-    totalLanesFromModel: Int, // openpilot 模型估算的总车道数（兜底）
+    totalLanesFromModel: Int,  // openpilot 模型估算的总车道数（兜底）
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     laneChangeReminder: LaneChangeReminder? = null,
+    turnType: Int = -1,        // nTBTTurnType（用于转弯类型感知变道提醒）
 ) {
     val hasLaneData = laneConfig.size >= 2
     val totalLanes = if (hasLaneData) laneConfig.size else totalLanesFromModel.coerceAtLeast(0)
 
-    // ── 变道提醒音效触发 ─────────────────────
-    val recLanes = remember(laneConfig) { laneConfig.filter { it.isRecommended } }
-    val hasRecLanes = recLanes.isNotEmpty()
-    val needLaneChange = remember(currentLane, hasRecLanes, recLanes, laneConfig) {
-        if (currentLane <= 0 || !hasRecLanes) false
-        else !recLanes.any { it.driveWayNumber == currentLane || (laneConfig.indexOf(it) + 1 == currentLane) }
-    }
-    LaunchedEffect(needLaneChange, currentLane) {
-        if (needLaneChange) {
-            laneChangeReminder?.checkAndRemind(laneConfig, currentLane)
+    // ── 变道必要性判断（转弯类型感知） ───────────────────────
+    // needLaneChange：当前车道是否需要变道（基于 SDK 推荐或转弯类型推断）
+    val needLaneChange = remember(laneConfig, currentLane, turnType) {
+        if (currentLane <= 0 || laneConfig.size < 2) return@remember false
+
+        val sdkRec = laneConfig.filter { it.isRecommended }
+        if (sdkRec.isNotEmpty()) {
+            // 有 SDK 推荐：检查当前是否在推荐车道内
+            !sdkRec.any { laneConfig.indexOf(it) + 1 == currentLane }
+        } else {
+            // 无 SDK 推荐：按转弯类型推断（仅在有明确转弯且距离较近时）
+            false  // 由 LaneChangeReminder 在 LaunchedEffect 中处理，UI 层不单独判断
         }
     }
+
+    // SDK 推荐存在时，计算变道方向（用于 UI 指示器）
+    val sdkBasedDirection: String? = remember(laneConfig, currentLane, needLaneChange) {
+        if (!needLaneChange) return@remember null
+        val recIndices = laneConfig.mapIndexedNotNull { i, l -> if (l.isRecommended) i + 1 else null }
+        if (recIndices.isEmpty()) return@remember null
+        val minRec = recIndices.min()
+        if (currentLane < minRec) "RIGHT" else "LEFT"
+    }
+
+    // ── 变道提醒触发（含 TTS + 音效）────────────────────────
+    LaunchedEffect(currentLane, turnType, turnDist, laneConfig) {
+        if (hasLaneData) {
+            laneChangeReminder?.checkAndRemind(laneConfig, currentLane, turnType, turnDist)
+        }
+    }
+
+    // ── 运行时从提醒器获取实际变道方向（含推断方向）──────────
+    // 同时考虑 SDK 推荐和转弯推断两个来源
+    val effectiveDirection: String? = remember(laneConfig, currentLane, turnType, needLaneChange) {
+        if (sdkBasedDirection != null) return@remember sdkBasedDirection
+        // 没有 SDK 推荐，但有明确转弯类型 → 从提醒器分析结果推断显示方向
+        if (currentLane <= 0 || laneConfig.size < 2) return@remember null
+        when (turnType) {
+            in LaneChangeReminder.TURN_LEFT_TYPES, in LaneChangeReminder.TURN_UTURN_TYPES -> {
+                val target = 1..(if (laneConfig.size <= 3) 1 else 2)
+                if (currentLane !in target) "LEFT" else null
+            }
+            in LaneChangeReminder.TURN_RIGHT_TYPES -> {
+                val rightmost = laneConfig.indexOfLast { !LaneChangeReminder.isNonMotorizedLane(it) } + 1
+                val minRight = if (laneConfig.size <= 3) rightmost else maxOf(rightmost - 1, (laneConfig.size / 2) + 1)
+                if (currentLane < minRight) "RIGHT" else null
+            }
+            else -> null
+        }
+    }
+
+    val actualNeedChange = needLaneChange || (effectiveDirection != null && currentLane > 0 && hasLaneData)
 
     // 需要变道时边框脉冲动画
     val pulseTransition = rememberInfiniteTransition(label = "laneChangePulse")
@@ -95,7 +138,7 @@ fun LaneCard(
         ),
         label = "borderAlpha"
     )
-    val borderAlpha = if (needLaneChange) pulseAlpha else 0f
+    val borderAlpha = if (actualNeedChange) pulseAlpha else 0f
 
     Box(
         modifier = modifier
@@ -103,7 +146,7 @@ fun LaneCard(
             .clip(RoundedCornerShape(8.dp))
             .background(CardBg)
             .then(
-                if (needLaneChange) Modifier.border(
+                if (actualNeedChange) Modifier.border(
                     1.5.dp, UrgentColor.copy(alpha = borderAlpha), RoundedCornerShape(8.dp)
                 ) else Modifier
             )
@@ -117,11 +160,8 @@ fun LaneCard(
                 confidence = confidence,
                 turnDist = turnDist,
                 turnText = turnText,
-                needLaneChange = needLaneChange,
-                laneChangeDirection = if (needLaneChange && hasRecLanes) {
-                    val firstRecIdx = laneConfig.indexOfFirst { it.isRecommended }
-                    if (currentLane < firstRecIdx + 1) "RIGHT" else "LEFT"
-                } else null,
+                needLaneChange = actualNeedChange,
+                laneChangeDirection = if (actualNeedChange) effectiveDirection else null,
             )
         } else if (totalLanes >= 2) {
             // 有车道计数但无详细配置 → 简化显示
@@ -416,10 +456,13 @@ private fun GuidanceRow(
                 "▶ ${localized("向右变道", "Move right")}"
             else -> "◀ ${localized("向左变道", "Move left")}"
         }
+        // 附加非机动车道提示（最右侧为非机动车道时提示驾驶员注意）
+        val nonMotorNote = if (lanes.isNotEmpty() && LaneChangeReminder.isNonMotorizedLane(lanes.last()))
+            " ⚡" else ""   // ⚡ 小图标提示最右道为非机动
 
         if (guidanceText.isNotEmpty()) {
             Text(
-                text = guidanceText,
+                text = guidanceText + nonMotorNote,
                 fontSize = 14.sp,
                 color = if (inRecommendedLane) CurrentLaneColor
                        else if (needLaneChange) UrgentColor
