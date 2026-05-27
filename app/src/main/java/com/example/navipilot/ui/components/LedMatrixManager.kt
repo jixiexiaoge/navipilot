@@ -178,12 +178,22 @@ class LedMatrixManager(private val context: Context) {
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var scanning = false
-    private var currentMtu = 23
-    private var handshakeDone = false
+    @Volatile private var scanning = false
+    @Volatile private var currentMtu = 23
+    @Volatile private var handshakeDone = false
     private var protocolMode: ProtocolMode = ProtocolMode.IPIXEL
-    private var autoConnecting = false
+    @Volatile private var autoConnecting = false
     private var pendingInitText: String? = null
+
+    // BLE 写入队列 — 防止并发写入触发 GATT_CONGESTED，前一包 onCharacteristicWrite 确认后才发下一包
+    private val writeQueue = ArrayDeque<ByteArray>()
+    @Volatile private var writeInFlight = false
+
+    // 自动重连状态
+    @Volatile private var lastConnectedDevice: BluetoothDevice? = null
+    private var autoReconnectAttempts = 0
+    private val MAX_AUTO_RECONNECT = 3
+    private val reconnectDelays = longArrayOf(2_000L, 5_000L, 10_000L)
 
     private val prefs by lazy {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -233,6 +243,11 @@ class LedMatrixManager(private val context: Context) {
      */
     @SuppressLint("MissingPermission")
     fun autoConnect(initText: String? = null, onNotFound: (() -> Unit)? = null) {
+        // 已连接：直接发送初始文字，不重复扫描
+        if (state == State.CONNECTED || state == State.SENDING) {
+            if (initText != null) sendText(initText)
+            return
+        }
         val savedAddress = getSavedDeviceAddress()
         if (savedAddress == null) {
             onNotFound?.invoke()
@@ -319,6 +334,8 @@ class LedMatrixManager(private val context: Context) {
     fun connect(device: BluetoothDevice) {
         stopScan(); disconnect(); handshakeDone = false
         saveDevice(device)
+        lastConnectedDevice = device
+        autoReconnectAttempts = 0
         val name = try { device.name } catch (_: Exception) { device.address }
         updateState(State.CONNECTING, "连接 $name...")
         bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -328,6 +345,12 @@ class LedMatrixManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        // 手动断开：不自动重连
+        lastConnectedDevice = null
+        autoReconnectAttempts = MAX_AUTO_RECONNECT
+        handler.removeCallbacksAndMessages(null)
+        synchronized(writeQueue) { writeQueue.clear() }
+        writeInFlight = false
         try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
         bluetoothGatt = null; txCharacteristic = null; rxCharacteristic = null; handshakeDone = false
         updateState(State.IDLE, "已断开")
@@ -339,8 +362,24 @@ class LedMatrixManager(private val context: Context) {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> { gatt?.requestMtu(PREFERRED_MTU) }
-                BluetoothProfile.STATE_DISCONNECTED -> { txCharacteristic = null; rxCharacteristic = null; handshakeDone = false; updateState(State.IDLE, "连接已断开") }
+                BluetoothProfile.STATE_CONNECTED -> {
+                    autoReconnectAttempts = 0
+                    gatt?.requestMtu(PREFERRED_MTU)
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    txCharacteristic = null; rxCharacteristic = null; handshakeDone = false
+                    synchronized(writeQueue) { writeQueue.clear() }
+                    writeInFlight = false
+                    updateState(State.IDLE, "连接已断开")
+                    // 自动重连（限次数，指数退避）
+                    val device = lastConnectedDevice
+                    if (device != null && autoReconnectAttempts < MAX_AUTO_RECONNECT) {
+                        val delay = reconnectDelays.getOrElse(autoReconnectAttempts) { reconnectDelays.last() }
+                        autoReconnectAttempts++
+                        Log.i(TAG, "🔄 ${delay / 1000}s 后自动重连 (第 $autoReconnectAttempts/$MAX_AUTO_RECONNECT 次)")
+                        handler.postDelayed({ connect(device) }, delay)
+                    }
+                }
             }
         }
 
@@ -384,8 +423,11 @@ class LedMatrixManager(private val context: Context) {
             if (nusService != null) {
                 txCharacteristic = nusService.getCharacteristic(NUS_TX_CHAR_UUID)
                 protocolMode = ProtocolMode.NUS_GENERIC
-                if (txCharacteristic != null) { updateState(State.CONNECTED, "已连接(NUS)"); handshakeDone = true }
-                else updateState(State.ERROR, "未找到NUS TX")
+                if (txCharacteristic != null) {
+                    welcomeShown = false  // 重连后重新显示欢迎语
+                    updateState(State.CONNECTED, "已连接(NUS)")
+                    handshakeDone = true
+                } else updateState(State.ERROR, "未找到NUS TX")
                 return
             }
             updateState(State.ERROR, "未找到可用服务")
@@ -393,6 +435,8 @@ class LedMatrixManager(private val context: Context) {
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) Log.w(TAG, "写入失败: status=$status")
+            writeInFlight = false
+            drainWriteQueue()
         }
 
         @Deprecated("Deprecated in API 33")
@@ -426,6 +470,7 @@ class LedMatrixManager(private val context: Context) {
         writeToDevice(byteArrayOf(0x04, 0x00, 0x05, 0x80.toByte()))
         handler.postDelayed({
             writeToDevice(byteArrayOf(0x05, 0x00, 0x12, 0x80.toByte(), 0x02))
+            welcomeShown = false  // 重连后重新显示欢迎语
             updateState(State.CONNECTED, "已连接(iPixel)")
             // 自动连接成功后发送初始文字
             pendingInitText?.let { text ->
@@ -438,6 +483,60 @@ class LedMatrixManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun sendSelectPage(page: Int) {
         writeToDevice(byteArrayOf(0x07, 0x00, 0x08, 0x80.toByte(), 0x01, 0x00, page.toByte()))
+    }
+
+    /**
+     * 构建完整 iPixel 数据帧（含 CRC32 content_hash）。
+     *
+     * 帧格式（29B 帧头 + N×字符块）：
+     *   [0:2]  totalLen LE16          [2:4]  0x0001（帧类型）
+     *   [4]    0x00                   [5:7]  payloadLen LE16
+     *   [7]    0x00                   [8:13] content_hash (CRC32 of [15..end])
+     *   [14]   page=0x65              [15]   charCount
+     *   [16:20] params                [20]   0x50 'P'
+     *   [21]   colorMode              [22:25] fg_rgb       [25:29] bg
+     *
+     * @param charPayload  已打包的字符块（每字符 38B：0x80+RGB+W+H+bitmap32）
+     * @param charCount    字符数量（与 charPayload.size/38 一致）
+     * @param animCode     动画代码（[AnimationType.code]）
+     * @param r/g/b        前景 RGB（0~255）
+     * @param isColor      true=彩色模式，false=白色模式
+     * @return 完整帧字节数组（含 CRC32）
+     */
+    private fun buildIPixelFrame(
+        charPayload: ByteArray, charCount: Int,
+        animCode: Int, r: Int, g: Int, b: Int, isColor: Boolean
+    ): ByteArray {
+        val headerSize = 29
+        val totalLen = headerSize + charPayload.size
+        val payloadLen = totalLen - 15
+        val frame = ByteArray(totalLen)
+        // [0:2] totalLen LE16
+        frame[0] = (totalLen and 0xFF).toByte()
+        frame[1] = ((totalLen shr 8) and 0xFF).toByte()
+        // [2:4] 帧类型 0x0001
+        frame[2] = 0x00; frame[3] = 0x01
+        // [4] 0x00, [5:7] payloadLen LE16
+        frame[4] = 0x00
+        frame[5] = (payloadLen and 0xFF).toByte()
+        frame[6] = ((payloadLen shr 8) and 0xFF).toByte()
+        // [7] 0x00, [8:13] content_hash（先清零，后填充 CRC32）
+        // [14] page=0x65, [15] charCount
+        frame[14] = 0x65.toByte(); frame[15] = charCount.toByte()
+        // [16:20] params: 00 01 01 animCode
+        frame[16] = 0x00; frame[17] = 0x01; frame[18] = 0x01; frame[19] = animCode.toByte()
+        // [20] 'P', [21] colorMode, [22:25] fg_rgb, [25:29] bg
+        frame[20] = 0x50; frame[21] = if (isColor) 0x01 else 0x00
+        frame[22] = r.toByte(); frame[23] = g.toByte(); frame[24] = b.toByte()
+        System.arraycopy(charPayload, 0, frame, headerSize, charPayload.size)
+        // CRC32(frame[15..end]) → [9:13]，[8] 固定 0x00
+        val crc = java.util.zip.CRC32(); crc.update(frame, 15, frame.size - 15)
+        val hash = crc.value.toInt()
+        frame[9] = (hash and 0xFF).toByte()
+        frame[10] = ((hash shr 8) and 0xFF).toByte()
+        frame[11] = ((hash shr 16) and 0xFF).toByte()
+        frame[12] = ((hash shr 24) and 0xFF).toByte()
+        return frame
     }
 
     private fun isReadyToSend(): Boolean {
@@ -486,34 +585,27 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
-     * iPixel 数据帧:
-     *   帧头 29B: [0:2]total_len_LE16 [2:4]0x0001 [4]0x00 [5:7]payload_len_LE16(=total-15)
-     *     [7]0x00 [8:12]content_hash [12]hash_byte [13]0x00 [14]page [15]char_count
-     *     [16:20]00 01 01 anim [20]'P' [21]color_mode [22:25]fg_rgb [25:29]bg_mode+bg_rgb
-     *   字符块: 0x80 + RGB(3) + W(1) + H(1) + bitmap(32B固定, 16列*2字节) = 38B
+     * iPixel 文字帧发送：将文本渲染为 16×16 列优先位图，用 [buildIPixelFrame] 组装后写入设备。
+     *
+     * 帧格式（29B 帧头 + N×字符块）参见 [buildIPixelFrame]。
+     * 字符块：0x80 + RGB(3) + W(1) + H(1) + bitmap(32B, 16列×2字节) = 38B
      */
     @SuppressLint("MissingPermission")
     private fun sendIPixelFrame(text: String, color: Int?, animCode: Int) {
         // 不清屏 — 通过正确的 content_hash (CRC32) 让设备识别新帧并直接覆盖
-        // 抓包验证: 官方App从不在帧间清屏，靠 hash 区分内容
         sendSelectPage(0x65)
 
         handler.postDelayed({
             val charBitmaps = mutableListOf<Triple<Char, Int, ByteArray>>()
             for (ch in text) {
                 val rendered = LedMatrixBitmapRenderer.renderCharToColumnMajor(ch)
-                if (rendered != null) {
-                    charBitmaps.add(Triple(ch, rendered.first, rendered.second))
-                } else {
-                    Log.w(TAG, "⚠️ '$ch' 渲染失败")
-                }
+                if (rendered != null) charBitmaps.add(Triple(ch, rendered.first, rendered.second))
+                else Log.w(TAG, "⚠️ '$ch' 渲染失败")
             }
             if (charBitmaps.isEmpty()) {
                 Log.e(TAG, "❌ 无可渲染字符: \"$text\"")
                 updateState(State.CONNECTED, "无法渲染: $text"); return@postDelayed
             }
-
-            // 180°旋转修正后，字符块按正常左到右顺序排列
 
             val charCount = charBitmaps.size
             val isColor = color != null
@@ -521,10 +613,10 @@ class LedMatrixManager(private val context: Context) {
             val g = if (isColor) Color.green(color!!) else 0xFF
             val b = if (isColor) Color.blue(color!!) else 0xFF
 
-            // 字符块: 每个 = 0x80(1) + RGB(3) + W(1) + H(1) + bitmap(32) = 38B
+            // 字符块打包：每字符 38B = 0x80(1) + RGB(3) + W(1) + H(1) + bitmap(32)
             val charPayload = ByteArray(charCount * 38)
             for (i in 0 until charCount) {
-                val (ch, w, colBitmap) = charBitmaps[i]
+                val (_, w, colBitmap) = charBitmaps[i]
                 val off = i * 38
                 charPayload[off] = 0x80.toByte()
                 charPayload[off + 1] = r.toByte(); charPayload[off + 2] = g.toByte(); charPayload[off + 3] = b.toByte()
@@ -532,48 +624,7 @@ class LedMatrixManager(private val context: Context) {
                 System.arraycopy(colBitmap, 0, charPayload, off + 6, 32)
             }
 
-            val headerSize = 29
-            val totalLen = headerSize + charPayload.size
-            val payloadLen = totalLen - 15
-
-            val frame = ByteArray(totalLen)
-            // [0:2] total_len LE16
-            frame[0] = (totalLen and 0xFF).toByte(); frame[1] = ((totalLen shr 8) and 0xFF).toByte()
-            // [2:4] frame_type = 0x0001
-            frame[2] = 0x00; frame[3] = 0x01
-            // [4] = 0x00, [5:7] payload_len LE16
-            frame[4] = 0x00
-            frame[5] = (payloadLen and 0xFF).toByte(); frame[6] = ((payloadLen shr 8) and 0xFF).toByte()
-            // [7] = 0x00
-            frame[7] = 0x00
-            // [8:13] content_hash — 先填0，组装完后计算 CRC32
-            frame[8] = 0x00; frame[9] = 0x00; frame[10] = 0x00; frame[11] = 0x00; frame[12] = 0x00
-            frame[13] = 0x00
-            // [14] page, [15] char_count
-            frame[14] = 0x65.toByte()  // page=0x65 预览模式
-            frame[15] = charCount.toByte()
-            // [16:20] params
-            frame[16] = 0x00; frame[17] = 0x01; frame[18] = 0x01; frame[19] = animCode.toByte()
-            // [20] marker 'P', [21] color_mode
-            frame[20] = 0x50  // 'P'
-            frame[21] = if (isColor) 0x01 else 0x00
-            // [22:25] fg_rgb
-            frame[22] = r.toByte(); frame[23] = g.toByte(); frame[24] = b.toByte()
-            // [25:29] bg
-            frame[25] = 0x00; frame[26] = 0x00; frame[27] = 0x00; frame[28] = 0x00
-
-            System.arraycopy(charPayload, 0, frame, headerSize, charPayload.size)
-
-            // 计算 content_hash = CRC32(frame[15..end])，与官方App一致
-            val crc = java.util.zip.CRC32()
-            crc.update(frame, 15, frame.size - 15)
-            val hash = crc.value.toInt()
-            frame[8] = 0x00  // byte[8] 固定 0x00
-            frame[9] = (hash and 0xFF).toByte()
-            frame[10] = ((hash shr 8) and 0xFF).toByte()
-            frame[11] = ((hash shr 16) and 0xFF).toByte()
-            frame[12] = ((hash shr 24) and 0xFF).toByte()
-
+            val frame = buildIPixelFrame(charPayload, charCount, animCode, r, g, b, isColor)
             Log.i(TAG, "📤 iPixel帧: ${frame.size}B, ${charCount}字, anim=$animCode")
             writeToDevice(frame)
             handler.postDelayed({ updateState(State.CONNECTED, "已发送: $text") }, 300)
@@ -611,103 +662,43 @@ class LedMatrixManager(private val context: Context) {
             Log.w(TAG, "设备未就绪，无法发送调试图案")
             return
         }
-
-        if (protocolMode == ProtocolMode.IPIXEL) {
-            sendSelectPage(0x65)
-
-            handler.postDelayed({
-                // 创建 16 列蓝色横线位图（中间 6 行点亮）
-                // 每列 = 16 行，需要点亮行 5-10（从 0 开始计数）
-                val colBitmap = ByteArray(32)  // 16 列 * 2 字节 = 32 字节（iPixel 列优先）
-
-                // 对于 16 行的屏幕，行 5-10 需要点亮
-                // 行 0-7 在 upper byte，行 8-15 在 lower byte
-                // 行 5-7 在 upper byte 的 bit 5-7
-                // 行 8-10 在 lower byte 的 bit 0-2
-                val upperMask = 0b11100000  // bit 5, 6, 7 (行 5-7)
-                val lowerMask = 0b00000111  // bit 0, 1, 2 (行 8-10)
-
-                // 填充所有 16 列的位图（创建横线）
-                for (col in 0 until 16) {
-                    colBitmap[col * 2] = upperMask.toByte()      // 上半部分 (行 5-7)
-                    colBitmap[col * 2 + 1] = lowerMask.toByte()  // 下半部分 (行 8-10)
-                }
-
-                // 设备实际走线/摆放方向与 iPixel 列优先坐标系相差 90°，调试横条需旋转后才是正确显示
-                val rotatedBitmap = rotateColumnMajor16x16Clockwise(colBitmap)
-
-                val charCount = 4  // 使用 4 个字符块覆盖 64 列（每个字符 16 列）
-                val blueColor = android.graphics.Color.rgb(51, 136, 255)  // 蓝色 #3388FF
-                val r = android.graphics.Color.red(blueColor)
-                val g = android.graphics.Color.green(blueColor)
-                val b = android.graphics.Color.blue(blueColor)
-
-                // 构建 4 个字符块（每个 38B）
-                val charPayload = ByteArray(charCount * 38)
-                for (i in 0 until charCount) {
-                    val off = i * 38
-                    charPayload[off] = 0x80.toByte()
-                    charPayload[off + 1] = r.toByte()
-                    charPayload[off + 2] = g.toByte()
-                    charPayload[off + 3] = b.toByte()
-                    charPayload[off + 4] = 16  // 宽度 16 列
-                    charPayload[off + 5] = 16  // 高度 16 行
-                    System.arraycopy(rotatedBitmap, 0, charPayload, off + 6, 32)
-                }
-
-                val headerSize = 29
-                val totalLen = headerSize + charPayload.size
-                val payloadLen = totalLen - 15
-
-                val frame = ByteArray(totalLen)
-                // [0:2] total_len LE16
-                frame[0] = (totalLen and 0xFF).toByte()
-                frame[1] = ((totalLen shr 8) and 0xFF).toByte()
-                // [2:4] frame_type = 0x0001
-                frame[2] = 0x00; frame[3] = 0x01
-                // [4] = 0x00, [5:7] payload_len LE16
-                frame[4] = 0x00
-                frame[5] = (payloadLen and 0xFF).toByte()
-                frame[6] = ((payloadLen shr 8) and 0xFF).toByte()
-                // [7] = 0x00
-                frame[7] = 0x00
-                // [8:13] content_hash
-                frame[8] = 0x00; frame[9] = 0x00; frame[10] = 0x00
-                frame[11] = 0x00; frame[12] = 0x00; frame[13] = 0x00
-                // [14] page, [15] char_count
-                frame[14] = 0x65.toByte()
-                frame[15] = charCount.toByte()
-                // [16:20] params
-                frame[16] = 0x00; frame[17] = 0x01; frame[18] = 0x01
-                frame[19] = AnimationType.STATIC.code.toByte()
-                // [20] marker 'P', [21] color_mode
-                frame[20] = 0x50  // 'P'
-                frame[21] = 0x01  // 彩色模式
-                // [22:25] fg_rgb
-                frame[22] = r.toByte(); frame[23] = g.toByte(); frame[24] = b.toByte()
-                // [25:29] bg
-                frame[25] = 0x00; frame[26] = 0x00; frame[27] = 0x00; frame[28] = 0x00
-
-                System.arraycopy(charPayload, 0, frame, headerSize, charPayload.size)
-
-                // 计算 CRC32
-                val crc = java.util.zip.CRC32()
-                crc.update(frame, 15, frame.size - 15)
-                val hash = crc.value.toInt()
-                frame[8] = 0x00
-                frame[9] = (hash and 0xFF).toByte()
-                frame[10] = ((hash shr 8) and 0xFF).toByte()
-                frame[11] = ((hash shr 16) and 0xFF).toByte()
-                frame[12] = ((hash shr 24) and 0xFF).toByte()
-
-                Log.i(TAG, "📤 调试蓝色横线: ${frame.size}B")
-                updateState(State.SENDING, "发送蓝线...")
-                writeToDevice(frame)
-                handler.postDelayed({ updateState(State.CONNECTED, "已发送蓝线") }, 300)
-            }, 200)
-        } else {
+        if (protocolMode != ProtocolMode.IPIXEL) {
             Log.w(TAG, "NUS 模式不支持调试图案")
+            return
         }
+
+        sendSelectPage(0x65)
+        handler.postDelayed({
+            // 16×16 列优先位图：中间 6 行（行5~10）点亮，形成横线
+            // 行 5-7 → upper byte bit5~7；行 8-10 → lower byte bit0~2
+            val colBitmap = ByteArray(32)
+            val upperMask = 0b11100000  // bit5,6,7 → 行5-7
+            val lowerMask = 0b00000111  // bit0,1,2 → 行8-10
+            for (col in 0 until 16) {
+                colBitmap[col * 2] = upperMask.toByte()
+                colBitmap[col * 2 + 1] = lowerMask.toByte()
+            }
+            // 设备摆放方向与 iPixel 列优先坐标系相差 90°，需旋转修正
+            val rotatedBitmap = rotateColumnMajor16x16Clockwise(colBitmap)
+
+            // 4 个字符块 × 16列 = 64列（全屏宽），每块 38B
+            val charCount = 4
+            val r = 51; val g = 136; val b = 255  // 蓝色 #3388FF
+            val charPayload = ByteArray(charCount * 38)
+            for (i in 0 until charCount) {
+                val off = i * 38
+                charPayload[off] = 0x80.toByte()
+                charPayload[off + 1] = r.toByte(); charPayload[off + 2] = g.toByte(); charPayload[off + 3] = b.toByte()
+                charPayload[off + 4] = 16; charPayload[off + 5] = 16
+                System.arraycopy(rotatedBitmap, 0, charPayload, off + 6, 32)
+            }
+
+            val frame = buildIPixelFrame(charPayload, charCount, AnimationType.STATIC.code, r, g, b, true)
+            Log.i(TAG, "📤 调试蓝色横线: ${frame.size}B")
+            updateState(State.SENDING, "发送蓝线...")
+            writeToDevice(frame)
+            handler.postDelayed({ updateState(State.CONNECTED, "已发送蓝线") }, 300)
+        }, 200)
     }
 
     // ===== 位图转换 =====
@@ -791,25 +782,37 @@ class LedMatrixManager(private val context: Context) {
 
     // ===== BLE 写入 =====
 
-    @SuppressLint("MissingPermission")
+    /**
+     * 将数据切分并加入写入队列，由 [drainWriteQueue] 按序发送。
+     * 相比旧版固定 30ms 间隔方案，此版本在 onCharacteristicWrite 确认后才发送下一包，
+     * 彻底避免 GATT_CONGESTED (0x8f) 错误。
+     */
     private fun writeToDevice(data: ByteArray) {
-        val gatt = bluetoothGatt ?: return
-        val char = txCharacteristic ?: return
-        val chunkSize = currentMtu - 3
-        if (data.size <= chunkSize) {
-            writeSingle(gatt, char, data); return
-        }
-        // 分包发送
+        if (bluetoothGatt == null || txCharacteristic == null) return
+        val chunkSize = (currentMtu - 3).coerceAtLeast(20)
         var offset = 0
-        val chunks = mutableListOf<ByteArray>()
-        while (offset < data.size) {
-            val end = (offset + chunkSize).coerceAtMost(data.size)
-            chunks.add(data.copyOfRange(offset, end))
-            offset = end
+        var chunkCount = 0
+        synchronized(writeQueue) {
+            while (offset < data.size) {
+                val end = (offset + chunkSize).coerceAtMost(data.size)
+                writeQueue.addLast(data.copyOfRange(offset, end))
+                offset = end; chunkCount++
+            }
         }
-        Log.i(TAG, "分包: ${chunks.size}包, ${data.size}B")
-        for ((i, chunk) in chunks.withIndex()) {
-            handler.postDelayed({ writeSingle(gatt, char, chunk) }, i * 30L)
+        if (chunkCount > 1) Log.i(TAG, "分包入队: ${chunkCount}包, ${data.size}B")
+        drainWriteQueue()
+    }
+
+    /** 从写入队列取下一包发送；仅在无包在途时执行（流控核心）。 */
+    @SuppressLint("MissingPermission")
+    private fun drainWriteQueue() {
+        if (writeInFlight) return
+        val gatt = bluetoothGatt ?: run { synchronized(writeQueue) { writeQueue.clear() }; return }
+        val char = txCharacteristic ?: run { synchronized(writeQueue) { writeQueue.clear() }; return }
+        val next = synchronized(writeQueue) { if (writeQueue.isEmpty()) null else writeQueue.removeFirst() }
+        if (next != null) {
+            writeInFlight = true
+            writeSingle(gatt, char, next)
         }
     }
 
@@ -1002,15 +1005,16 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
-     * 优先级决策引擎 (v4)
+     * 优先级决策引擎 (v5)
      *
-     * P0  注意避让（盲区）       P1  限速{N}（测速近距离 ≤200m）
-     * P2  红灯停（车速=0）       P3  绿灯行（车速=0）
-     * P4  停车等待（车速=0超3秒）P5  正在减速
-     * P6  弯道减速               P7  正在左转/右转（方向盘）
-     * P8~P15 TBT转弯导航         P16 智驾蓝灯（智驾跟车/巡航）
-     * P17 地图领航（导航中）     P18 智驾蓝灯（车道保持）
-     * P19 限速提醒（道路限速）   P20 欢迎语（仅首次）
+     * P0   注意避让（盲区）          P1   限速{N}（测速 ≤200m，红/黄）
+     * P1.5 测速预警（201~500m，黄）  P2   红灯停（车速=0）
+     * P3   绿灯行（车速=0）          P4   停车等待（车速=0超3秒）
+     * P5   正在减速                  P6   弯道减速
+     * P7   正在左转/右转（方向盘）   P8~P15 TBT转弯导航
+     * P15.5 即将到达（剩余≤200m）   P16  智驾蓝灯（智驾跟车/巡航）
+     * P17  地图领航（导航中）        P18  智驾蓝灯（车道保持）
+     * P19  限速提醒（道路限速）      P20  欢迎语（仅首次连接后）
      */
     private fun resolveDisplay(d: AutoDisplayData): DisplayCommand {
         val now = System.currentTimeMillis()
@@ -1039,6 +1043,11 @@ class LedMatrixManager(private val context: Context) {
             return DisplayCommand.Text("限速${d.nSdiSpeedLimit}", color, if (over) AnimationType.BREATHE else AnimationType.STATIC)
         }
 
+        // === P1.5: 测速预警 — 远距离 201~500m (黄静态，提前感知) ===
+        if (d.nSdiDist in 201..500 && d.nSdiSpeedLimit > 0 && d.nSdiType >= 0) {
+            return DisplayCommand.Text("限速${d.nSdiSpeedLimit}", 0xFFFFDD00.toInt(), AnimationType.STATIC)
+        }
+
         // === P2: 红灯停 — 车速=0且无前车时 (红) ===
         if (d.vEgoKph == 0 && d.trafficState == 1 && !hasLead) {
             return DisplayCommand.Text("红灯停", 0xFFFF0000.toInt(), AnimationType.STATIC)
@@ -1060,14 +1069,15 @@ class LedMatrixManager(private val context: Context) {
         }
 
         // === P6: 弯道减速 (橙) ===
-        if ((d.atcType.isNotEmpty() && d.atcType != "none" && d.atcType != "") ||
+        if ((d.atcType.isNotEmpty() && d.atcType != "none") ||
             (d.vTurnSpeed > 0 && d.vEgoKph > 20 && d.vTurnSpeed < d.vEgoKph - 5)) {
             return DisplayCommand.Text("弯道减速", 0xFFFF8800.toInt(), AnimationType.STATIC)
         }
 
         // === P7: 正在左转/右转 — 方向盘大角度 ===
         // steeringAngleDeg: 正值=左转, 负值=右转（驾驶员视角）
-        if (d.vEgoKph > 10 && kotlin.math.abs(d.steeringAngleDeg) > 60) {
+        // 90°阈值：城市行驶中 60° 过于敏感，90° 更符合实际转弯感知
+        if (d.vEgoKph > 10 && kotlin.math.abs(d.steeringAngleDeg) > 90) {
             return if (d.steeringAngleDeg > 0) {
                 DisplayCommand.Text("正在左转", 0xFF00CCFF.toInt(), AnimationType.STATIC)
             } else {
@@ -1082,6 +1092,11 @@ class LedMatrixManager(private val context: Context) {
             if (result != null) return result
         }
 
+        // === P15.5: 即将到达（剩余路程 ≤200m）===
+        if (d.nGoPosDist in 1..200) {
+            return DisplayCommand.Text("即将到达", 0xFF00FF00.toInt(), AnimationType.STATIC)
+        }
+
         // === P16: 智驾蓝灯（智驾跟车/巡航）===
         if (d.isOnroad && d.active) {
             return DisplayCommand.BlueLine
@@ -1090,7 +1105,9 @@ class LedMatrixManager(private val context: Context) {
         // === P17: 地图领航 — 导航中 (紫) ===
         if (d.isNavigating) {
             return if (d.szTBTMainText.isNotBlank()) {
-                DisplayCommand.Text(d.szTBTMainText, 0xFFAA66FF.toInt(), AnimationType.SCROLL_LEFT)
+                // 超过4字才需要滚动（屏幕64px / 16px = 4字）
+                val anim = if (d.szTBTMainText.length > 4) AnimationType.SCROLL_LEFT else AnimationType.STATIC
+                DisplayCommand.Text(d.szTBTMainText, 0xFFAA66FF.toInt(), anim)
             } else {
                 DisplayCommand.Text("地图领航", 0xFFAA66FF.toInt(), AnimationType.STATIC)
             }
@@ -1148,11 +1165,6 @@ class LedMatrixManager(private val context: Context) {
             return DisplayCommand.Text(text, color, AnimationType.STATIC)
         }
 
-        // 检查"即将到达"（通过剩余距离）
-        if (d.nGoPosDist in 1..200) {
-            return DisplayCommand.Text("即将到达", 0xFF00FF00.toInt(), AnimationType.STATIC)
-        }
-
         return null
     }
 
@@ -1174,9 +1186,16 @@ class LedMatrixManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun destroy() {
-        stopScan()
-        try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
-        bluetoothGatt = null; txCharacteristic = null; rxCharacteristic = null
+        // 先阻止自动重连 + 撤销所有 handler 回调，再关闭 GATT
+        // 避免 sendIPixelFrame/sendDebugBlueLine 的 200ms 延迟 lambda 向已关闭 GATT 写入
+        lastConnectedDevice = null
+        autoReconnectAttempts = MAX_AUTO_RECONNECT
         handler.removeCallbacksAndMessages(null)
+        stopScan()
+        synchronized(writeQueue) { writeQueue.clear() }
+        writeInFlight = false
+        try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
+        bluetoothGatt = null; txCharacteristic = null; rxCharacteristic = null; handshakeDone = false
+        updateState(State.IDLE, "已销毁")
     }
 }
