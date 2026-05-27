@@ -457,7 +457,15 @@ fun AmapMobileNavPage(
         }
     }
 
-    val dataBridge = remember { AmapNavDataBridge(carrotManFieldsState) }
+    val dataBridge = remember { AmapNavDataBridge(carrotManFieldsState, context.applicationContext) }
+
+    // 释放 dataBridge 持有的 TTS 引擎（setUseInnerVoice=false 时由桥接器持有）
+    DisposableEffect(dataBridge) {
+        onDispose {
+            dataBridge.destroyTts()
+        }
+    }
+
     val isNavigatingActive = carrotManFieldsState?.let { st ->
         val fields by st
         fields.isNavigating
@@ -977,7 +985,9 @@ fun AmapMobileNavPage(
                             }
                         }
 
-                        navi.setUseInnerVoice(true, true)
+                        // false = 导航文字交给 dataBridge.onGetNavigationText 处理（可提取限速）
+                        // true  = 摄像头提示音仍由 SDK 内部播放（无需应用层干预）
+                        navi.setUseInnerVoice(false, true)
                         navi.setEmulatorNaviSpeed(75)  // 与 NaviDemo BaseActivity 一致
                         
                         // 🔧 优化1: 设置屏幕常亮（导航时保持屏幕亮起）

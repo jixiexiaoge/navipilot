@@ -1,7 +1,9 @@
 package com.example.navipilot.navigation
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.compose.runtime.MutableState
 import com.amap.api.navi.ParallelRoadListener
@@ -22,6 +24,7 @@ import com.example.navipilot.AmapBroadcastHandlers
 import com.example.navipilot.CarrotManFields
 import com.example.navipilot.LaneInfo
 import com.example.navipilot.ui.utils.localized
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -29,9 +32,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 继承 [SimpleNaviListener] 以适配高德 11.x 合并 listener 接口。
  *
  * 算路须在 [onInitNaviSuccess] 之后由 UI 通过 [pendingCalculateRoute] 触发（与官方 NaviDemo 一致）。
+ *
+ * **TTS 说明**：
+ * [AmapMobileNavPage] 使用 `setUseInnerVoice(false, true)` 启动导航，
+ * 导航文字通过 [onGetNavigationText] 回调到此桥接器，由内置 TTS 引擎朗读。
+ * 摄像头提示音（第二参数 true）仍由 SDK 内部处理，无需应用层干预。
+ *
+ * @param context  用于创建 TTS 引擎，推荐传 ApplicationContext
  */
 class AmapNavDataBridge(
-    private val carrotManFieldsState: MutableState<CarrotManFields>?
+    private val carrotManFieldsState: MutableState<CarrotManFields>?,
+    private val context: Context? = null
 ) : SimpleNaviListener(), ParallelRoadListener {
 
     /** 算路成功后由 UI 层注册：内部应调用 [com.amap.api.navi.AMapNavi.startNavi] */
@@ -149,6 +160,64 @@ class AmapNavDataBridge(
                 else -> currentRoadcate
             }
         }
+
+        /**
+         * 从高德 TTS 播报文本中提取道路限速（km/h）。
+         *
+         * 匹配的高德 SDK 播报模式（源自真机实测）：
+         *   "前方道路限速60公里，请注意控制车速"
+         *   "进入限速区域，限速80公里每小时"
+         *   "当前限速60，您已超速"
+         *   "限速120公里"
+         *   "限速解除" / "解除限速" → 返回 0（表示清除）
+         *
+         * @return 提取的限速 km/h（10~250），0 表示解除限速，-1 表示文本中无限速信息
+         */
+        fun extractSpeedLimitFromTts(text: String): Int {
+            // 限速解除
+            if (text.contains("限速解除") || text.contains("解除限速") ||
+                text.contains("不限速") || text.contains("限速取消")) {
+                return 0
+            }
+            // 提取 "限速" 后跟随的数字（允许中间有空白/冒号/顿号等）
+            val match = Regex("限速[^\\d]*(\\d+)").find(text)
+            val value = match?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return -1
+            // 合理范围过滤：10~250 km/h
+            return if (value in 10..250) value else -1
+        }
+    }
+
+    // ── TTS 引擎（用于朗读 setUseInnerVoice=false 后的导航文字） ────
+    @Volatile private var ttsEngine: TextToSpeech? = null
+    @Volatile private var ttsReady = false
+
+    /** 延迟初始化 TTS（首次调用 onGetNavigationText 时触发） */
+    private fun ensureTts() {
+        if (ttsEngine != null || context == null) return
+        try {
+            ttsEngine = TextToSpeech(context) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val r = ttsEngine?.setLanguage(Locale.CHINA)
+                    ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
+                    if (!ttsReady) ttsReady = true  // 语言不支持时仍尝试
+                    Log.d(TAG, "AMap TTS 初始化成功 ttsReady=$ttsReady")
+                } else {
+                    Log.w(TAG, "AMap TTS 初始化失败 status=$status")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "AMap TTS 创建失败: ${e.message}")
+        }
+    }
+
+    private fun speakNavText(text: String) {
+        if (!ttsReady || ttsEngine == null) return
+        try {
+            // QUEUE_ADD：不打断正在播报的语音，排队等待
+            ttsEngine?.speak(text, TextToSpeech.QUEUE_ADD, null, "amap_nav_${System.currentTimeMillis()}")
+        } catch (e: Exception) {
+            Log.w(TAG, "TTS speak 失败: ${e.message}")
+        }
     }
 
     private fun postUserMessage(msg: String) {
@@ -178,6 +247,16 @@ class AmapNavDataBridge(
         lastInnerNaviSig = ""
         lastInnerNaviPostMs = 0L
         lastLocationLogMs = 0L
+    }
+
+    /** 释放 TTS 引擎资源（应在页面 onDispose 时调用） */
+    fun destroyTts() {
+        try {
+            ttsEngine?.stop()
+            ttsEngine?.shutdown()
+        } catch (_: Exception) {}
+        ttsEngine = null
+        ttsReady = false
     }
 
     private fun postFieldsMutate(block: (MutableState<CarrotManFields>) -> Unit) {
@@ -216,6 +295,66 @@ class AmapNavDataBridge(
                 amapParallelMainSideFlag = -1
             )
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // TTS 播报文字拦截（setUseInnerVoice(false, true) 后生效）
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * 高德 SDK 准备播报导航文字时回调此方法（需 setUseInnerVoice(false, true)）。
+     *
+     * 两件事：
+     *  1. 用 TTS 引擎朗读文本（替代 SDK 内置语音）
+     *  2. 用正则提取限速信息，更新 [CarrotManFields.nRoadLimitSpeed]
+     *
+     * @param type 播报类型（0=常规导航，1+=特殊提示；具体值依 SDK 版本而定）
+     * @param text 待播报的完整文本，例如"前方道路限速60公里，请注意控制车速"
+     */
+    override fun onGetNavigationText(type: Int, text: String?) {
+        super.onGetNavigationText(type, text)
+        if (text.isNullOrBlank()) return
+
+        Log.d(TAG, "🔊 TTS[type=$type]: $text")
+
+        // 1. 朗读（延迟初始化 TTS 引擎）
+        ensureTts()
+        speakNavText(text)
+
+        // 2. 提取限速
+        val extracted = extractSpeedLimitFromTts(text)
+        when {
+            extracted > 0 -> {
+                Log.i(TAG, "🎙️ TTS 限速提取成功: ${extracted}km/h ← \"$text\"")
+                postFieldsMutate { s ->
+                    val cur = s.value
+                    s.value = cur.copy(
+                        nRoadLimitSpeed = extracted,
+                        roadcate = inferRoadcate(extracted, cur.roadcate, cur.szPosRoadName),
+                        roadType = inferRoadcate(extracted, cur.roadcate, cur.szPosRoadName),
+                        source_last = "amap_mobile"
+                    )
+                }
+            }
+            extracted == 0 -> {
+                // 限速解除：不立即清零（保留上次值直到 onUpdateNaviSpeedLimitSection 更新）
+                Log.d(TAG, "🎙️ TTS 检测到限速解除")
+            }
+            // extracted == -1：文本中无限速信息，忽略
+        }
+    }
+
+    /**
+     * 旧版 SDK 兼容接口（已弃用但仍需 override 以防 SDK 回调旧版本）。
+     * 逻辑与 [onGetNavigationText(Int, String?)] 一致。
+     */
+    @Deprecated("旧版 SDK 接口，优先使用带 type 参数的版本")
+    override fun onGetNavigationText(text: String?) {
+        @Suppress("DEPRECATION")
+        super.onGetNavigationText(text)
+        if (text.isNullOrBlank()) return
+        // 复用新版逻辑（type 传 -1 表示未知类型）
+        onGetNavigationText(-1, text)
     }
 
     override fun notifyParallelRoad(status: AMapNaviParallelRoadStatus?) {
