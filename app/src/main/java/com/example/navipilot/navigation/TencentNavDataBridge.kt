@@ -233,7 +233,9 @@ class TencentNavDataBridge(
 
                     updateField { fields ->
                         val nTBTDist = try { firstRoute.nextIntersectionRemainingDistance } catch (_: Exception) { 0 }
-                        val nRoadLimitSpeed = try { firstRoute.limitSpeed } catch (_: Exception) { 0 }
+                        // 限速保护：腾讯数据为 0 时保留当前值，防止掉到 0
+                        val rawLimit = try { firstRoute.limitSpeed } catch (_: Exception) { 0 }
+                        val nRoadLimitSpeed = rawLimit.takeIf { it > 0 } ?: fields.nRoadLimitSpeed
                         val nGoPosDist = try { firstRoute.remainingDist } catch (_: Exception) { 0 }
                         val nGoPosTime = try { firstRoute.remainingTimeInSeconds } catch (_: Exception) { try { firstRoute.remainingTime * 60 } catch (_: Exception) { 0 } }
                         val szPosRoadName = try { firstRoute.currRoadName ?: "" } catch (_: Exception) { "" }
@@ -405,7 +407,9 @@ class TencentNavDataBridge(
 
             updateField { fields ->
                 val nTBTDist = try { mainRoute.nextIntersectionRemainingDistance } catch (_: Exception) { 0 }
-                val nRoadLimitSpeed = try { mainRoute.limitSpeed } catch (_: Exception) { 0 }
+                // 限速保护：腾讯数据为 0 时保留当前值，防止掉到 0
+                val rawLimit = try { mainRoute.limitSpeed } catch (_: Exception) { 0 }
+                val nRoadLimitSpeed = rawLimit.takeIf { it > 0 } ?: fields.nRoadLimitSpeed
                 val nGoPosDist = try { mainRoute.remainingDist } catch (_: Exception) { 0 }
                 val nGoPosTime = try { mainRoute.remainingTimeInSeconds } catch (_: Exception) { try { mainRoute.remainingTime * 60 } catch (_: Exception) { 0 } }
                 val szPosRoadName = try { mainRoute.currRoadName ?: "" } catch (_: Exception) { "" }
@@ -1188,7 +1192,7 @@ class TencentNavDataBridge(
                 szNearDirName = "", szFarDirName = "", nTBTDistNext = 0,
                 nTBTTurnTypeNext = -1, szTBTMainTextNext = "",
                 nGoPosDist = 0, nGoPosTime = 0, szPosRoadName = "",
-                nRoadLimitSpeed = 0,
+                nRoadLimitSpeed = fields.nRoadLimitSpeed.takeIf { it > 0 } ?: 0,  // 保留已知限速，不掉 0
                 laneInfoList = emptyList(), laneCount = 0,
                 tencentSlice = CarrotManTencentSlice(),
                 nSdiType = -1, nSdiSpeedLimit = 0, nSdiDist = 0,

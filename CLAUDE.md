@@ -62,18 +62,20 @@ Navipilot (CP搭子) 是一款 Android 智能导航辅助应用，与 comma3/ope
 4. **AAPT2 R 类修补**：`patchRClass` Gradle 任务使用 ASM 将腾讯导航 SDK 的 `navix_*` 资源字段注入 `R.jar`，解决同名资源跨类型时的 `NoSuchFieldError`
 5. **Google API Key**：通过 `MAPS_API_KEY` 注入 `AndroidManifest.xml` 的 `com.google.android.geo.API_KEY` 元数据
 6. **Conflict exclusion**：排除 Google Play Services Maps/Location 传递依赖（Navigation SDK 已包含）
+7. **Java 8 desugar**：`coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")` 启用（minSdk 26，但仍需要 desugar 某些 API）
 
 ---
 
 ## 核心架构模式
 
-### 1. 协调器模式（MainActivity 四文件拆分）
+### 1. 协调器模式（MainActivity 五文件拆分）
 
 ```
-MainActivity.kt           # 入口，协调生命周期
-├── MainActivityCore.kt   # 核心业务逻辑 + 状态管理（ViewModel 层）
-├── MainActivityUI.kt     # Compose UI 组件（View 层）
-└── MainActivityLifecycle.kt  # 生命周期与初始化
+MainActivity.kt              # 入口，协调生命周期
+├── MainActivityCore.kt      # 核心业务逻辑 + 状态管理（ViewModel 层）
+├── MainActivityUI.kt        # Compose UI 组件（View 层）
+├── MainActivityUIComponents.kt  # UI 子组件拆分
+└── MainActivityLifecycle.kt # 生命周期与初始化
 ```
 
 ### 2. MutableState 单一数据源（SSOT）
@@ -171,9 +173,8 @@ comma3 设备 → XiaogeDataReceiver (TCP 7711) → AutoOvertakeManager → ZMQ 
 
 ```
 com.example.navipilot/
-├── MainActivity*.kt              # 入口 + 协调器（4 文件拆分）
-├── CarrotManDataModels.kt        # UDP/TCP 协议数据模型
-├── CarrotManFields.kt            # 中央状态容器（SSOT）
+├── MainActivity*.kt              # 入口 + 协调器（5 文件拆分）
+├── CarrotManDataModels.kt        # UDP/TCP 协议数据模型 + CarrotManFields（中央状态容器 SSOT）
 ├── CarrotManNetworkClient.kt     # UDP 7706 + TCP 7709 发送
 ├── CarrotParamClient.kt          # HTTP 7000 参数读写
 ├── NetworkManager.kt             # 网络层统一编排
@@ -182,35 +183,140 @@ com.example.navipilot/
 ├── AmapBroadcastHandlers.kt      # 高德广播数据解析器
 ├── AutoOvertakeManager.kt        # 自动超车辅助决策
 ├── ConditionalExperimentManager.kt # 条件实验模式
+├── TencentNavSdkBootstrap.kt     # 腾讯导航 SDK 初始化（幂等，必须在 NavigatorZygote 调用前执行）
+├── DeviceManager.kt              # 设备生命周期管理
+│
+├── core/                         # 基础设施层
+│   ├── Result.kt                 # 统一结果封装（sealed class: Success/Error/Loading）+ runSafely + ErrorCode 枚举
+│   ├── SecurePrefs.kt            # 加密偏好设置
+│   ├── AppAnalytics.kt           # 匿名使用分析（本地计数 + 24h 批量上报）
+│   └── ErrorReporter.kt          # 错误上报
 │
 ├── navigation/                   # 导航数据桥接（每模式一个 Bridge）
 │   ├── AmapNavDataBridge.kt
 │   ├── GoogleNavManager.kt       # Google Navigation SDK 管理
 │   ├── GoogleNavDataBridge.kt
+│   ├── GoogleNavInfoService.kt   # Google Navigation 导航信息服务
 │   ├── TencentNavDataBridge.kt
+│   ├── TencentPassiveSpeedMonitor.kt  # 腾讯 SDK 后台被动限速监控（自由行驶模式）
+│   ├── CameraOverlay.kt          # 高德电子眼覆盖层（占位）
+│   ├── LaneTypeIcon.kt           # 车道类型图标
 │   ├── CoordinateConverter.kt    # GCJ-02 ↔ WGS-84
-│   └── GeoUtils.kt
+│   ├── GeoUtils.kt               # 地理计算工具
+│   └── TurnTypeTextInference.kt  # 转向类型文本推断
 │
-├── ui/components/                # Compose UI 组件
-│   ├── GoogleNavPage.kt          # Google NavigationView 内嵌
-│   ├── AmapMobileNavPage.kt      # 高德手机 SDK 导航页
-│   ├── TencentNavPage.kt         # 腾讯导航 SDK 页面
-│   ├── OsmMapView.kt             # MapLibre GL 地图
-│   ├── MapSearchService.kt       # 统一地点搜索（高德SDK→Web REST→腾讯→Photon 兜底）
-│   └── LedMatrixManager.kt       # LED 点阵屏控制（蓝牙 + 20 级优先级）
+├── ui/                           # UI 层
+│   ├── theme/                    # 主题系统（固定深色车载主题，禁用 dynamicColor）
+│   │   ├── Color.kt
+│   │   ├── Theme.kt
+│   │   └── Type.kt
+│   ├── components/               # Compose UI 组件
+│   │   ├── GoogleNavPage.kt      # Google NavigationView 内嵌
+│   │   ├── AmapMobileNavPage.kt  # 高德手机 SDK 导航页
+│   │   ├── TencentNavPage.kt     # 腾讯导航 SDK 页面
+│   │   ├── OsmMapView.kt         # MapLibre GL 地图
+│   │   ├── NavMode.kt            # 导航模式枚举（AMAP_AUTO/TMAP/AMAP_MOBILE/OSM/GOOGLE）
+│   │   ├── MapSearchService.kt   # 统一地点搜索（高德SDK→Web REST→腾讯→Photon 兜底）
+│   │   ├── LedMatrixManager.kt   # LED 点阵屏控制（蓝牙 BLE + 20 级优先级引擎）
+│   │   ├── LedMatrixPreview.kt   # LED 预览组件
+│   │   ├── LedMatrixDialog.kt    # LED 设置对话框
+│   │   ├── LaneChangeReminder.kt # 变道提醒（转弯类型感知 + 非机动车道识别 + TTS）
+│   │   ├── LaneCard.kt           # 车道信息卡片
+│   │   ├── FullscreenBrowserDialog.kt  # 全屏浏览器对话框
+│   │   ├── Carrot7706JsonDebugOverlay.kt  # UDP 7706 数据调试层
+│   │   ├── ModelSwitcherPage.kt  # openpilot 驾驶模型管理
+│   │   ├── AutoSwitchExperimentPage.kt   # 条件实验模式配置页
+│   │   ├── ProfilePage.kt        # 个人中心（评分概览）
+│   │   ├── OnboardingScreen.kt   # 新手引导（5 页）
+│   │   ├── HelpPage.kt           # 帮助中心
+│   │   └── PrivacyDialog.kt      # 隐私声明对话框
+│   ├── driving/                  # 驾驶报告
+│   │   ├── DrivingReportScreen.kt       # 驾驶报告界面（五维雷达图）
+│   │   └── DrivingReportShareImage.kt   # 分享图片生成
+│   ├── discovery/
+│   │   └── CommaDeviceDiscovery.kt      # comma3 设备发现（NSD/mDNS）
+│   └── utils/Localization.kt    # 本地化工具
 │
 ├── scoring/                      # 驾驶评分
-│   ├── DrivingScoreEngine.kt     # 五维评分引擎
-│   └── DrivingDataCollector.kt
+│   ├── DrivingScoreEngine.kt     # 五维评分引擎（平稳/预判/接管/节能/NOO稳定度）
+│   ├── DrivingDataCollector.kt   # 数据采集器
+│   └── DrivingSession.kt        # 驾驶会话数据模型
 │
 ├── data/                         # 数据层
-│   ├── PreferenceRepository.kt
-│   ├── ModelDownloadManager.kt
-│   └── SshConnectionManager.kt   # SSHJ
+│   ├── PreferenceRepository.kt   # 偏好设置仓库
+│   ├── ModelDownloadManager.kt   # 模型下载管理
+│   ├── ModelDownloadState.kt     # 下载状态模型
+│   └── SshConnectionManager.kt   # SSH 连接管理（SSHJ）
+│
+├── utils/
+│   ├── CoordinatePreferences.kt    # 坐标偏好存储
+│   └── NetworkPerformanceUtils.kt  # 网络性能统计
 │
 ├── di/AppModule.kt               # Koin DI
 └── LocationSensorManager.kt      # GPS 定位传感器
 ```
+
+---
+
+## 辅助资源
+
+```
+web/                          # comma3 配套 Web 服务器（Flask）
+├── app.py                    # REST API + Web 控制面板
+├── templates/                # Jinja2 模板
+└── database.db               # SQLite
+
+carrotcode/                   # comma3 设备端参考代码 & 分析文档
+├── comma3_simulator.py       # comma3 模拟器（测试用）
+├── App发往Comma3数据字段清单.md  # UDP 7706 协议字段文档
+├── iPixel_BLE协议分析报告.md   # LED 点阵屏 BLE 逆向协议
+├── 代码分析.md / 映射关系.md    # 架构分析
+├── refer SDK and Demo code/  # 腾讯/Google 导航 SDK Demo 参考代码
+└── selfdrive/                # openpilot selfdrive 参考代码
+
+config/detekt/detekt-config.yml  # detekt 代码检查配置
+```
+
+---
+
+## 关键模式
+
+### 1. Result 密封类统一错误处理 （core/Result.kt）
+
+所有可能失败的异步操作通过 `Result<T>`（sealed class: Success/Error/Loading）+ `runSafely` 封装：
+
+```kotlin
+// 定义
+inline fun <T> runSafely(errorCode: ErrorCode, block: () -> T): Result<T>
+
+// 使用
+val result = runSafely(ErrorCode.NETWORK_CONNECTION_FAILED) {
+    apiService.getData()
+}
+when (result) {
+    is Result.Success -> handle(result.data)
+    is Result.Error -> showError(result.message)
+    is Result.Loading -> showLoading()
+}
+```
+
+### 2. Kotlin 编译器标志 （app/build.gradle.kts）
+
+```kotlin
+kotlinOptions {
+    jvmTarget = "11"
+    freeCompilerArgs += listOf(
+        "-Xjvm-default=all",       // 启用 JVM 默认方法
+        "-Xno-call-assertions",    // 减少编译时校验（防止较长 data class 的 VerifyError）
+        "-Xno-param-assertions",
+        "-Xno-receiver-assertions"
+    )
+}
+```
+
+### 3. AAPT2 R 类生成器 Bug 修补
+
+`app/build.gradle.kts` 中的 `patchRClass` 任务使用 ASM 将腾讯导航 SDK 的 `navix_*` 资源字段注入 `R.jar`，解决同名资源跨类型时的 `NoSuchFieldError`。必须运行在 `process*Resources` 之后、`compile*Kotlin/Java` 之前。
 
 ---
 

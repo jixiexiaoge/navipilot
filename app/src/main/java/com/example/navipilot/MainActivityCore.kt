@@ -255,23 +255,20 @@ class MainActivityCore(
      * 启动腾讯后台被动限速监控，并将摄像头限速结果写入 [carrotManFields]。
      *
      * 仅在 AMAP_MOBILE / GOOGLE 模式下调用；进入 TENCENT 模式或退出时停止。
-     * 摄像头限速（cameraSpeed）优先级低于「SDK 直接提供的限速」，
-     * 只在当前 nRoadLimitSpeed ≤ 0 时才写入，避免覆盖更准确的值。
+     * 腾讯限速数据优先（比较准确），始终覆盖 nRoadLimitSpeed；
+     * 电子眼（SDI）数据仍由各导航 SDK 自身管理。
      */
     private fun startTencentPassiveMonitor() {
         val app = context.applicationContext as android.app.Application
         TencentPassiveSpeedMonitor.onSpeedLimitUpdate = { speedLimitKmh ->
             if (speedLimitKmh > 0) {
-                // 只在当前无限速时写入，避免覆盖来自 SDK 直接回调的更精确限速
                 val cur = carrotManFields.value
-                if (cur.nRoadLimitSpeed <= 0) {
-                    Log.i(TAG, "📷 腾讯被动监控提供限速: ${speedLimitKmh}km/h → 写入 nRoadLimitSpeed")
-                    carrotManFields.value = cur.copy(
-                        nRoadLimitSpeed = speedLimitKmh,
-                        roadcate = if (speedLimitKmh >= 100) 10 else cur.roadcate.takeIf { it > 0 } ?: 6,
-                        source_last = cur.source_last  // 保留当前导航源标记
-                    )
-                }
+                Log.i(TAG, "📷 腾讯被动监控提供限速: ${speedLimitKmh}km/h → 写入 nRoadLimitSpeed（覆盖 ${cur.nRoadLimitSpeed}）")
+                carrotManFields.value = cur.copy(
+                    nRoadLimitSpeed = speedLimitKmh,
+                    roadcate = if (speedLimitKmh >= 100) 10 else cur.roadcate.takeIf { it > 0 } ?: 6,
+                    source_last = cur.source_last  // 保留当前导航源标记
+                )
             } else {
                 // speedLimitKmh == -1：摄像头已过，不清除（让 SDK 自身管理清除逻辑）
                 Log.d(TAG, "📷 腾讯被动监控：摄像头已过，保持当前限速")

@@ -61,8 +61,21 @@ fun Carrot7706JsonDebugOverlay(
                     fields,
                     packetCarrotIndex = if (fields.carrotIndex > 0L) fields.carrotIndex else 1L,
                 )
+            val sourceLast = fields.source_last
+            val speedLimitSource = when (sourceLast) {
+                "AMAP" -> "  (高德车机)"
+                "amap_mobile" -> "  (腾讯优先)"
+                "TENCENT" -> "  (腾讯)"
+                "google_nav" -> "  (Google)"
+                else -> ""
+            }
             obj.keys().asSequence().sorted().map { key ->
-                key to jsonScalarToDisplayString(obj.opt(key))
+                val value = jsonScalarToDisplayString(obj.opt(key))
+                key to if (key == "nRoadLimitSpeed" && (obj.optInt(key, 0) > 0)) {
+                    "$value$speedLimitSource"
+                } else {
+                    value
+                }
             }.toList()
         }.getOrElse { e ->
             listOf("_exception" to (e.message ?: e.toString()))
