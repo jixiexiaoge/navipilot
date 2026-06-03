@@ -178,12 +178,17 @@ class LedMatrixManager(private val context: Context) {
         private const val MIN_BITMAP_INTERVAL_MS = 500L
 
         // 命令码 (LE16)
-        private const val CMD_DISPLAY_ONOFF    = 0x0E01
-        private const val CMD_BRIGHTNESS       = 0x0E02
+        private const val CMD_DISPLAY_ONOFF    = 0x0E01  // 保留, 目前改用 CMD_DEVICE_PARAM 参数 0x04
+        private const val CMD_BRIGHTNESS       = 0x0E02  // 保留, 目前改用 CMD_DEVICE_PARAM 参数 0x05
         private const val CMD_REALTIME_DISPLAY = 0xD501
         private const val CMD_FILL_RECT        = 0xD517
         private const val CMD_DEVICE_INFO      = 0xD702
         private const val CMD_DEVICE_STATE     = 0xC001  // 设备状态控制: 0x03=涂鸦/绘图模式
+        // 设备参数控制 — 屏幕开关(0x04) / 亮度(0x05) 在所有设备状态下均有效
+        // 格式: [0x01=set, param_type, value...]
+        private const val CMD_DEVICE_PARAM     = 0xC002
+        private const val PARAM_SCREEN_ONOFF   = 0x04
+        private const val PARAM_BRIGHTNESS     = 0x05
 
         // 屏幕兜底分辨率
         private const val DEFAULT_WIDTH  = 64
@@ -636,25 +641,25 @@ class LedMatrixManager(private val context: Context) {
             }
             notificationsReady = true
             connected = true
-            // readyToDisplay 保持 false — 在 setDeviceState(0x03) 发出后才翻转为 true.
-            // 这样可防止 updateAutoDisplay 在设备进入涂鸦模式之前就抢先发 D501,
-            // 导致 CUID 冲突 + 绘图命令被设备拒绝 (error 400).
+            // readyToDisplay 保持 false — setDeviceState(0x03) 发出后才允许绘图.
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
-            // 初始化序列:
-            //   100ms: setScreenOn        — 亮屏
-            //   300ms: setDeviceState(03) — 进入涂鸦模式, 完成后开放绘图 API
-            //   600ms: requestDeviceInfo  — 查询屏幕尺寸/型号
-            handler.postDelayed({ setScreenOn(true) }, 100)
+            // 初始化序列 (顺序非常关键):
+            //   100ms: setDeviceState(0x03) — 进入涂鸦模式, 同步开放绘图 API
+            //          [CUID=0]
+            //   500ms: setScreenOn(true)    — 亮屏; 必须在涂鸦模式内执行, 否则 error 400
+            //          [CUID=1+, 排在首个 D501 数据帧之后]
+            //   800ms: requestDeviceInfo    — 查询屏幕尺寸/型号
             handler.postDelayed({
                 setDeviceState(0x03)
-                readyToDisplay = true   // 现在才允许 sendRealtimeBitmap / fillRect
-                Log.i(TAG, "绘图就绪: readyToDisplay = true")
+                readyToDisplay = true
+                Log.i(TAG, "绘图就绪: readyToDisplay = true (CUID=${cuid.get()})")
                 handler.post { onReadyToDisplay?.invoke() }
-            }, 300)
-            handler.postDelayed({ requestDeviceInfo() }, 600)
+            }, 100)
+            handler.postDelayed({ setScreenOn(true) }, 500)
+            handler.postDelayed({ requestDeviceInfo() }, 800)
             pendingInitText?.let { text ->
                 pendingInitText = null
-                handler.postDelayed({ sendText(text) }, 1400)
+                handler.postDelayed({ sendText(text) }, 1600)
             }
         }
 
@@ -689,14 +694,14 @@ class LedMatrixManager(private val context: Context) {
             notificationsReady = true
             connected = true
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
-            handler.postDelayed({ setScreenOn(true) }, 100)
             handler.postDelayed({
                 setDeviceState(0x03)
                 readyToDisplay = true
                 Log.i(TAG, "绘图就绪: readyToDisplay = true")
                 handler.post { onReadyToDisplay?.invoke() }
-            }, 300)
-            handler.postDelayed({ requestDeviceInfo() }, 600)
+            }, 100)
+            handler.postDelayed({ setScreenOn(true) }, 500)
+            handler.postDelayed({ requestDeviceInfo() }, 800)
             return
         }
         val value = if ((chr.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0)
@@ -1046,11 +1051,16 @@ class LedMatrixManager(private val context: Context) {
     // 高层 API — 屏幕开关 / 亮度 / 矩形填充 / 实时显示 / 设备信息
     // ────────────────────────────────────────────────────────────────
 
-    /** 显示开关 (0x0E01). 位置 10 直接是开关值, 不需要 CMD 字节. */
+    /**
+     * 显示开关.
+     * 改用 0xC002 设备参数控制 (屏幕开关 param=0x04), 在所有设备状态下均有效.
+     * 原 0x0E01 命令在设备处于"节目播放"模式时会返回 error 400.
+     */
     fun setScreenOn(on: Boolean) {
         if (!connected) return
-        sendCommand(CMD_DISPLAY_ONOFF, byteArrayOf(if (on) 0x01 else 0x00))
-        Log.i(TAG, if (on) "屏幕开启" else "屏幕关闭")
+        // args: [0x01=set, 0x04=screen_onoff, 0x01=on / 0x00=off]
+        sendCommand(CMD_DEVICE_PARAM, byteArrayOf(0x01, PARAM_SCREEN_ONOFF.toByte(), if (on) 0x01 else 0x00))
+        Log.i(TAG, if (on) "屏幕开启 (0xC002 param=0x04)" else "屏幕关闭 (0xC002 param=0x04)")
     }
 
     /**
@@ -1071,11 +1081,16 @@ class LedMatrixManager(private val context: Context) {
         Log.i(TAG, "设置设备状态 → 0x${state.toString(16).uppercase()}")
     }
 
-    /** 亮度调节 (0x0E02). 位置 10 直接是 0~255 亮度值. */
+    /**
+     * 亮度调节.
+     * 改用 0xC002 设备参数控制 (亮度 param=0x05), 在所有设备状态下均有效.
+     * @param level 亮度值 0–255
+     */
     fun setBrightness(level: Int) {
         if (!connected) return
         val v = level.coerceIn(0, 255)
-        sendCommand(CMD_BRIGHTNESS, byteArrayOf(v.toByte()))
+        // args: [0x01=set, 0x05=brightness, value]
+        sendCommand(CMD_DEVICE_PARAM, byteArrayOf(0x01, PARAM_BRIGHTNESS.toByte(), v.toByte()))
     }
 
     /**
