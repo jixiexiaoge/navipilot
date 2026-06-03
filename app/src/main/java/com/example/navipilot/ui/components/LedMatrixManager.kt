@@ -320,7 +320,7 @@ class LedMatrixManager(private val context: Context) {
     // 接收缓冲 — 处理 BLE 分片/粘包
     private val rxBuffer = ByteArrayOutputStream()
 
-    // 保留供 future BLE transport 扩展
+    @Volatile private var isRawProtocol = false
 
     // ────────────────────────────────────────────────────────────────
     // 自动显示引擎状态 (沿用)
