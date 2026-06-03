@@ -173,6 +173,10 @@ class LedMatrixManager(private val context: Context) {
         private const val DATA_PAYLOAD_CHUNK = 200
         private const val MAX_PAYLOAD_LEN = 242
 
+        // D501 发送最小间隔: 设备需要时间处理上一帧位图才能接受下一帧
+        // 过快发送会导致设备状态机溢出, 第一个数据帧即返回 error 400
+        private const val MIN_BITMAP_INTERVAL_MS = 500L
+
         // 命令码 (LE16)
         private const val CMD_DISPLAY_ONOFF    = 0x0E01
         private const val CMD_BRIGHTNESS       = 0x0E02
@@ -317,6 +321,9 @@ class LedMatrixManager(private val context: Context) {
     private val writeQueue = ArrayDeque<ByteArray>()
     @Volatile private var writeInFlight = false
     private var lastWrittenFrame: ByteArray? = null
+
+    // D501 节流: 记录上次发送位图的时间戳
+    @Volatile private var lastRealtimeBitmapSentMs = 0L
 
     // 接收缓冲 — 处理 BLE 分片/粘包
     private val rxBuffer = ByteArrayOutputStream()
@@ -487,6 +494,7 @@ class LedMatrixManager(private val context: Context) {
         connected = false; notificationsReady = false
         isRawProtocol = false; fireAndForget = false
         cuid.set(0)
+        lastRealtimeBitmapSentMs = 0L
         synchronized(rxBuffer) { rxBuffer.reset() }
         pendingAcks.clear(); pendingResponses.clear(); pendingRetries.clear(); pendingPayloads.clear()
         pendingTimeouts.values.forEach { handler.removeCallbacks(it) }
@@ -1054,12 +1062,17 @@ class LedMatrixManager(private val context: Context) {
         sendCommand(CMD_FILL_RECT, args)
     }
 
-    /** 清屏 = 黑色全屏填充. */
+    /**
+     * 清屏 — 用 D501 全黑位图实现, 避免 D517 在某些固件下返回 error 400.
+     * 同时受 sendRealtimeBitmap 节流控制, 不会造成设备过载.
+     */
     fun clearScreen() {
+        if (!connected) return
         val w = deviceInfo?.width ?: DEFAULT_WIDTH
         val h = deviceInfo?.height ?: DEFAULT_HEIGHT
-        fillRect(0x0000, 0, 0, w, h)
-        Log.i(TAG, "清屏")
+        val black = ByteArray(w * h * 2) { 0 }
+        sendRealtimeBitmap(black)
+        Log.i(TAG, "清屏 (D501 全黑位图 ${w}×${h})")
     }
 
     /**
@@ -1069,12 +1082,21 @@ class LedMatrixManager(private val context: Context) {
      *   1. 发送 0xD501 控制帧, 携带 length + 起始数据 CUID
      *   2. 等 ACK (或 fire-and-forget 模式短延时)
      *   3. 按 DATA_PAYLOAD_CHUNK 字节为单位拆分, 用递增 CUID 发送 0xDA 数据帧
-     *   4. 每 500 帧暂停等页级 ACK (单屏远低于此, 一般无需分页)
+     *
+     * 内置 MIN_BITMAP_INTERVAL_MS 节流: 防止连续快速发送导致设备状态机溢出返回 error 400.
      *
      * @param rgb565  按行 (row-major), 每像素 2 字节 LE RGB565
      */
     fun sendRealtimeBitmap(rgb565: ByteArray) {
         if (!connected) { Log.w(TAG, "未连接, 跳过 sendRealtimeBitmap"); return }
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastRealtimeBitmapSentMs
+        if (elapsed < MIN_BITMAP_INTERVAL_MS) {
+            Log.d(TAG, "sendRealtimeBitmap 节流: 距上次 ${elapsed}ms < ${MIN_BITMAP_INTERVAL_MS}ms, 跳过")
+            return
+        }
+        lastRealtimeBitmapSentMs = now
+
         val total = rgb565.size
         val startDataCuid = (cuid.get() + 1) and 0xFFFF  // 控制帧用当前 CUID, 数据帧从下一个开始
 
@@ -1302,15 +1324,30 @@ class LedMatrixManager(private val context: Context) {
         return (r5 shl 11) or (g6 shl 5) or b5
     }
 
-    /** 蓝线 = 屏幕中央蓝色矩形. */
+    /**
+     * 蓝线 — 屏幕中央蓝色横条, 用 D501 位图实现 (不使用 D517 fillRect).
+     * D517 在某些固件下返回 error 400, D501 始终有效.
+     */
     fun sendDebugBlueLine() {
         if (!connected) { Log.w(TAG, "设备未就绪, 跳过蓝线"); return }
         val w = deviceInfo?.width ?: DEFAULT_WIDTH
         val h = deviceInfo?.height ?: DEFAULT_HEIGHT
-        val lineY = (h / 2) - 3
-        val lineH = 6
-        fillRect(rgb565FromArgb(0x33, 0x88, 0xFF), 0, lineY.coerceAtLeast(0), w, lineH.coerceAtMost(h))
-        Log.i(TAG, "蓝线已发送")
+        val lineY = ((h / 2) - 3).coerceAtLeast(0)
+        val lineH = 6.coerceAtMost(h)
+        // 渲染到位图: 背景全黑, 中间 lineH 行填蓝色
+        val bitmap = ByteArray(w * h * 2) { 0 }
+        val blue = rgb565FromArgb(0x33, 0x88, 0xFF)
+        val blueLo = (blue and 0xFF).toByte()
+        val blueHi = ((blue shr 8) and 0xFF).toByte()
+        for (y in lineY until (lineY + lineH).coerceAtMost(h)) {
+            for (x in 0 until w) {
+                val idx = (y * w + x) * 2
+                bitmap[idx]     = blueLo
+                bitmap[idx + 1] = blueHi
+            }
+        }
+        sendRealtimeBitmap(bitmap)
+        Log.i(TAG, "蓝线已发送 (D501 位图)")
     }
 
     private fun turnTypeToXTurnInfo(nTBTTurnType: Int): Int {
