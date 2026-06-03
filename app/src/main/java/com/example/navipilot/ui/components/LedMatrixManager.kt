@@ -278,6 +278,12 @@ class LedMatrixManager(private val context: Context) {
     var onDeviceInfoUpdated: ((DeviceInfo) -> Unit)? = null
 
     /**
+     * 在 setDeviceState(0x03) 发出、绘图 API 开放后回调 (主线程).
+     * 用于 UI 层在就绪前禁用发送按钮.
+     */
+    var onReadyToDisplay: (() -> Unit)? = null
+
+    /**
      * Fire-and-forget 模式. a800 设备实测不回 ACK, 默认开启.
      * NUS 透传则会保持 false, 走完整 ACK 流程.
      */
@@ -643,6 +649,7 @@ class LedMatrixManager(private val context: Context) {
                 setDeviceState(0x03)
                 readyToDisplay = true   // 现在才允许 sendRealtimeBitmap / fillRect
                 Log.i(TAG, "绘图就绪: readyToDisplay = true")
+                handler.post { onReadyToDisplay?.invoke() }
             }, 300)
             handler.postDelayed({ requestDeviceInfo() }, 600)
             pendingInitText?.let { text ->
@@ -687,6 +694,7 @@ class LedMatrixManager(private val context: Context) {
                 setDeviceState(0x03)
                 readyToDisplay = true
                 Log.i(TAG, "绘图就绪: readyToDisplay = true")
+                handler.post { onReadyToDisplay?.invoke() }
             }, 300)
             handler.postDelayed({ requestDeviceInfo() }, 600)
             return
