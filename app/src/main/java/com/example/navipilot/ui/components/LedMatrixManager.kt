@@ -800,7 +800,7 @@ class LedMatrixManager(private val context: Context) {
     private fun sendDataFrame(dataCuid: Int, data: ByteArray, onAck: (() -> Unit)? = null) {
         val payload = buildPayload(PAYLOAD_DATA, dataCuid, data)
         if (!fireAndForget && onAck != null) registerAck(dataCuid, payload, onAck)
-        else if (fireAndForget && onAck != null) handler.postDelayed({ onAck.invoke() }, 5)
+        else if (fireAndForget && onAck != null) handler.postDelayed({ onAck.invoke() }, 20)
         writeFrame(payload)
     }
 
@@ -868,16 +868,23 @@ class LedMatrixManager(private val context: Context) {
         else
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
 
-        writeInFlight = (writeType == BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        writeInFlight = true  // 统一上锁 — NO_RESPONSE 也要防 sendBitmapData 循环绕过节流
         lastWrittenFrame = next
         writeSingle(gatt, char, next, writeType)
 
         if (writeType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) {
-            // NO_RESPONSE 不等回调, 固定 4ms 后取下一包. 即使 onCharacteristicWrite
-            // 不回调也不会卡死 (这是 a800 在 OPPO 上不工作的根本原因之一)
-            handler.postDelayed({ drainWriteQueue() }, 4)
+            // 基于帧大小动态计算节流延迟: 115200 baud 8N1 => 11520 字节/秒
+            // 每字节 ~0.087ms. 209B 数据帧需 ~18ms 传输, 固定 4ms 会撑爆
+            // BLE IC 的 UART TX FIFO 导致 ERROR_GATT_WRITE_REQUEST_BUSY.
+            val uartByteMs = (next.size * 10 * 1000L) / 115200  // 10 位/字节
+            val delayMs = maxOf(uartByteMs + 5L, 12L)            // +5ms 余量, 最小 12ms
+            handler.postDelayed({
+                writeInFlight = false
+                drainWriteQueue()
+            }, delayMs)
         } else {
-            // WITH_RESPONSE 用 500ms 看门狗兜底
+            // WITH_RESPONSE: onCharacteristicWrite 回调中解锁 writeInFlight,
+            // 用 500ms 看门狗兜底防止回调永不触发
             handler.postDelayed({
                 if (writeInFlight) {
                     Log.w(TAG, "写入看门狗触发: 复位 writeInFlight")
