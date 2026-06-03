@@ -325,6 +325,10 @@ class LedMatrixManager(private val context: Context) {
     // D501 节流: 记录上次发送位图的时间戳
     @Volatile private var lastRealtimeBitmapSentMs = 0L
 
+    // 绘图就绪标志: setDeviceState(0x03) 发出后才设为 true, 之前的 D501/D517 调用全部拦截.
+    // 防止 updateAutoDisplay 在设备进入涂鸦模式之前抢先发 D501 (CUID 冲突 + 命令被拒).
+    @Volatile private var readyToDisplay = false
+
     // 接收缓冲 — 处理 BLE 分片/粘包
     private val rxBuffer = ByteArrayOutputStream()
 
@@ -493,8 +497,11 @@ class LedMatrixManager(private val context: Context) {
         writeInFlight = false; lastWrittenFrame = null
         connected = false; notificationsReady = false
         isRawProtocol = false; fireAndForget = false
+        readyToDisplay = false
         cuid.set(0)
         lastRealtimeBitmapSentMs = 0L
+        // 重置自动显示去重状态, 确保重连后第一次 updateAutoDisplay 立即发送
+        lastAutoText = ""; lastAutoSendTime = 0L; lastDisplayIsBlueLine = false
         synchronized(rxBuffer) { rxBuffer.reset() }
         pendingAcks.clear(); pendingResponses.clear(); pendingRetries.clear(); pendingPayloads.clear()
         pendingTimeouts.values.forEach { handler.removeCallbacks(it) }
@@ -623,11 +630,20 @@ class LedMatrixManager(private val context: Context) {
             }
             notificationsReady = true
             connected = true
+            // readyToDisplay 保持 false — 在 setDeviceState(0x03) 发出后才翻转为 true.
+            // 这样可防止 updateAutoDisplay 在设备进入涂鸦模式之前就抢先发 D501,
+            // 导致 CUID 冲突 + 绘图命令被设备拒绝 (error 400).
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
-            // 初始化序列: 亮屏 → 切换涂鸦模式 → 查询设备信息 → 应用 pendingInitText
-            // 必须先切换到涂鸦模式(0x03), 0xD517(填充)/0xD501(实时显示)才不会返回 error 400
+            // 初始化序列:
+            //   100ms: setScreenOn        — 亮屏
+            //   300ms: setDeviceState(03) — 进入涂鸦模式, 完成后开放绘图 API
+            //   600ms: requestDeviceInfo  — 查询屏幕尺寸/型号
             handler.postDelayed({ setScreenOn(true) }, 100)
-            handler.postDelayed({ setDeviceState(0x03) }, 300)
+            handler.postDelayed({
+                setDeviceState(0x03)
+                readyToDisplay = true   // 现在才允许 sendRealtimeBitmap / fillRect
+                Log.i(TAG, "绘图就绪: readyToDisplay = true")
+            }, 300)
             handler.postDelayed({ requestDeviceInfo() }, 600)
             pendingInitText?.let { text ->
                 pendingInitText = null
@@ -667,7 +683,11 @@ class LedMatrixManager(private val context: Context) {
             connected = true
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
             handler.postDelayed({ setScreenOn(true) }, 100)
-            handler.postDelayed({ setDeviceState(0x03) }, 300)
+            handler.postDelayed({
+                setDeviceState(0x03)
+                readyToDisplay = true
+                Log.i(TAG, "绘图就绪: readyToDisplay = true")
+            }, 300)
             handler.postDelayed({ requestDeviceInfo() }, 600)
             return
         }
@@ -1056,7 +1076,7 @@ class LedMatrixManager(private val context: Context) {
      * @param x,y,w,h      像素坐标 (LE16)
      */
     fun fillRect(colorRgb565: Int, x: Int, y: Int, w: Int, h: Int) {
-        if (!connected) return
+        if (!connected || !readyToDisplay) return
         // 11 字节 args: COLOR(2) + 形状(1) + X(2) + Y(2) + W(2) + H(2)
         val args = le16(colorRgb565) + byteArrayOf(0x00) + le16(x) + le16(y) + le16(w) + le16(h)
         sendCommand(CMD_FILL_RECT, args)
@@ -1089,6 +1109,10 @@ class LedMatrixManager(private val context: Context) {
      */
     fun sendRealtimeBitmap(rgb565: ByteArray) {
         if (!connected) { Log.w(TAG, "未连接, 跳过 sendRealtimeBitmap"); return }
+        if (!readyToDisplay) {
+            Log.d(TAG, "绘图未就绪 (setDeviceState 尚未发出), 跳过 sendRealtimeBitmap")
+            return
+        }
         val now = System.currentTimeMillis()
         val elapsed = now - lastRealtimeBitmapSentMs
         if (elapsed < MIN_BITMAP_INTERVAL_MS) {
