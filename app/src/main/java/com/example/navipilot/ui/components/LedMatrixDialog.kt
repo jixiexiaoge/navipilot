@@ -240,7 +240,7 @@ fun LedMatrixDialog(onDismiss: () -> Unit, ledManagerExternal: LedMatrixManager?
                                         (selectedColor.green * 255).toInt(),
                                         (selectedColor.blue * 255).toInt()
                                     )
-                                    ledManager.sendText(customText, androidColor, selectedAnimation)
+                                    ledManager.sendText(customText, androidColor)
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
