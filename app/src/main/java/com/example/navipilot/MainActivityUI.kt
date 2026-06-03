@@ -67,6 +67,7 @@ import com.example.navipilot.ui.theme.Surface900
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1312,6 +1313,16 @@ class MainActivityUI(
                         onClick = onLedPreviewClick,
                     )
                 }
+                // 🐛 限速调试横幅（实时显示 nRoadLimitSpeed 值，用于验证限速数据是否正确更新）
+                SpeedLimitDebugBanner(
+                    nRoadLimitSpeed = carrotManFields.nRoadLimitSpeed,
+                    source = carrotManFields.source_last,
+                    roadName = carrotManFields.szPosRoadName,
+                    activeNavMode = (this@MainActivityUI.core.carrotManFields.value.active),
+                    roadcate = carrotManFields.roadcate,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 if (isPortrait) {
                     // 竖屏：第一行 4 格（蓝速/地图/绿速/搜索），第二行 4 格（家/公司/实验/LED）；已移除第5位账户与第8位找车
                     Row(
@@ -1468,6 +1479,97 @@ class MainActivityUI(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // ── 限速调试横幅 ──────────────────────────────────────────────
+    @Composable
+    private fun SpeedLimitDebugBanner(
+        nRoadLimitSpeed: Int,
+        source: String,
+        roadName: String,
+        activeNavMode: Boolean,
+        roadcate: Int,
+        modifier: Modifier = Modifier
+    ) {
+        val limitText = if (nRoadLimitSpeed > 0) "${nRoadLimitSpeed}" else "-"
+        val limitUnit = if (nRoadLimitSpeed > 0) "km/h" else ""
+        val srcLabel = when {
+            source.contains("tencent", ignoreCase = true) -> "腾讯"
+            source.contains("amap", ignoreCase = true) -> "高德"
+            source.contains("google", ignoreCase = true) -> "Google"
+            source.contains("osm", ignoreCase = true) -> "OSM"
+            source.isBlank() -> "未设置"
+            else -> source
+        }
+        val roadcateLabel = when (roadcate) {
+            10 -> "高速"
+            6 -> "国道"
+            3 -> "城市"
+            0 -> "未知"
+            else -> "类别$roadcate"
+        }
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.85f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 限速值
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "🛣️ 限速调试",
+                    color = Color(0xFFF59E0B),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = limitText,
+                        color = if (nRoadLimitSpeed > 0) Color(0xFF4ADE80) else Color(0xFF64748B),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (limitUnit.isNotEmpty()) {
+                        Text(
+                            text = " $limitUnit",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
+                }
+            }
+            // 道路类别 + 导航状态
+            Column(horizontalAlignment = Alignment.End) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(if (activeNavMode) Color(0xFF4ADE80) else Color(0xFFEF4444))
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (activeNavMode) "导航中" else "未导航",
+                        color = if (activeNavMode) Color(0xFF4ADE80) else Color(0xFFEF4444),
+                        fontSize = 10.sp
+                    )
+                }
+                Text(
+                    text = "来源: $srcLabel",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = "$roadcateLabel · $roadName",
+                    color = Color(0xFF64748B),
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

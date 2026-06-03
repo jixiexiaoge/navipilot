@@ -96,10 +96,10 @@ private val pages = listOf(
         "Model Manager · LED Matrix",
         "从 JihuLab 拉取 openpilot 模型清单（JSON 签名验证），多文件并行下载。\n" +
         "SSH 密钥认证一键上传至 comma3，支持模型删除/切换。\n" +
-        "蓝牙 LED 点阵屏（iPixel Color 协议）：20 级优先级自动显示车速、导航指令、电子眼……",
+        "蓝牙 LED 点阵屏（0x5E UART 协议）：20 级优先级自动显示车速、导航指令、电子眼……",
         "Fetch openpilot model manifests from JihuLab (signed JSON), parallel downloads.\n" +
         "SSH key-auth upload to comma3, model delete/switch supported.\n" +
-        "BLE LED matrix (iPixel Color): 20-level auto-display for speed, TBT, cameras…",
+        "BLE LED matrix (0x5E UART): 20-level auto-display for speed, TBT, cameras…",
         Brush.linearGradient(listOf(Color(0xFF667EEA), Color(0xFF764BA2))),
         Brush.linearGradient(listOf(Color(0xFF1A1A3E), Color(0xFF16213E), Color(0xFF0F172A)))
     ),

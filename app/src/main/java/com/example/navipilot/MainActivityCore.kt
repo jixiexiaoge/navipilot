@@ -255,20 +255,31 @@ class MainActivityCore(
      * 启动腾讯后台被动限速监控，并将摄像头限速结果写入 [carrotManFields]。
      *
      * 仅在 AMAP_MOBILE / GOOGLE 模式下调用；进入 TENCENT 模式或退出时停止。
-     * 腾讯限速数据优先（比较准确），始终覆盖 nRoadLimitSpeed；
-     * 电子眼（SDI）数据仍由各导航 SDK 自身管理。
+     *
+     * ⚠️ 限速优先级策略：
+     * 1. Amap SDK 的 [AmapNavDataBridge.onUpdateNaviSpeedLimitSection] — 最高（道路分段限速）
+     * 2. Amap SDK 的 TTS 文本提取 — 次高
+     * 3. 腾讯被动摄像头限速 — **仅当以上来源未提供限速时**（nRoadLimitSpeed <= 0）
+     *
+     * 原因：腾讯 `onCameraInfoUpdate` 返回的是**摄像头执法限速**（如学校区域 40km/h），
+     * 而非当前路段的**道路限速**（如 80km/h）。用摄像头限速覆盖道路限速会导致发送错误数据。
      */
     private fun startTencentPassiveMonitor() {
         val app = context.applicationContext as android.app.Application
         TencentPassiveSpeedMonitor.onSpeedLimitUpdate = { speedLimitKmh ->
             if (speedLimitKmh > 0) {
                 val cur = carrotManFields.value
-                Log.i(TAG, "📷 腾讯被动监控提供限速: ${speedLimitKmh}km/h → 写入 nRoadLimitSpeed（覆盖 ${cur.nRoadLimitSpeed}）")
-                carrotManFields.value = cur.copy(
-                    nRoadLimitSpeed = speedLimitKmh,
-                    roadcate = if (speedLimitKmh >= 100) 10 else cur.roadcate.takeIf { it > 0 } ?: 6,
-                    source_last = cur.source_last  // 保留当前导航源标记
-                )
+                // 🎯 仅当 Amap SDK 尚未提供道路限速时，才用腾讯摄像头限速兜底
+                if (cur.nRoadLimitSpeed <= 0) {
+                    Log.i(TAG, "📷 腾讯被动监控提供限速: ${speedLimitKmh}km/h → 写入 nRoadLimitSpeed（Amap 无限速，兜底）")
+                    carrotManFields.value = cur.copy(
+                        nRoadLimitSpeed = speedLimitKmh,
+                        roadcate = if (speedLimitKmh >= 100) 10 else cur.roadcate.takeIf { it > 0 } ?: 6,
+                        source_last = cur.source_last  // 保留当前导航源标记
+                    )
+                } else {
+                    Log.d(TAG, "📷 腾讯摄像头限速 ${speedLimitKmh}km/h 跳过 — Amap 已提供限速 ${cur.nRoadLimitSpeed}km/h，不覆盖")
+                }
             } else {
                 // speedLimitKmh == -1：摄像头已过，不清除（让 SDK 自身管理清除逻辑）
                 Log.d(TAG, "📷 腾讯被动监控：摄像头已过，保持当前限速")

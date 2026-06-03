@@ -25,7 +25,7 @@ import com.tencent.navix.api.observer.SimpleNavigatorDriveObserver
 object TencentPassiveSpeedMonitor {
     private const val TAG = "TencentPassiveMonitor"
 
-    /** 限速更新回调：摄像头限速 (km/h)，-1 表示清除 */
+    /** 限速更新回调：限速 (km/h)，-1 表示清除 */
     var onSpeedLimitUpdate: ((speedLimitKmh: Int) -> Unit)? = null
 
     @Volatile private var navigatorDrive: NavigatorDrive? = null
@@ -33,9 +33,37 @@ object TencentPassiveSpeedMonitor {
     private var lastCameraSpeedKmh = 0
 
     /**
-     * 内部 observer：只监听摄像头，忽略其他导航回调
+     * 内部 observer：监听导航数据和摄像头数据
      */
     private val cameraObserver = object : SimpleNavigatorDriveObserver() {
+
+        /**
+         * 🆕 自由行驶模式下捕获道路限速（非摄像头数据）
+         * 部分 SDK 版本在 NavDriveDataInfo 级别提供 getLimitSpeed / getCurrentSpeedLimit，
+         * 比 onCameraInfoUpdate 的摄像头限速更准确（反映真实道路限速而非执法限速）。
+         */
+        override fun onNavDataInfoUpdate(info: com.tencent.navix.api.model.NavDriveDataInfo?) {
+            super.onNavDataInfoUpdate(info)
+            if (!isRunning || info == null) return
+            try {
+                // 尝试反射读取 info 级别的道路限速（自由行驶模式可能无 route，但有 general 数据）
+                val roadLimit = try {
+                    info.javaClass.getMethod("getLimitSpeed").invoke(info) as? Number
+                } catch (_: Exception) { null }
+                val roadLimit2 = roadLimit ?: try {
+                    info.javaClass.getMethod("getCurrentSpeedLimit").invoke(info) as? Number
+                } catch (_: Exception) { null }
+
+                val speedLimit = roadLimit2?.toInt()?.takeIf { it in 10..250 } ?: 0
+                if (speedLimit > 0 && speedLimit != lastCameraSpeedKmh) {
+                    lastCameraSpeedKmh = speedLimit
+                    Log.d(TAG, "🛣️ 道路限速: ${speedLimit}km/h (来自 NavDriveDataInfo)")
+                    onSpeedLimitUpdate?.invoke(speedLimit)
+                }
+            } catch (e: Exception) {
+                Log.v(TAG, "onNavDataInfoUpdate 读取限速失败（SDK 版本可能不支持）: ${e.message}")
+            }
+        }
 
         override fun onCameraInfoUpdate(
             cameraInfoList: MutableList<com.tencent.navix.api.model.NavCameraInfo>

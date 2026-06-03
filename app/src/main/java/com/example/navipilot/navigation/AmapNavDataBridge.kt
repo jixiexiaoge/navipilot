@@ -466,14 +466,30 @@ class AmapNavDataBridge(
             val goalPosX = try { info.javaClass.getMethod("getEndLng").invoke(info) as? Double ?: cur.goalPosX } catch (_: Exception) { cur.goalPosX }
             val goalPosY = try { info.javaClass.getMethod("getEndLat").invoke(info) as? Double ?: cur.goalPosY } catch (_: Exception) { cur.goalPosY }
             val szGoalName = try { info.javaClass.getMethod("getEndName").invoke(info) as? String ?: "" } catch (_: Exception) { cur.szGoalName }
-            // 🆕 启动兜底：nRoadLimitSpeed=0 时从路名推断，避免 comma3 忽略整个导航数据块
-            // onUpdateNaviSpeedLimitSection 是真实限速源，本推断仅作「导航起步阶段」的临时填充
-            val (startupLimit, startupRoadcate) = if (cur.nRoadLimitSpeed <= 0 && curRoad.isNotEmpty()) {
-                val rc = inferRoadcate(0, cur.roadcate, curRoad)
-                val lim = if (rc == 10) 120 else 60
-                lim to rc
-            } else {
-                cur.nRoadLimitSpeed to cur.roadcate
+            // 🆕 尝试从 NaviInfo 反射读取限速（部分 SDK 版本在 NaviInfo 中包含 limitSpeed）
+            // ⚠️ 仅作为首次启动兜底（nRoadLimitSpeed <= 0），
+            //    不覆盖 onUpdateNaviSpeedLimitSection 提供的真实路段限速。
+            val naviInfoLimit = try {
+                (info.javaClass.getMethod("getLimitSpeed").invoke(info) as? Number)?.toInt()?.takeIf { it in 10..250 } ?: 0
+            } catch (_: Exception) { 0 }
+
+            // 限速优先级（降序）：
+            //   P0: onUpdateNaviSpeedLimitSection — 路段分段限速（真实限速源）
+            //   P1: NaviInfo 反射限速 — 仅首次兜底
+            //   P2: 路名推断 — 仅首次兜底
+            //   P3: 保留现有值
+            val (startupLimit, startupRoadcate) = when {
+                cur.nRoadLimitSpeed > 0 -> cur.nRoadLimitSpeed to cur.roadcate
+                naviInfoLimit > 0 -> {
+                    Log.d(TAG, "🚦 NaviInfo 反射读取限速（首次兜底）: ${naviInfoLimit}km/h")
+                    naviInfoLimit to inferRoadcate(naviInfoLimit, cur.roadcate, curRoad)
+                }
+                curRoad.isNotEmpty() -> {
+                    val rc = inferRoadcate(0, cur.roadcate, curRoad)
+                    val lim = if (rc == 10) 120 else 60
+                    lim to rc
+                }
+                else -> cur.nRoadLimitSpeed to cur.roadcate
             }
             s.value = cur.copy(
                 nGoPosDist = info.pathRetainDistance,
