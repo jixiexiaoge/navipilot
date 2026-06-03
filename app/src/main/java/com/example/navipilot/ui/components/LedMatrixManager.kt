@@ -179,6 +179,7 @@ class LedMatrixManager(private val context: Context) {
         private const val CMD_REALTIME_DISPLAY = 0xD501
         private const val CMD_FILL_RECT        = 0xD517
         private const val CMD_DEVICE_INFO      = 0xD702
+        private const val CMD_DEVICE_STATE     = 0xC001  // 设备状态控制: 0x03=涂鸦/绘图模式
 
         // 屏幕兜底分辨率
         private const val DEFAULT_WIDTH  = 64
@@ -578,14 +579,17 @@ class LedMatrixManager(private val context: Context) {
                 }
             }
 
-            // 检测 a800 系列: a800 BLE IC 透传原始 0x5E 帧, 无需 BLE 头部
+            // 检测 a800 系列
+            // a800 BLE IC 接收侧: 将 0x5E 帧剥壳后以 [seq(1B)][payload_len(1B)][payload(N bytes)]
+            // 格式透传给 App, 不保留 0x5E 封装. 发送侧仍接受完整 0x5E 帧.
             val isA800 = svcs.any {
                 val u = it.uuid.toString().lowercase()
                 u.startsWith("0000a800") || u.startsWith("0000a801") || u.startsWith("0000a802")
             }
             if (isA800) {
-                fireAndForget = true   // a800 实测不回 ACK
-                Log.i(TAG, "检测到 a800 服务: fire-and-forget")
+                fireAndForget = true   // a800 不回 ACK, fire-and-forget 跳过 ACK 等待
+                isRawProtocol = true   // a800 收到的通知是裸载荷 [seq][len][payload], 非 0x5E 帧
+                Log.i(TAG, "检测到 a800 服务: fire-and-forget + rawProtocol")
             }
 
             val target = dualChar
@@ -612,12 +616,14 @@ class LedMatrixManager(private val context: Context) {
             notificationsReady = true
             connected = true
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
-            // 初始化序列: 亮屏 → 查询设备信息 → 应用 pendingInitText
+            // 初始化序列: 亮屏 → 切换涂鸦模式 → 查询设备信息 → 应用 pendingInitText
+            // 必须先切换到涂鸦模式(0x03), 0xD517(填充)/0xD501(实时显示)才不会返回 error 400
             handler.postDelayed({ setScreenOn(true) }, 100)
-            handler.postDelayed({ requestDeviceInfo() }, 400)
+            handler.postDelayed({ setDeviceState(0x03) }, 300)
+            handler.postDelayed({ requestDeviceInfo() }, 600)
             pendingInitText?.let { text ->
                 pendingInitText = null
-                handler.postDelayed({ sendText(text) }, 1200)
+                handler.postDelayed({ sendText(text) }, 1400)
             }
         }
 
@@ -653,7 +659,8 @@ class LedMatrixManager(private val context: Context) {
             connected = true
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
             handler.postDelayed({ setScreenOn(true) }, 100)
-            handler.postDelayed({ requestDeviceInfo() }, 400)
+            handler.postDelayed({ setDeviceState(0x03) }, 300)
+            handler.postDelayed({ requestDeviceInfo() }, 600)
             return
         }
         val value = if ((chr.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0)
@@ -923,11 +930,26 @@ class LedMatrixManager(private val context: Context) {
 
     private fun onRxBytes(value: ByteArray) {
         Log.d(TAG, "收到 ${value.size}B: ${value.joinToString("") { "%02X".format(it) }}")
+        if (isRawProtocol) {
+            // a800 BLE IC 接收格式: [seq(1B)][payload_len(1B)][payload(N bytes)]
+            // IC 已将 0x5E 帧剥壳, 只透传裸载荷. 直接解析 payload 内容, 不走 0x5E 帧扫描.
+            // payload 结构: [type(1B)][cuid_lo(1B)][cuid_hi(1B)][content(0..N-3 bytes)]
+            if (value.size < 5) {
+                Log.w(TAG, "a800 通知包太短(${value.size}B), 忽略")
+                return
+            }
+            val payload = value.copyOfRange(2, value.size)   // 跳过 [seq][payload_len]
+            if (payload.size < 3) return
+            val type    = payload[0]
+            val cuidVal = (payload[1].toInt() and 0xFF) or ((payload[2].toInt() and 0xFF) shl 8)
+            val content = if (payload.size > 3) payload.copyOfRange(3, payload.size) else byteArrayOf()
+            Log.d(TAG, "a800 载荷: type=0x${"%02X".format(type)} cuid=$cuidVal content=${content.size}B")
+            dispatchFrame(ParsedFrame(type, cuidVal, content))
+            return
+        }
+        // NUS 标准模式: 滚动缓冲扫描, 完整解析 0x5E 帧
         synchronized(rxBuffer) {
-            // raw 模式: 剥掉首 2 字节 BLE 头. 注意 BLE 可能拼包, 所以遇 0x5E 才剥
-            val bytes = if (isRawProtocol && value.size >= 3 && value[0] != FRAME_PREFIX)
-                value.copyOfRange(2, value.size) else value
-            rxBuffer.write(bytes)
+            rxBuffer.write(value)
             extractFrames()
         }
     }
@@ -993,6 +1015,24 @@ class LedMatrixManager(private val context: Context) {
         if (!connected) return
         sendCommand(CMD_DISPLAY_ONOFF, byteArrayOf(if (on) 0x01 else 0x00))
         Log.i(TAG, if (on) "屏幕开启" else "屏幕关闭")
+    }
+
+    /**
+     * 设备状态控制 (0xC001).
+     *
+     * state 取值:
+     *   0xFF = 开机
+     *   0x01 = 节目播放
+     *   0x02 = 节目预览
+     *   0x03 = 涂鸦/画板模式 ← 必须设此模式, 0xD501/0xD517 等绘图命令才有效
+     *
+     * 每次连接成功后需调用一次以切换到涂鸦模式, 否则绘图命令返回 error 400.
+     */
+    fun setDeviceState(state: Int) {
+        if (!connected) return
+        // args[0]=0x01(设置), args[1]=state
+        sendCommand(CMD_DEVICE_STATE, byteArrayOf(0x01, state.toByte()))
+        Log.i(TAG, "设置设备状态 → 0x${state.toString(16).uppercase()}")
     }
 
     /** 亮度调节 (0x0E02). 位置 10 直接是 0~255 亮度值. */
