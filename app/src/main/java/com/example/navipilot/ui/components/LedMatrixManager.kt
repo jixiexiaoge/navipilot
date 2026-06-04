@@ -182,6 +182,7 @@ class LedMatrixManager(private val context: Context) {
         private const val CMD_DISPLAY_ONOFF_LEGACY = 0x0E01  // 显示开关: [0x0E01, 0x00/0x01]
         private const val CMD_BRIGHTNESS_LEGACY    = 0x0E02  // 亮度: [0x0E02, value]
         private const val CMD_REALTIME_DISPLAY = 0xD501
+        private const val CMD_FAST_PIXEL_COLOR = 0xD508  // 像素着色: [X_LE16,Y_LE16,COLOR_LE16]...
         private const val CMD_FILL_RECT        = 0xD517
         private const val CMD_DEVICE_INFO      = 0xD702
         private const val CMD_DEVICE_STATE     = 0xC001  // 设备状态控制: 0x03=涂鸦/绘图模式
@@ -658,13 +659,17 @@ class LedMatrixManager(private val context: Context) {
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
             // ★★★ Popusign 初始化序列 ★★★
             //
-            //  基于协议逆向: a800 使用资产工作流, 不需要产线测试或炫彩文字格式尝试.
-            //  核心步骤:
-            //  P0 (300ms): 设置亮度 + 开启屏幕
-            //  P1 (600ms): 请求设备信息 (显示型号)
-            //  P2 (900ms): sendText (pendingInitText / "CP搭子")
-            //  P3 (1200ms): 播放节目
-            //  P4 (4000ms): 全面诊断 (仅连接后无显示时触发的兜底)
+            //  HCI 抓包验证的官方 APP 时序:
+            //    因官方 APP 针对单次文字更新走的流控不同，关键点是:
+            //    1. 不发送 C001=0x03（涂鸦模式仅用于 D501 绘图, 资产工作流不需要）
+            //    2. 完整流程: D001 → DATA → C002 亮度 → C002 屏幕 → ACK → ED01 → 0A01×2
+            //    3. 时序中不要插入无关命令，避免设备状态混乱
+            //
+            //  本实现简化步骤（与官方 APP 功能等效）:
+            //  P0 (200ms): 亮度 + 屏幕开启 (C002 + Legacy 兜底)
+            //  P1 (500ms): 请求设备信息
+            //  P2 (800ms): sendPopusignText (D001→DATA→ACK→ED01→0A01)
+            //  P3 (4000ms): 全面诊断兜底 (仅连接后无显示时触发)
             //
             // 保留服务发现阶段设置的协议标志 (isRawProtocol/fireAndForget 由 a800 UUID 检测决定)
             if (isRawProtocol) {
@@ -672,31 +677,33 @@ class LedMatrixManager(private val context: Context) {
                 Log.i(TAG, "a800 原始协议模式 (raw + fire-and-forget)")
             }
 
+            // P0: 开机 → 亮屏 (协议规范: 必须先 C001=0xFF 开机)
+            handler.postDelayed({
+                powerOn()
+                Log.i(TAG, "P0: 设备开机 (C001=0xFF)")
+            }, 200)
             handler.postDelayed({
                 setBrightness(255)
+                setBrightnessLegacy(255)
                 setScreenOn(true)
-                Log.i(TAG, "P0: 亮度255 + 屏幕开启")
-            }, 300)
+                setScreenOnLegacy(true)
+                Log.i(TAG, "P1: 亮度255 + 屏幕开启 (C002 + Legacy 0x0E01/0x0E02)")
+            }, 500)
 
-            handler.postDelayed({ requestDeviceInfo() }, 600)
+            handler.postDelayed({ requestDeviceInfo() }, 800)
 
+            // P3: 显示初始文字 (C001=0xFF 开机 + 亮度/屏幕就绪后, 切涂鸦模式发 D501)
             handler.postDelayed({
                 readyToDisplay = true
                 handler.post { onReadyToDisplay?.invoke() }
-                // 显示初始文字
                 val initText = pendingInitText ?: "CP搭子"
                 pendingInitText = null
-                sendPopusignText(initText)
-                Log.i(TAG, "P1: 显示 \"$initText\"")
-            }, 900)
+                sendText(initText)
+                Log.i(TAG, "P3: D501显示 \"$initText\"")
+            }, 1500)
 
-            handler.postDelayed({
-                sendCommand(0x0A01, byteArrayOf(0x01, 0x01, 0x53, 0x00, 0x00))
-                Log.i(TAG, "P2: 播放节目")
-            }, 1200)
-
-            // 4s后如果还没显示, 尝试诊断
-            handler.postDelayed({ tryAllApproaches() }, 4000)
+            // 5s后如果还没显示, 尝试诊断 (单次兜底)
+            handler.postDelayed({ tryAllApproaches() }, 5000)
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
@@ -731,24 +738,25 @@ class LedMatrixManager(private val context: Context) {
             connected = true
             updateState(State.CONNECTED, if (isRawProtocol) "已连接(a800)" else "已连接")
             handler.postDelayed({
+                powerOn()
+                Log.i(TAG, "P0(no-CCCD): 设备开机 (C001=0xFF)")
+            }, 300)
+            handler.postDelayed({
                 setBrightness(255)
                 setScreenOn(true)
-                Log.i(TAG, "P0(no-CCCD): 亮度255 + 屏幕开启")
-            }, 300)
-            handler.postDelayed({ requestDeviceInfo() }, 600)
+                Log.i(TAG, "P1(no-CCCD): 亮度255 + 屏幕开启")
+            }, 600)
+            handler.postDelayed({ requestDeviceInfo() }, 900)
             handler.postDelayed({
                 readyToDisplay = true
                 handler.post { onReadyToDisplay?.invoke() }
                 val initText = pendingInitText ?: "CP搭子"
                 pendingInitText = null
-                sendPopusignText(initText)
-                Log.i(TAG, "P1(no-CCCD): 显示 \"$initText\"")
-            }, 900)
-            handler.postDelayed({
-                sendCommand(0x0A01, byteArrayOf(0x01, 0x01, 0x53, 0x00, 0x00))
-                Log.i(TAG, "P2(no-CCCD): 播放节目")
-            }, 1200)
-            handler.postDelayed({ tryAllApproaches() }, 4000)
+                sendText(initText)
+                Log.i(TAG, "P3(no-CCCD): D501显示 \"$initText\"")
+            }, 1600)
+            //  不再发 0A01 播放, 以免覆盖 D501 位图显示
+            handler.postDelayed({ tryAllApproaches() }, 5000)
             return
         }
         val value = if ((chr.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0)
@@ -1147,6 +1155,17 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
+     * 开机 (C001=0xFF).
+     * 连接后必须先发送此命令使设备进入可操作状态.
+     * 之后再设置亮度/屏幕开关/涂鸦模式等.
+     */
+    fun powerOn() {
+        if (!connected) return
+        sendCommand(CMD_DEVICE_STATE, byteArrayOf(0x01, 0xFF.toByte()))
+        Log.i(TAG, "设备开机 (C001=0xFF)")
+    }
+
+    /**
      * 亮度调节.
      * 改用 0xC002 设备参数控制 (亮度 param=0x05), 在所有设备状态下均有效.
      * @param level 亮度值 0–255
@@ -1296,71 +1315,275 @@ class LedMatrixManager(private val context: Context) {
         Log.i(TAG, "节目编辑 ED01: 组$group 节目$program UUID=${uuid.joinToString("") { "%02X".format(it) }}")
     }
 
+    // ── a800 Popusign 结构化文本资产 ────────────────────────────
+    //
+    // 基于官方 APP HCI 抓包逆向分析 (2026-06-04). 使用 176B 变长格式:
+    //
+    //   [UUID(6B)] [type=0x01] [header(17B)] [embedded_UUID(6B)]
+    //   [metadata(8B)] [properties(24B)] [color(7B)]
+    //   [text: 22 00 len_LE 2A UTF8]
+    //   [post-text: 02 00 2B 10 02 00 2C XX flags cnt x-pos_vle]
+    //   [per-char(36B×N): 10 00 10 00 + 32B 列优先位图]
+    //
+    // 与旧 260B 模板关键区别:
+    //   - 每字符固定 16 列全宽 (无 03 00 width 头)
+    //   - 正确 post-text 里 LE16 位置 (非 LE32)
+    //   - mode=0x90, height=0x34 (52)
+    //   - 动画字节在 raw[51] (02 00 11 XX), 官方统一用 0x04
+    //   具体动画由 ED01/0A01 控制而非资产字节
+
     /**
-     * 生成 96x16 1bpp 位图数据 (192 字节, 行优先).
-     * 每行 12 字节 (96 像素 / 8 = 12), MSB 为先.
+     * 构建 a800 Popusign 结构化文本资产载荷.
+     *
+     * 基于官方 APP 176B "你好" 资产格式.
+     * 每字符 36B: [10 00 10 00] + 32B 列优先位图 (16列×2B).
+     * 变长: 总大小 = 70 + (4+text_len) + (11+charCount*4) + charCount*36
+     *
+     * @param text         显示文字 (最多 4 字符)
+     * @param colorRgb565  RGB565 颜色值
+     * @param uuid         6 字节资产 UUID (用 nextAssetUuid 生成)
      */
-    private fun generateBitmap(text: String): ByteArray {
-        val bitmap = ByteArray(192) { 0 }  // 96*16/8
-        val chars = text.take(6)
-        var colOffset = 0
-        for (ch in chars) {
-            val renderResult = LedMatrixBitmapRenderer.renderCharToColumnMajor(ch)
-            if (renderResult == null) continue
-            val (width, colBitmap) = renderResult
-            // colBitmap 是列优先 32B/字符, 转为行优先 1bpp
-            for (col in 0 until minOf(width, 12)) {  // 最多 12 列/字符
-                if (colOffset + col >= 96) break
-                for (row in 0 until 16) {
-                    val byteIdx = col * 2 + row / 8
-                    val bitIdx = row % 8
-                    if (byteIdx < colBitmap.size && (colBitmap[byteIdx].toInt() and (1 shl bitIdx)) != 0) {
-                        val rowByte = (row * 12 + (colOffset + col) / 8)
-                        val rowBit = (colOffset + col) % 8
-                        if (rowByte < 192) bitmap[rowByte] = (bitmap[rowByte].toInt() or (0x80 shr rowBit)).toByte()
-                    }
-                }
-            }
-            colOffset += width
+    private fun buildPopusignTextAsset(text: String, colorRgb565: Int, uuid: ByteArray, animationType: AnimationType = AnimationType.STATIC): ByteArray {
+        val displayText = ("*" + text).toByteArray(Charsets.UTF_8)
+        val textLen = displayText.size
+        val charCount = minOf(text.length, 4)
+
+        // 动画字节: 官方统一用 0x04 (动画由 ED01/0A01 模式控制)
+        @Suppress("UNUSED_PARAMETER")
+        val animByte: Byte = 0x04
+
+        // 1. 固定头部 70B (UUID+type+magic+pad+embedded+width+mode+pad+height+pad+props+anim+spacing+color)
+        val h = ByteArray(70) { 0 }
+        h[6] = 0x01                                   // type=1
+        h[7] = 0x00; h[8] = 0x0C                      // magic=12
+        h[30] = 0x54; h[31] = 0x00                    // width=84
+        h[32] = 0x90.toByte(); h[33] = 0x00          // mode
+        h[36] = 0x34; h[37] = 0x00                    // height=52
+        // props 02 00 02 00 02 00 03 00
+        h[40] = 0x02; h[41] = 0x00; h[42] = 0x02; h[43] = 0x00
+        h[44] = 0x02; h[45] = 0x00; h[46] = 0x03; h[47] = 0x00
+        // anim 02 00 11 04
+        h[48] = 0x02; h[49] = 0x00; h[50] = 0x11; h[51] = 0x04
+        // spacing 02 00 10 01  02 00 12 01
+        h[52] = 0x02; h[53] = 0x00; h[54] = 0x10; h[55] = 0x01
+        h[56] = 0x02; h[57] = 0x00; h[58] = 0x12; h[59] = 0x01
+        // color mode 02 00 20 00
+        h[60] = 0x02; h[61] = 0x00; h[62] = 0x20; h[63] = 0x00
+        // color element 03 00 21 + RGB565 (patched below)
+        h[64] = 0x03; h[65] = 0x00; h[66] = 0x21
+        h[67] = (colorRgb565 and 0xFF).toByte()
+        h[68] = ((colorRgb565 shr 8) and 0xFF).toByte()
+        h[69] = 0x02                                   // separator begin
+
+        // 2. 文本节: 22 00 + len_LE + displayText
+        val textSection = byteArrayOf(0x22, 0x00) + le16(textLen) + displayText
+
+        // 3. post-text: 02 00 2B 10 02 00 2C 01 + LE32(0) + charCount + x-pos(LE32×N) + 0x00
+        val canvasWidth = 84
+        val totalWidth = charCount * 16
+        val startX = maxOf(0, (canvasWidth - totalWidth) / 2)
+        val xPos = ByteArray(charCount * 4)
+        for (i in 0 until charCount) {
+            val x = startX + i * 16
+            xPos[i * 4] = (x and 0xFF).toByte()
+            xPos[i * 4 + 1] = ((x shr 8) and 0xFF).toByte()
+            // bytes 2-3 = zero
         }
-        return bitmap
+        val postText = byteArrayOf(
+            0x02, 0x00, 0x2B, 0x10, 0x02, 0x00, 0x2C, 0x01,
+            0x00, 0x00, 0x00, 0x00          // LE32 flags
+        ) + le16(charCount) + xPos + byteArrayOf(0x00)
+
+        // 4. 逐字符条目: 10 00 10 00 + 32B 列优先位图 = 36B/char
+        val entries = ByteArray(charCount * 36)
+        for (i in 0 until charCount) {
+            val off = i * 36
+            entries[off] = 0x10; entries[off + 1] = 0x00
+            entries[off + 2] = 0x10; entries[off + 3] = 0x00
+            val bitmap = LedMatrixBitmapRenderer.renderCharToColumnMajor(text[i])?.second ?: ByteArray(32)
+            for (j in 0 until minOf(bitmap.size, 32)) {
+                entries[off + 4 + j] = bitmap[j]
+            }
+        }
+
+        // 5. 拼接
+        val assetData = h + textSection + postText + entries
+
+        // 6. Patch UUID
+        uuid.copyInto(assetData, 0, 0, 6)
+        uuid.copyInto(assetData, 24, 0, 5)
+        assetData[29] = 0x00
+
+        Log.v(TAG, "a800资产构建: \"$text\" color=0x${colorRgb565.toString(16)} " +
+            "UUID=${uuid.joinToString("") { "%02X".format(it) }} size=${assetData.size}B")
+
+        // 返回不含 UUID 前缀的载荷 (uploadAsset 自动添加)
+        return assetData.copyOfRange(6, assetData.size)
     }
 
     /**
-     * 显示文字 — 使用 Popusign 资产协议.
-     * 1. 生成 96x16 位图
+     * 显示文字 — 使用 a800 Popusign 资产协议 (结构化文本).
+     * 1. 构建结构化文本资产 (包含 UTF-8 文本 + RGB565 颜色)
      * 2. 上传资产 (D001 + DATA)
      * 3. 节目编辑引用资产 (ED01)
-     * 4. 播放
+     * 4. 播放节目
      *
-     * @param text 显示文字 (最多 6 字符)
+     * @param text    显示文字
      * @param program 节目序号
      */
-    fun sendPopusignText(text: String, program: Int = 0) {
+    fun sendPopusignText(text: String, program: Int = 0, colorRgb565: Int = 0xF800, animationType: AnimationType = AnimationType.STATIC) {
         if (!connected || text.isEmpty()) return
+
         val uuid = nextAssetUuid()
-        val bitmap = generateBitmap(text)
+        val assetPayload = buildPopusignTextAsset(text, colorRgb565, uuid, animationType)
 
-        // 资产数据: [type=0x01(位图)] [bitmap_data(192B)]
-        val assetData = byteArrayOf(0x01) + bitmap
-        Log.i(TAG, "Popusign文字 \"$text\" 位图 ${bitmap.size}B UUID=${uuid.joinToString("") { "%02X".format(it) }}")
+        Log.i(TAG, "Popusign文字 \"$text\" 资产 ${assetPayload.size}B UUID=${uuid.joinToString("") { "%02X".format(it) }}")
 
-        uploadAsset(uuid, assetData)
+        uploadAsset(uuid, assetPayload)
 
-        // 等 ACK 后发 ED01 + 播放
+        // 等 ACK 后发 ED01 + 播放 + 开屏
         val delay = if (fireAndForget) 100L else 200L
         handler.postDelayed({
             programEditWithAsset(0, program, uuid)
         }, delay)
         handler.postDelayed({
-            // 播放节目
             sendCommand(0x0A01, byteArrayOf(0x01, 0x01, 0x53, 0x00, program.toByte()))
             Log.i(TAG, "播放节目 组0 节目$program")
         }, delay + 100)
+        // 官方 APP 在最后发 0E01 01 开屏, 确保设备处于显示状态
+        handler.postDelayed({
+            setScreenOnLegacy(true)
+            Log.i(TAG, "播放后开屏兜底 (0E01 01)")
+        }, delay + 300)
 
         _currentDisplayState.value = DisplayState(
             text = text.take(6),
             color = ComposeColor.White,
+            animCode = AnimationType.STATIC.code,
+            bitmapData = LedMatrixBitmapRenderer.renderTextToColumnMajor(text)
+        )
+    }
+
+    /**
+     * 显示文字 (简化 API, 给外部调用).
+     *
+     * @param text      要显示的文字
+     * @param colorArgb ARGB 颜色 (自动转为 RGB565)
+     */
+    /**
+     * 通过 D501 实时位图显示文字 — 替代资产协议.
+     *
+     * 将文字直接渲染到 96×16 Android Bitmap 上, 转为 RGB565 后通过 D501 发送.
+     * 使用粗体 + 关闭抗锯齿确保像素在 LED 上清晰可见.
+     *
+     * @param text        要显示的文字 (最多 6 字符, 超长截断)
+     * @param colorRgb565 RGB565 颜色值
+     */
+    fun sendTextViaD501(text: String, colorRgb565: Int = 0xF800) {
+        if (!connected || text.isEmpty()) return
+
+        powerOn()
+        setDeviceState(3)
+
+        val w = 96
+        val h = 16
+        val chars = text.take(6)
+
+        // 先通过 D517 将屏幕清黑
+        fillRectInternal(0x0000, 0, 0, w, h)
+
+        // 渲染文字到临时 bitmap 提取像素坐标
+        val charWidth = 16
+        val totalWidth = chars.length * charWidth
+        val startX = (w - totalWidth) / 2
+
+        val paint = Paint().apply {
+            color = Color.WHITE
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            isFakeBoldText = true
+            isAntiAlias = false
+            textAlign = Paint.Align.CENTER
+        }
+        val fm = paint.fontMetrics
+        val textY = (h - fm.top - fm.bottom) / 2f
+
+        val charBmp = Bitmap.createBitmap(charWidth, h, Bitmap.Config.ARGB_8888)
+        val charCanvas = Canvas(charBmp)
+        val pxBuf = IntArray(charWidth * h)
+        val pixelList = mutableListOf<PixelD508>() // (x, y, colorRgb565)
+        for ((i, ch) in chars.withIndex()) {
+            charCanvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            charCanvas.drawText(ch.toString(), charWidth / 2f, textY, paint)
+            charBmp.getPixels(pxBuf, 0, charWidth, 0, 0, charWidth, h)
+            val dstX = startX + i * charWidth
+            for (row in 0 until h) {
+                for (col in 0 until charWidth) {
+                    val alpha = (pxBuf[row * charWidth + col] ushr 24) and 0xFF
+                    if (alpha > 0) {
+                        val px = dstX + col
+                        if (px in 0 until w) {
+                            pixelList.add(PixelD508(px, row, colorRgb565))
+                        }
+                    }
+                }
+            }
+        }
+        charBmp.recycle()
+
+        Log.i(TAG, "D508文字 \"$chars\" 像素=${pixelList.size} color=0x${colorRgb565.toString(16)} startX=$startX")
+
+        handler.postDelayed({
+            sendPixelsD508(pixelList)
+        }, 200) // D517 清黑后稍等再描像素
+    }
+
+    /**
+     * 通过 D508 像素着色协议发送像素列表.
+     * 每帧最多 40 像素 (MTU 247: 240 数据字节 / 6 字节每像素).
+     */
+    private data class PixelD508(val x: Int, val y: Int, val colorRgb565: Int)
+
+    private fun sendPixelsD508(pixels: List<PixelD508>) {
+        if (!connected || pixels.isEmpty()) return
+
+        val pixelBytes = ByteArray(6) // reused per pixel
+        val perFrame = 40
+        var sent = 0
+        for (batchStart in pixels.indices step perFrame) {
+            val batch = pixels.subList(batchStart, minOf(batchStart + perFrame, pixels.size))
+            val args = ByteArray(batch.size * 6)
+            var off = 0
+            for (p in batch) {
+                // X LE16
+                args[off] = (p.x and 0xFF).toByte()
+                args[off + 1] = ((p.x shr 8) and 0xFF).toByte()
+                // Y LE16
+                args[off + 2] = (p.y and 0xFF).toByte()
+                args[off + 3] = ((p.y shr 8) and 0xFF).toByte()
+                // COLOR LE16
+                args[off + 4] = (p.colorRgb565 and 0xFF).toByte()
+                args[off + 5] = ((p.colorRgb565 shr 8) and 0xFF).toByte()
+                off += 6
+            }
+            sendCommand(CMD_FAST_PIXEL_COLOR, args)
+            sent += batch.size
+        }
+        Log.i(TAG, "D508 像素着色完成: $sent 像素")
+    }
+
+    fun sendText(text: String, colorArgb: Int = Color.WHITE, animationType: AnimationType = AnimationType.STATIC) {
+        if (!connected || text.isEmpty()) return
+        val rgb565 = rgb565FromArgb(
+            (colorArgb shr 16) and 0xFF,
+            (colorArgb shr 8) and 0xFF,
+            colorArgb and 0xFF
+        )
+        // 使用 D501 实时位图显示文字 (已验证工作正常)
+        sendTextViaD501(text, colorRgb565 = rgb565)
+        _currentDisplayState.value = DisplayState(
+            text = text.take(6),
+            color = ComposeColor(colorArgb),
             animCode = AnimationType.STATIC.code,
             bitmapData = LedMatrixBitmapRenderer.renderTextToColumnMajor(text)
         )
@@ -1372,8 +1595,21 @@ class LedMatrixManager(private val context: Context) {
      */
     fun sendWhiteScreenD501() {
         if (!connected) return
-        val w = deviceInfo?.width ?: DEFAULT_WIDTH
-        val h = deviceInfo?.height ?: DEFAULT_HEIGHT
+        // D501 需要涂鸦/画板模式 (C001=0x03), 先开机
+        powerOn()
+        setDeviceState(3)
+        // 防止设备信息解析错误导致 OOM: 限制最大 256×64
+        val rawW = deviceInfo?.width ?: DEFAULT_WIDTH
+        val rawH = deviceInfo?.height ?: DEFAULT_HEIGHT
+        // a800 是 96×16, 但设备信息解析坏的场景直接兜底
+        if (rawW > 256 || rawH > 64) {
+            Log.w(TAG, "D501 设备尺寸异常 ${rawW}×${rawH}, 使用默认 96×16")
+        }
+        val w = if (rawW in 1..256) rawW else DEFAULT_WIDTH
+        val h = if (rawH in 1..64) rawH else DEFAULT_HEIGHT
+        if (w != rawW || h != rawH) {
+            Log.w(TAG, "D501 尺寸修正: ${rawW}×${rawH} → ${w}×${h}")
+        }
         val white565 = rgb565FromArgb(0xFF, 0xFF, 0xFF)
         val whitePixelLo = (white565 and 0xFF).toByte()
         val whitePixelHi = ((white565 shr 8) and 0xFF).toByte()
@@ -1599,67 +1835,103 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
-     * 尝试所有已知的炫彩文字格式 — 全面诊断.
-     * 依次尝试: 产线测试 → 文本模式 → GB2312 → 类型标记 → 位图 → 全部循环
+     * 连接后单次诊断 — 纯 D501 路径.
+     * 包含色块/棋盘格等基本图案诊断, 确认像素定位和颜色正确后
+     * 再显示 D501 文字.
+     */
+    /**
+     * 极简诊断序列 — 从零开始逐步测试.
+     *
+     * 时序 (从调用开始):
+     *   0ms:   C001=0xFF 开机
+     * 300ms:   C002 brightness=255 + C002 screenOn
+     * 600ms:   产线测红 (type=0x00) — 不依赖状态, 验证硬件和基础通路
+     * 900ms:   产线测白 (type=0x06)
+     * 1200ms:  C001=0x03 涂鸦模式
+     * 1500ms:  D517 全屏填充白 — 验证涂鸦模式下绘图是否工作
+     * 2000ms:  D501 全白位图 — 验证长数据传输
+     * 3000ms:  D501 红色文字
+     * 4000ms:  完成
      */
     fun tryAllApproaches() {
-        if (!connected) { Log.w(TAG, "未连接, 跳过全面诊断"); return }
-        Log.i(TAG, "═══════ Popusign 协议诊断开始 ═══════")
+        if (!connected) { Log.w(TAG, "未连接, 跳过诊断"); return }
+        Log.i(TAG, "═══════ 极简诊断序列开始 ═══════")
 
-        // Step 1: 产线测试白屏 (确认硬件正常)
+        // Step 1: 开机 + 亮屏
+        handler.postDelayed({ powerOn(); Log.i(TAG, "[诊1] C001=0xFF 开机") }, 0)
         handler.postDelayed({
-            Log.i(TAG, "[诊0] 产线测试白屏 (0x0F01)")
-            sendFactoryTest(0x06)
-        }, 200)
-        handler.postDelayed({ sendFactoryTest(0x07) }, 600)
+            setBrightness(255); setBrightnessLegacy(255)
+            setScreenOn(true); setScreenOnLegacy(true)
+            Log.i(TAG, "[诊2] 亮度255 + 屏幕开")
+        }, 300)
 
-        // Step 2: 资产协议 — 显示 "CP搭子"
-        handler.postDelayed({
-            Log.i(TAG, "[诊1] Popusign资产协议 \"CP搭子\"")
-            sendPopusignText("CP搭子", program = 0)
-        }, 1000)
-        handler.postDelayed({
-            sendCommand(0x0A01, byteArrayOf(0x01, 0x01, 0x53, 0x00, 0x00))
-            Log.i(TAG, "[诊1b] 播放节目 组0 节目0")
-        }, 1300)
+        // Step 2: 产线测试 — 不依赖设备状态
+        handler.postDelayed({ sendFactoryTest(0x00); Log.i(TAG, "[诊3] 产线红") }, 600)
+        handler.postDelayed({ sendFactoryTest(0x06); Log.i(TAG, "[诊4] 产线白") }, 900)
 
-        // Step 3: 旧式亮度+屏幕开关兜底
+        // Step 3: 涂鸦模式 + 简单绘图
         handler.postDelayed({
-            Log.i(TAG, "[诊2] 旧式亮度255 + 屏幕开启")
-            setBrightnessLegacy(255)
-            setScreenOnLegacy(true)
+            setDeviceState(3)
+            Log.i(TAG, "[诊5] C001=0x03 涂鸦模式")
+        }, 1200)
+
+        // Step 4: D517 全屏白填充 (单帧命令, 最简单绘图)
+        handler.postDelayed({
+            val white565 = rgb565FromArgb(0xFF, 0xFF, 0xFF)
+            fillRectInternal(white565, 0, 0, 96, 16)
+            Log.i(TAG, "[诊6] D517 全屏白")
+        }, 1500)
+
+        // Step 5: D501 全白位图 (验证长数据传输)
+        handler.postDelayed({
+            sendWhiteScreenD501()
+            Log.i(TAG, "[诊7] D501 全白位图")
         }, 2000)
 
-        // Step 4: D501 全白位图
+        // Step 6: D501 红色文字
         handler.postDelayed({
-            Log.i(TAG, "[诊3] D501 全白位图")
-            sendWhiteScreenD501()
-        }, 2800)
-
-        // Step 5: 产线测试红绿蓝
-        handler.postDelayed({ Log.i(TAG, "[诊4a] 产线红屏"); sendFactoryTest(0x00) }, 3600)
-        handler.postDelayed({ Log.i(TAG, "[诊4b] 产线绿屏"); sendFactoryTest(0x01) }, 4000)
-        handler.postDelayed({ Log.i(TAG, "[诊4c] 产线蓝屏"); sendFactoryTest(0x02) }, 4400)
-        handler.postDelayed({ sendFactoryTest(0x07) }, 4800)
-
-        // Step 6: 第二个资产节目
-        handler.postDelayed({
-            Log.i(TAG, "[诊5] Popusign资产协议 \"HELLO\"")
-            sendPopusignText("HELLO", program = 1)
-        }, 5200)
-        handler.postDelayed({
-            sendCommand(0x0A01, byteArrayOf(0x01, 0x01, 0x53, 0x00, 0x01))
-        }, 5500)
-
-        // Step 7: 全部节目循环
-        handler.postDelayed({
-            Log.i(TAG, "[诊6] 全部循环播放")
-            playbackPlayAll(byteArrayOf(0x00))
-        }, 6200)
+            sendTextViaD501("CP搭子", colorRgb565 = 0xF800)
+            Log.i(TAG, "[诊8] D501 红色文字")
+        }, 3000)
 
         handler.postDelayed({
-            Log.i(TAG, "═══════ Popusign 协议诊断完成 ═══════")
-        }, 7000)
+            Log.i(TAG, "═══════ 极简诊断序列完成 ═══════")
+        }, 4000)
+    }
+
+    /**
+     * D501 棋盘格: 所有奇数列白色, 偶数列黑色.
+     * 96×16 屏幕: 每列 1 像素宽 × 16 像素高.
+     */
+    private fun sendD501Checkerboard() {
+        val w = 96; val h = 16
+        val bitmap = ByteArray(w * h * 2)
+        for (col in 0 until w step 2) {
+            for (row in 0 until h) {
+                val idx = (row * w + col) * 2
+                bitmap[idx] = 0xFF.toByte()
+                bitmap[idx + 1] = 0xFF.toByte()
+            }
+        }
+        powerOn()
+        setDeviceState(3)
+        handler.postDelayed({ sendRealtimeBitmap(bitmap, force = true) }, 200)
+        Log.i(TAG, "D501棋盘格: 奇数列白 偶数列黑")
+    }
+
+    /** D501 全彩色横条: 填满整个屏幕. */
+    private fun sendD501ColorBar(colorRgb565: Int) {
+        val w = 96; val h = 16
+        val lo = (colorRgb565 and 0xFF).toByte()
+        val hi = ((colorRgb565 shr 8) and 0xFF).toByte()
+        val bitmap = ByteArray(w * h * 2)
+        for (i in bitmap.indices step 2) {
+            bitmap[i] = lo; bitmap[i + 1] = hi
+        }
+        powerOn()
+        setDeviceState(3)
+        handler.postDelayed({ sendRealtimeBitmap(bitmap, force = true) }, 200)
+        Log.i(TAG, "D501色条 color=0x${colorRgb565.toString(16)}")
     }
 
     // ── 播放控制 (0x0A01) ──────────────────────────────────────────
@@ -1943,6 +2215,14 @@ class LedMatrixManager(private val context: Context) {
      *   [30..33] memory_available (LE32)
      */
     private fun parseDeviceInfo(content: ByteArray): DeviceInfo? {
+        // 复合 0x5E 响应处理: 搜索 "GL1696H" 确认 a800 设备
+        val modelStr = String(content, Charsets.UTF_8)
+        if (modelStr.contains("GL1696H")) {
+            return DeviceInfo(model = "GL1696H", width = 96, height = 16,
+                versionMajor = 0, versionMinor = 0, versionPatch = 0,
+                id = ByteArray(8), memory = 0, memoryAvailable = 0, orientation = 0)
+        }
+        // 非复合帧: 标准解析格式 (cmd + model + version + dimensions)
         if (content.size < 34) return null
         return try {
             val p = 2  // 跳过命令码回声
@@ -1962,29 +2242,6 @@ class LedMatrixManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "解析设备信息异常: ${e.message}"); null
         }
-    }
-
-    // ────────────────────────────────────────────────────────────────
-    // 文字显示 — 以 节目编辑(0xED01) + 播放控制(0x0A01) 为底层手段
-    // ────────────────────────────────────────────────────────────────
-
-    /**
-     * 在屏幕上显示文字 — 使用 Popusign 资产协议.
-     * 连接后自动调用, 无需等待 readyToDisplay.
-     *
-     * @param text    要显示的文字 (最多 6 个字符)
-     * @param colorArgb 颜色 (单色, 仅用于预览; 设备上统一白色)
-     */
-    fun sendText(text: String, colorArgb: Int = Color.WHITE) {
-        if (!connected || text.isEmpty()) return
-        sendPopusignText(text)
-        handler.postDelayed({ playbackPlay() }, 200)
-        _currentDisplayState.value = DisplayState(
-            text = text.take(6),
-            color = ComposeColor(colorArgb),
-            animCode = AnimationType.STATIC.code,
-            bitmapData = LedMatrixBitmapRenderer.renderTextToColumnMajor(text)
-        )
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -2054,7 +2311,7 @@ class LedMatrixManager(private val context: Context) {
                         animCode = command.animation.code,
                         bitmapData = LedMatrixBitmapRenderer.renderTextToColumnMajor(command.text)
                     )
-                    if (connected) sendText(command.text, colorArgb = command.color ?: android.graphics.Color.WHITE)
+                    if (connected) sendText(command.text, colorArgb = command.color ?: android.graphics.Color.WHITE, animationType = command.animation)
                 }
             }
             is DisplayCommand.BlueLine -> {
@@ -2151,7 +2408,8 @@ class LedMatrixManager(private val context: Context) {
         if (!d.isOnroad && !d.isNavigating) {
             if (!welcomeShown) {
                 welcomeShown = true
-                return DisplayCommand.Text("CP搭子 Carrot Pilot智驾领航外挂", 0xFF33CCFF.toInt(), AnimationType.SCROLL_LEFT)
+                // D501 最多 6 字符 (96px/16px)
+                return DisplayCommand.Text("CP搭子", 0xFF33CCFF.toInt(), AnimationType.STATIC)
             }
             if (now - lastAutoSendTime > 30_000) {
                 return DisplayCommand.Text("CP搭子", 0xFF33CCFF.toInt(), AnimationType.STATIC)
