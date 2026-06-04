@@ -482,6 +482,119 @@ fun LedMatrixDialog(
                         }
                     }
 
+                    // ── 诊断命令区 (不依赖 displayReady) ───────────────
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                localized("诊断命令（连接即用）", "Diagnostics (always available)"),
+                                color = Color(0xFFFBBF24), fontSize = 11.sp, fontWeight = FontWeight.Medium
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // D517 全屏白填充 — 单帧命令, 最关键的诊断
+                                OutlinedButton(
+                                    onClick = { ledManager.fillScreenWhite() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFFFFF)),
+                                    border = BorderStroke(1.dp, Color(0xFF888888)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("D517白屏", "D517 W"), fontSize = 11.sp) }
+
+                                // D501 全白位图 — 长数据传输诊断
+                                OutlinedButton(
+                                    onClick = { ledManager.sendWhiteScreenD501() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF88CCFF)),
+                                    border = BorderStroke(1.dp, Color(0xFF2D5A7F)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("D501白屏", "D501 W"), fontSize = 11.sp) }
+
+                                // 组合诊断: 新式+旧式亮度255 + 屏幕开关
+                                OutlinedButton(
+                                    onClick = { ledManager.sendDiagnosticEnable() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFBBF24)),
+                                    border = BorderStroke(1.dp, Color(0xFF92400E)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("强制亮屏", "Force On"), fontSize = 11.sp) }
+                                // 综合诊断
+                                OutlinedButton(
+                                    onClick = { ledManager.runFullDiagnostic() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF4444)),
+                                    border = BorderStroke(1.dp, Color(0xFF7F0000)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("综合诊断", "Diag All"), fontSize = 11.sp) }
+                                // 全面格式诊断
+                                OutlinedButton(
+                                    onClick = { ledManager.tryAllApproaches() },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF88FF)),
+                                    border = BorderStroke(1.dp, Color(0xFF7F007F)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("全面诊断", "All Test"), fontSize = 11.sp) }
+                            }
+                        }
+                    }
+
+                    // ── 产线测试诊断 ─────────────────────────────────
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                localized("产线测试（不依赖设备状态）", "Factory Test (state-independent)"),
+                                color = Color(0xFF64748B), fontSize = 11.sp, fontWeight = FontWeight.Medium
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // 白色全屏 — 最关键的诊断项
+                                OutlinedButton(
+                                    onClick = { ledManager.sendFactoryTest(0x06) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDDDDDD)),
+                                    border = BorderStroke(1.dp, Color(0xFF555555)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("白屏", "White"), fontSize = 12.sp) }
+
+                                OutlinedButton(
+                                    onClick = { ledManager.sendFactoryTest(0x00) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                                    border = BorderStroke(1.dp, Color(0xFF7F1D1D)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("红屏", "Red"), fontSize = 12.sp) }
+
+                                OutlinedButton(
+                                    onClick = { ledManager.sendFactoryTest(0x01) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF22C55E)),
+                                    border = BorderStroke(1.dp, Color(0xFF166534)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("绿屏", "Green"), fontSize = 12.sp) }
+
+                                OutlinedButton(
+                                    onClick = { ledManager.sendFactoryTest(0x02) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF3388FF)),
+                                    border = BorderStroke(1.dp, Color(0xFF1E3A5F)),
+                                    enabled = ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING
+                                ) { Text(localized("蓝屏", "Blue"), fontSize = 12.sp) }
+                            }
+                        }
+                    }
+
                     // ── 设备信息 ─────────────────────────────────────
                     item {
                         val info = deviceInfo
