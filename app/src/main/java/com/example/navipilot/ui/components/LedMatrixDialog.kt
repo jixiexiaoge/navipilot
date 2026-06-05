@@ -169,8 +169,8 @@ fun LedMatrixDialog(
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             text = localized(
-                                "96×16 点阵，按官方协议上传文字资产并切换到节目播放。自定义文字最多 6 个字，支持颜色和动画（左移/右移/闪烁）。",
-                                "96×16 matrix, uploads text as an official asset and switches to program playback. Custom text supports up to 6 characters with color and animation."
+                                "96×16 点阵，按官方协议上传文字资产并切换到节目播放。自定义文字最多 64 个字，支持颜色和动画（左移/右移/闪烁）。",
+                                "96×16 matrix, uploads text as an official asset and switches to program playback. Custom text supports up to 64 characters with color and animation."
                             ),
                             color = Color.White,
                             fontSize = 13.sp
@@ -198,18 +198,18 @@ fun LedMatrixDialog(
                                     customText = value
                                         .replace("\n", "")
                                         .replace("\r", "")
-                                        .take(6)
+                                        .take(64)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 label = {
-                                    Text(localized("最多 6 个字符", "Up to 6 characters"))
+                                    Text(localized("最多 64 个字符", "Up to 64 characters"))
                                 }
                             )
                             Text(
                                 text = localized(
-                                    "字数：${customText.length}/6",
-                                    "Length: ${customText.length}/6"
+                                    "字数：${customText.length}/64",
+                                    "Length: ${customText.length}/64"
                                 ),
                                 color = Color(0xFF94A3B8),
                                 fontSize = 12.sp
