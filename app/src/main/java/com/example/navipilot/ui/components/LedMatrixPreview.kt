@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -71,8 +72,11 @@ fun LedMatrixPreview(
         label = "flicker"
     )
 
-    val renderedBitmaps = remember(text, bitmapData) {
-        if (bitmapData.isNotEmpty()) bitmapData else LedMatrixBitmapRenderer.renderTextToColumnMajor(text)
+    val ctx = LocalContext.current
+    val renderedBitmaps = remember(text, bitmapData, ctx) {
+        if (bitmapData.isNotEmpty()) bitmapData else {
+            LedMatrixBitmapRenderer.renderTextToColumnMajor(text, ctx)
+        }
     }
 
     BoxWithConstraints(
@@ -197,10 +201,10 @@ private fun LedDotMatrixCanvas(
                     }
 
                     if (bit == 1) {
-                        // 设备位图为列优先方向，预览里按转置后的坐标绘制，
-                        // 等价于先旋转90度再左右调换，使文字按正常阅读方向显示。
-                        val displayCol = sourceRow
-                        val displayRow = sourceCol
+                        // 字形数据已由 renderTextToColumnMajor 完成左右半屏交换和逆时针旋转，
+                        // 预览直接按列优先坐标 (col, row) 绘制即可匹配设备显示效果。
+                        val displayCol = sourceCol
+                        val displayRow = sourceRow
                         val absX = xOffset + displayCol * (dotSize + spacingX)
 
                         if (absX < -dotSize || absX > canvasWidth) continue

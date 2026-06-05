@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,6 +29,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +41,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.navipilot.ui.utils.localized
+
+private data class LedTextColorOption(
+    val label: String,
+    val color: Color
+)
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -53,6 +60,30 @@ fun LedMatrixDialog(
     var ledState by remember { mutableStateOf(ledManager.state) }
     var ledMessage by remember { mutableStateOf(ledManager.stateMessage) }
     var deviceList by remember { mutableStateOf<List<android.bluetooth.BluetoothDevice>>(emptyList()) }
+    var customText by rememberSaveable { mutableStateOf("") }
+    var selectedColorIndex by rememberSaveable { mutableStateOf(0) }
+    var selectedAnimIndex by rememberSaveable { mutableStateOf(0) }
+
+    data class LedAnimOption(
+        val label: String,
+        val code: Int
+    )
+
+    val colorOptions = remember {
+        listOf(
+            LedTextColorOption(localized("蓝色", "Blue"), Color(0xFF3388FF)),
+            LedTextColorOption(localized("红色", "Red"), Color(0xFFFF4D4F)),
+        )
+    }
+
+    val animOptions = remember {
+        listOf(
+            LedAnimOption(localized("静态", "Static"), LedMatrixManager.ANIM_STATIC),
+            LedAnimOption(localized("左移", "Left"), LedMatrixManager.ANIM_LEFT),
+            LedAnimOption(localized("右移", "Right"), LedMatrixManager.ANIM_RIGHT),
+            LedAnimOption(localized("闪烁", "Blink"), LedMatrixManager.ANIM_BLINK)
+        )
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -119,7 +150,7 @@ fun LedMatrixDialog(
                     LedMatrixManager.State.SCANNING -> localized("扫描中…", "Scanning…")
                     LedMatrixManager.State.CONNECTING -> localized("连接中…", "Connecting…")
                     LedMatrixManager.State.CONNECTED -> localized("已连接", "Connected")
-                    LedMatrixManager.State.SENDING -> localized("正在点亮蓝条…", "Lighting blue band…")
+                    LedMatrixManager.State.SENDING -> localized("正在上传节目…", "Uploading program…")
                     LedMatrixManager.State.ERROR -> localized("错误", "Error")
                 }
                 Text(
@@ -138,8 +169,8 @@ fun LedMatrixDialog(
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             text = localized(
-                                "当前版本只保留一个功能：连接成功后自动进入涂鸦模式，并将 96×16 面板中间 96×6 区域点亮为蓝色。",
-                                "This version only keeps one feature: after connecting, it switches to doodle mode and lights the centered 96x6 area blue on the 96x16 panel."
+                                "96×16 点阵，按官方协议上传文字资产并切换到节目播放。自定义文字最多 6 个字，支持颜色和动画（左移/右移/闪烁）。",
+                                "96×16 matrix, uploads text as an official asset and switches to program playback. Custom text supports up to 6 characters with color and animation."
                             ),
                             color = Color.White,
                             fontSize = 13.sp
@@ -148,12 +179,190 @@ fun LedMatrixDialog(
                 }
 
                 if (ledState == LedMatrixManager.State.CONNECTED || ledState == LedMatrixManager.State.SENDING) {
-                    Button(
-                        onClick = { ledManager.disconnect() },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF1E293B)
                     ) {
-                        Text(localized("断开连接", "Disconnect"))
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = localized("自定义文本", "Custom text"),
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            OutlinedTextField(
+                                value = customText,
+                                onValueChange = { value ->
+                                    customText = value
+                                        .replace("\n", "")
+                                        .replace("\r", "")
+                                        .take(6)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = {
+                                    Text(localized("最多 6 个字符", "Up to 6 characters"))
+                                }
+                            )
+                            Text(
+                                text = localized(
+                                    "字数：${customText.length}/6",
+                                    "Length: ${customText.length}/6"
+                                ),
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = localized("文字颜色", "Text color"),
+                                    color = Color.White,
+                                    fontSize = 13.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    colorOptions.forEachIndexed { index, option ->
+                                        val selected = selectedColorIndex == index
+                                        Surface(
+                                            onClick = { selectedColorIndex = index },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (selected) option.color.copy(alpha = 0.22f) else Color(0xFF0F172A),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = if (selected) 2.dp else 1.dp,
+                                                color = if (selected) option.color else Color(0xFF334155)
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(vertical = 10.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = option.color
+                                                ) {
+                                                    Spacer(
+                                                        modifier = Modifier
+                                                            .height(16.dp)
+                                                            .fillMaxWidth(0.18f)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = option.label,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = localized("动画效果", "Animation"),
+                                    color = Color.White,
+                                    fontSize = 13.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    animOptions.forEachIndexed { index, option ->
+                                        val selected = selectedAnimIndex == index
+                                        Surface(
+                                            onClick = { selectedAnimIndex = index },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (selected) Color(0xFF3B82F6).copy(alpha = 0.22f) else Color(0xFF0F172A),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                width = if (selected) 2.dp else 1.dp,
+                                                color = if (selected) Color(0xFF3B82F6) else Color(0xFF334155)
+                                            )
+                                        ) {
+                                            Text(
+                                                text = option.label,
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    ledManager.sendCustomText(
+                                        text = customText,
+                                        color = colorOptions[selectedColorIndex].color,
+                                        animCode = animOptions[selectedAnimIndex].code
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = customText.isNotBlank()
+                            ) {
+                                Text(localized("发送文本", "Send text"))
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { ledManager.sendDebugOfficialText() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF6366F1)
+                                    )
+                                ) {
+                                    Text(
+                                        text = localized("调试发送(官方)", "Debug(official)"),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Text(
+                                    text = localized(
+                                        "发送后会持续保留，直到你再次手动发送新的节目。",
+                                        "The content stays on the panel until you manually send a new program."
+                                    ),
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.weight(2f)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { ledManager.disconnect() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                        ) {
+                            Text(localized("断开连接", "Disconnect"))
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text(
+                            text = localized(
+                                "如官方APP也无法发送，请断开设备电源30秒以上重置",
+                                "If official app also fails, tap [Clear] button or power-cycle device (>30s)"
+                            ),
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
                     }
                 } else {
                     Button(
@@ -184,7 +393,7 @@ fun LedMatrixDialog(
 
                 if (deviceList.isNotEmpty() && ledState != LedMatrixManager.State.CONNECTED && ledState != LedMatrixManager.State.SENDING) {
                     Text(
-                        text = localized("点击设备后会自动点亮蓝色中带", "Tap a device to connect and light the blue band"),
+                        text = localized("点击设备后会进入官方节目上传流程", "Tap a device to start the official upload flow"),
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
