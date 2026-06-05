@@ -1308,16 +1308,29 @@ class LedMatrixManager(private val context: Context) {
     }
 
     /**
-     * 在屏幕中间点亮蓝色灯带（第6-10列）
+     * 在屏幕中间点亮蓝色灯带（横穿第6-10行，全宽96列）
+     *
+     * 协议要求：必须先切换到涂鸦模式(C001 01 03)，然后 D517 实色填充才能生效。
+     * 参考协议分析 §10.3 涂鸦模式流程：
+     *   APP → C001 01 03 (涂鸦模式)
+     *   APP → D517 (实色填充)
      */
     fun fillBlueStrip() {
         if (bluetoothGatt == null || txCharacteristic == null) {
             updateState(State.ERROR, "请先连接LED点阵屏")
             return
         }
-        val blue565 = 0x001F  // RGB565 Blue
-        sendPanelFill(blue565, 6, 0, 5, 16)
-        Log.i(TAG, "已发送蓝色灯带: cols 6-10")
+        Log.i(TAG, "开始蓝色灯带: 先切涂鸦模式, 再填充 rows 6-10 × cols 0-95")
+        // 第1步: 切换到涂鸦模式
+        sendDoodleMode()
+        // 第2步: 等设备切到涂鸦模式后, 发送填充命令
+        handler.postDelayed({
+            if (bluetoothGatt == null || txCharacteristic == null) return@postDelayed
+            val blue565 = 0x001F  // RGB565 Blue
+            sendPanelFill(blue565, 0, 6, 96, 5)
+            Log.i(TAG, "蓝色灯带已发送: rows 6-10 × cols 0-95, color=0x001F")
+            updateState(State.CONNECTED, "蓝色灯带已点亮")
+        }, 200L)
     }
 
     /**
