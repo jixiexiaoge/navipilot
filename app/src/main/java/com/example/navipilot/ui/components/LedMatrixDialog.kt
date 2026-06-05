@@ -350,6 +350,13 @@ fun LedMatrixDialog(
                         ) {
                             Text(localized("断开连接", "Disconnect"))
                         }
+                        Button(
+                            onClick = { ledManager.fillBlueStrip() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))
+                        ) {
+                            Text(localized("蓝色灯带", "Blue strip"), fontSize = 12.sp)
+                        }
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),

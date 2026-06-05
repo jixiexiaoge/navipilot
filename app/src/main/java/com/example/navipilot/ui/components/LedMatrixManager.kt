@@ -159,38 +159,34 @@ internal object LedMatrixBitmapRenderer {
         if (char.code > 0x7F) return null
         val paint = Paint().apply {
             color = android.graphics.Color.WHITE
-            textSize = 24f
+            textSize = 32f
             typeface = Typeface.MONOSPACE
             isAntiAlias = false
         }
-        val bmp = Bitmap.createBitmap(16, 24, Bitmap.Config.ARGB_8888)
+        val bmp = Bitmap.createBitmap(16, 32, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp).apply { drawColor(android.graphics.Color.BLACK) }
         val fm = paint.fontMetrics
         val totalH = fm.descent - fm.ascent
-        val y = (24f - totalH) / 2f - fm.ascent
+        val y = (32f - totalH) / 2f - fm.ascent
         canvas.drawText(char.toString(), 0f, y, paint)
 
-        // MONOSPACE 8x16 字体字符绘制在 bitmap 列 0-7
-        // 居中放置到 16 列结果中 (左右各留 4 列空白)
+        // 8x16 字符直接读取，不扩展
         val result = ByteArray(32)
-        val srcStart = 0      // 字符在 bitmap 中的起始列
-        val dstStart = 4      // 16 列中留 4 列空白，再放置 8 列字符
+        val srcStart = 0  // 字符在 bitmap 列 0-7
 
         for (col in 0 until 16) {
-            val srcCol = if (col in dstStart until dstStart + 8) col - dstStart + srcStart else -1
+            val srcCol = if (col < 8) srcStart + col else srcStart + (col - 8)
             var lower = 0
             var upper = 0
-            if (srcCol in 0..15) {
-                for (row in 0 until 16) {
-                    val px = bmp.getPixel(srcCol, row + 4)
-                    val lum = ((px shr 16) and 0xFF).coerceAtLeast((px shr 8) and 0xFF).coerceAtLeast(px and 0xFF)
-                    val bit = if (lum > 0x80) 1 else 0
-                    if (bit == 1) {
-                        if (row < 8) {
-                            lower = lower or (1 shl row)
-                        } else {
-                            upper = upper or (1 shl (row - 8))
-                        }
+            for (row in 0 until 16) {
+                val px = bmp.getPixel(srcCol, row + 8)
+                val lum = ((px shr 16) and 0xFF).coerceAtLeast((px shr 8) and 0xFF).coerceAtLeast(px and 0xFF)
+                val bit = if (lum > 0x80) 1 else 0
+                if (bit == 1) {
+                    if (row < 8) {
+                        lower = lower or (1 shl row)
+                    } else {
+                        upper = upper or (1 shl (row - 8))
                     }
                 }
             }
@@ -1309,6 +1305,19 @@ class LedMatrixManager(private val context: Context) {
             le16(width) +
             le16(height)
         sendCommand(CMD_FILL_RECT, args)
+    }
+
+    /**
+     * 在屏幕中间点亮蓝色灯带（第6-10列）
+     */
+    fun fillBlueStrip() {
+        if (bluetoothGatt == null || txCharacteristic == null) {
+            updateState(State.ERROR, "请先连接LED点阵屏")
+            return
+        }
+        val blue565 = 0x001F  // RGB565 Blue
+        sendPanelFill(blue565, 6, 0, 5, 16)
+        Log.i(TAG, "已发送蓝色灯带: cols 6-10")
     }
 
     /**
