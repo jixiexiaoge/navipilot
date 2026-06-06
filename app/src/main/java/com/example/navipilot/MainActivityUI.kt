@@ -78,13 +78,8 @@ import com.example.navipilot.ui.components.OsmMapView
 import com.example.navipilot.ui.components.ProfilePage
 import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
-import com.example.navipilot.ui.components.LaneCard
-import com.example.navipilot.ui.components.LaneChangeReminder
-import com.example.navipilot.ui.components.LedMatrixPreview
-import com.example.navipilot.data.SshConnectionManager
 import com.example.navipilot.ui.components.OnboardingScreen
 import com.example.navipilot.ui.components.TencentNavPage
-import com.example.navipilot.ui.components.AmapMobileNavPage
 import com.example.navipilot.ui.components.GoogleNavPage
 import com.example.navipilot.navigation.GoogleNavManager
 import com.example.navipilot.ui.components.GoogleWelcomeDialog
@@ -161,61 +156,6 @@ class MainActivityUI(
                 return@NavipilotTheme
             }
             
-            // 🤖 LED 自动化显示引擎 — 应用级别，不受页面切换影响
-            val ledContext = LocalContext.current
-            val ledManager = remember { com.example.navipilot.ui.components.LedMatrixManager.getInstance(ledContext) }
-            var isLedConnectedGlobal by remember { mutableStateOf(
-                ledManager.state == com.example.navipilot.ui.components.LedMatrixManager.State.CONNECTED ||
-                ledManager.state == com.example.navipilot.ui.components.LedMatrixManager.State.SENDING
-            ) }
-            LaunchedEffect(Unit) {
-                val prevCallback = ledManager.onStateChanged
-                ledManager.onStateChanged = { state, msg ->
-                    isLedConnectedGlobal = (state == com.example.navipilot.ui.components.LedMatrixManager.State.CONNECTED ||
-                        state == com.example.navipilot.ui.components.LedMatrixManager.State.SENDING)
-                    prevCallback?.invoke(state, msg)
-                }
-            }
-            LaunchedEffect(Unit) {
-                while (true) {
-                    delay(800)
-                    val fields = core.carrotManFields.value
-                    val xiaogeSteeringAngle = core.xiaogeData.value?.carState?.steeringAngleDeg ?: 0f
-                    val xiaogeData = core.xiaogeData.value
-                    val xiaogeLeadX = xiaogeData?.modelV2?.lead0?.x ?: 0f
-                    val xiaogeLeadProb = xiaogeData?.modelV2?.lead0?.prob ?: 0f
-                    val xiaogeLeftBlind = xiaogeData?.carState?.leftBlindspot ?: false
-                    val xiaogeRightBlind = xiaogeData?.carState?.rightBlindspot ?: false
-                    // 车速 (m/s -> km/h)
-                    val xiaogeSpeedKmh = (xiaogeData?.carState?.vEgo ?: 0f) * 3.6f
-                    ledManager.updateAutoDisplay(
-                        com.example.navipilot.ui.components.LedMatrixManager.AutoDisplayData(
-                            isOnroad = fields.isOnroad,
-                            isNavigating = fields.isNavigating,
-                            active = fields.active,
-                            xState = fields.xState,
-                            vEgoKph = fields.vEgoKph,
-                            nSdiDist = fields.nSdiDist,
-                            nSdiSpeedLimit = fields.nSdiSpeedLimit,
-                            nSdiType = fields.nSdiType,
-                            nTBTDist = fields.nTBTDist,
-                            nTBTTurnType = fields.nTBTTurnType,
-                            szTBTMainText = fields.szTBTMainText,
-                            trafficState = fields.trafficState,
-                            nRoadLimitSpeed = fields.nRoadLimitSpeed,
-                            leftBlindspot = xiaogeLeftBlind || fields.tencentSlice.leftLaneVehicle,
-                            rightBlindspot = xiaogeRightBlind || fields.tencentSlice.rightLaneVehicle,
-                            leadDistance = xiaogeLeadX,
-                            leadProb = xiaogeLeadProb,
-                            steeringAngleDeg = xiaogeSteeringAngle,
-                            nGoPosDist = fields.nGoPosDist,
-                            atcType = fields.atcType,
-                            vTurnSpeed = fields.vTurnSpeed,
-                        )
-                    )
-                }
-            }
-
             // 🆕 导航结束自动跳转到驾驶报告页面
             var wasNavigating by remember { mutableStateOf(false) }
             LaunchedEffect(core.carrotManFields.value.isNavigating) {
@@ -233,7 +173,7 @@ class MainActivityUI(
             }
 
             // 🚗 停车位置记录功能
-            val prefs = remember { ledContext.getSharedPreferences("CarrotAmap", Context.MODE_PRIVATE) }
+            val prefs = remember { appContext.getSharedPreferences("CarrotAmap", Context.MODE_PRIVATE) }
             var lastRecordedSpeed by remember { mutableStateOf(-1f) }
 
             // 🆕 读取保存的停车位置
@@ -294,17 +234,16 @@ class MainActivityUI(
                         core.persistUserSelectedNavMode()
                     }
                     navMode = when (core.userSelectedMode) {
-                        "TENCENT" -> NavMode.TMAP
+                        "TENCENT" -> NavMode.TENCENT
                         "GOOGLE" -> NavMode.GOOGLE
                         "AMAP" -> NavMode.AMAP_AUTO
-                        "AMAP_MOBILE" -> NavMode.AMAP_MOBILE
                         else -> NavMode.AMAP_AUTO
                     }
                     // 用户类型 3（赞助者）每日自动回退到高德车机版
                     if (core.userType.value == 3 &&
-                        (navMode == NavMode.TMAP || navMode == NavMode.AMAP_MOBILE)
+                        (navMode == NavMode.TENCENT)
                     ) {
-                        val resetPrefs = ledContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
+                        val resetPrefs = appContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
                         val today = java.time.LocalDate.now().toString()
                         val lastReset = resetPrefs.getString("user3_daily_reset", "") ?: ""
                         if (lastReset != today) {
@@ -319,10 +258,8 @@ class MainActivityUI(
                 // 地图源选择处理：这里只更新偏好，不立即跳转或拉起地图
                 fun handleModeChange(mode: NavMode) {
                     core.userSelectedMode = when (mode) {
-                        NavMode.TMAP -> "TENCENT"
+                        NavMode.TENCENT -> "TENCENT"
                         NavMode.AMAP_AUTO -> "AMAP"
-                        NavMode.AMAP_MOBILE -> "AMAP_MOBILE"
-                        NavMode.OSM -> "AMAP" // 下拉已移除 OSM，兜底归一车机高德
                         NavMode.GOOGLE -> "GOOGLE"
                     }
                     core.persistUserSelectedNavMode()
@@ -441,32 +378,15 @@ class MainActivityUI(
         var showAdvancedDialog by remember { mutableStateOf(false) }
         // 点击首页 LED 预览条：全屏 7706 JSON 调试
         var show7706JsonDebug by remember { mutableStateOf(false) }
-        // 车道信息卡片 / LED 预览切换（默认显示车道卡）
-        var showLaneCard by remember { mutableStateOf(true) }
         val carrotFieldsLive by core.carrotManFields
-        val currentLane = data?.overtakeStatus?.currentLane ?: 0
         val mapContext = LocalContext.current
 
-        // 变道提醒管理器（SoundPool + 冷却）
-        val laneChangeReminder = remember {
-            LaneChangeReminder(mapContext)
-        }
-        DisposableEffect(Unit) {
-            onDispose { laneChangeReminder.cleanup() }
-        }
-
         // ===== 面板显示用状态（由 OsmMapView 回调更新）=====
-        var isLedConnected by remember { mutableStateOf(false) }
         var homeAddressSet by remember { mutableStateOf(false) }
         var companyAddressSet by remember { mutableStateOf(false) }
 
-        // LED 实时预览状态
-        val ledManager = remember { com.example.navipilot.ui.components.LedMatrixManager.getInstance(mapContext) }
-        val ledDisplayState by ledManager.currentDisplayState.collectAsState()
-
         // ===== 动作触发器（面板按钮点击时递增，OsmMapView 监听执行内部逻辑）=====
         var searchShowTrigger by remember { mutableIntStateOf(0) }
-        var ledMatrixTrigger by remember { mutableIntStateOf(0) }
         var homeNavTrigger by remember { mutableIntStateOf(0) }
         var homeNavLongTrigger by remember { mutableIntStateOf(0) }
         var companyNavTrigger by remember { mutableIntStateOf(0) }
@@ -592,12 +512,10 @@ class MainActivityUI(
                 onNavigateToParked = { navigateToParkedCar() },
                 commaConnectionState = commaConnectionState,
                 searchShowTrigger = searchShowTrigger,
-                ledMatrixTrigger = ledMatrixTrigger,
                 homeNavTrigger = homeNavTrigger,
                 homeNavLongTrigger = homeNavLongTrigger,
                 companyNavTrigger = companyNavTrigger,
                 companyNavLongTrigger = companyNavLongTrigger,
-                onLedConnectionChange = { isLedConnected = it },
                 onHomeAddressChange = { homeAddressSet = it },
                 onCompanyAddressChange = { companyAddressSet = it },
                 modifier = Modifier.fillMaxSize()
@@ -626,27 +544,6 @@ class MainActivityUI(
                                     onExitTencentMode = { core.exitTencentMode() },
                                     onBack = {
                                         core.exitTencentMode()
-                                        // 切换回默认地图服务
-                                        core.userSelectedMode = "AMAP"
-                                        core.persistUserSelectedNavMode()
-                                    }
-                                )
-                            }
-                        }
-                        "AMAP_MOBILE" -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                AmapMobileNavPage(
-                                    carrotManFieldsState = core.carrotManFields,
-                                    goalLat = core.carrotManFields.value.goalPosY,
-                                    goalLon = core.carrotManFields.value.goalPosX,
-                                    goalName = core.carrotManFields.value.szGoalName,
-                                    currentLat = currentNavStartLat,
-                                    currentLon = currentNavStartLon,
-                                    networkClient = core.networkManager.getNetworkClient(),
-                                    onEnterAmapMobileMode = { core.switchToAmapMobileMode() },
-                                    onExitAmapMobileMode = { core.exitAmapMobileMode() },
-                                    onBack = {
-                                        core.exitAmapMobileMode()
                                         // 切换回默认地图服务
                                         core.userSelectedMode = "AMAP"
                                         core.persistUserSelectedNavMode()
@@ -700,32 +597,21 @@ class MainActivityUI(
                     navMode = navMode,
                     onModeChange = onModeChange,
                     carrotManFields = carrotManFields,
-                    showLaneCard = showLaneCard,
-                    onLaneCardClick = { showLaneCard = false },
-                    currentLane = currentLane,
                     isPortrait = true,
                     userType = userType,
                     cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
                     carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
                     carrotParamClient = core.getCarrotParamClientSafely(),
-                    isLedConnected = isLedConnected,
-                    ledDisplayText = ledDisplayState.text,
-                    ledDisplayColor = ledDisplayState.color,
-                    ledAnimCode = ledDisplayState.animCode,
-                    ledDisplayBitmapData = ledDisplayState.bitmapData,
                     homeAddressSet = homeAddressSet,
                     companyAddressSet = companyAddressSet,
                     commaConnectionState = commaConnectionState,
                     onShowAdvancedDialog = { showAdvancedDialog = true },
                     onPageChange = onPageChange,
                     onSearchClick = { searchShowTrigger++ },
-                    onLedMatrixClick = { ledMatrixTrigger++ },
-                    onLedPreviewClick = { show7706JsonDebug = true },
                     onHomeNavClick = { homeNavTrigger++ },
                     onHomeNavLongClick = { homeNavLongTrigger++ },
                     onCompanyNavClick = { companyNavTrigger++ },
                     onCompanyNavLongClick = { companyNavLongTrigger++ },
-                    laneChangeReminder = laneChangeReminder,
                 )
             }
         } else {
@@ -743,32 +629,21 @@ class MainActivityUI(
                     navMode = navMode,
                     onModeChange = onModeChange,
                     carrotManFields = carrotManFields,
-                    showLaneCard = showLaneCard,
-                    onLaneCardClick = { showLaneCard = false },
-                    currentLane = currentLane,
                     isPortrait = false,
                     userType = userType,
                     cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
                     carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
                     carrotParamClient = core.getCarrotParamClientSafely(),
-                    isLedConnected = isLedConnected,
-                    ledDisplayText = ledDisplayState.text,
-                    ledDisplayColor = ledDisplayState.color,
-                    ledAnimCode = ledDisplayState.animCode,
-                    ledDisplayBitmapData = ledDisplayState.bitmapData,
                     homeAddressSet = homeAddressSet,
                     companyAddressSet = companyAddressSet,
                     commaConnectionState = commaConnectionState,
                     onShowAdvancedDialog = { showAdvancedDialog = true },
                     onPageChange = onPageChange,
                     onSearchClick = { searchShowTrigger++ },
-                    onLedMatrixClick = { ledMatrixTrigger++ },
-                    onLedPreviewClick = { show7706JsonDebug = true },
                     onHomeNavClick = { homeNavTrigger++ },
                     onHomeNavLongClick = { homeNavLongTrigger++ },
                     onCompanyNavClick = { companyNavTrigger++ },
                     onCompanyNavLongClick = { companyNavLongTrigger++ },
-                    laneChangeReminder = laneChangeReminder,
                 )
             }
         }
@@ -792,7 +667,7 @@ class MainActivityUI(
             Carrot7706JsonDebugOverlay(
                 fields = carrotFieldsLive,
                 networkClient = core.getNetworkClientSafely(),
-                onDismiss = { show7706JsonDebug = false; showLaneCard = true },
+                onDismiss = { show7706JsonDebug = false },
             )
         }
     }
@@ -873,9 +748,7 @@ class MainActivityUI(
     /** 根据当前选中的导航源显示不同图标（Material 无厂商 Logo，用语义区分车机/手机/腾讯/OSM） */
     private fun mapSourceButtonIcon(navMode: NavMode): ImageVector = when (navMode) {
         NavMode.AMAP_AUTO -> Icons.Default.DirectionsCar   // 高德车机版
-        NavMode.TMAP -> Icons.Default.Navigation             // 腾讯导航
-        NavMode.AMAP_MOBILE -> Icons.Default.Smartphone      // 高德手机版嵌入
-        NavMode.OSM -> Icons.Default.Map                     // 应用内 OSM
+        NavMode.TENCENT -> Icons.Default.Navigation             // 腾讯导航
         NavMode.GOOGLE -> Icons.Default.Explore          // Google 导航
     }
 
@@ -888,9 +761,7 @@ class MainActivityUI(
     ) {
         val mapDesc = localized("选择地图导航", "Choose map provider") + " (" + when (navMode) {
             NavMode.AMAP_AUTO -> localized("高德", "AMap")
-            NavMode.TMAP -> localized("腾讯", "Tencent")
-            NavMode.AMAP_MOBILE -> localized("高德手机", "AMap Mobile")
-            NavMode.OSM -> localized("OSM", "OSM")
+            NavMode.TENCENT -> localized("腾讯", "Tencent")
             NavMode.GOOGLE -> localized("Google", "Google")
         } + ")"
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -948,16 +819,9 @@ class MainActivityUI(
             )
             add(
                 RowDef(
-                    NavMode.TMAP,
+                    NavMode.TENCENT,
                     localized("腾讯导航", "Tencent navigation"),
                     localized("腾讯地图车联", "Tencent Maps integration")
-                )
-            )
-            add(
-                RowDef(
-                    NavMode.AMAP_MOBILE,
-                    localized("高德手机版", "Amap Mobile"),
-                    localized("高德地图手机版导航", "AMap mobile navigation")
                 )
             )
             add(
@@ -974,8 +838,8 @@ class MainActivityUI(
 
         /** 判断该导航源对于当前用户是否可用 */
         fun isModeEnabled(mode: NavMode): Boolean = when (mode) {
-            NavMode.AMAP_AUTO, NavMode.GOOGLE, NavMode.OSM -> true
-            NavMode.TMAP, NavMode.AMAP_MOBILE -> when (userType) {
+            NavMode.AMAP_AUTO, NavMode.GOOGLE -> true
+            NavMode.TENCENT -> when (userType) {
                 4 -> true
                 3 -> mode !in restrictedModesUsedToday
                 else -> false
@@ -1043,7 +907,7 @@ class MainActivityUI(
                     rows.forEach { row ->
                         val isSelected = row.mode == effectiveMode
                         val enabled = isModeEnabled(row.mode)
-                        val displaySubtitle = if (!enabled && (row.mode == NavMode.TMAP || row.mode == NavMode.AMAP_MOBILE)) {
+                        val displaySubtitle = if (!enabled && (row.mode == NavMode.TENCENT)) {
                             disabledSubtitle(row.mode)
                         } else row.subtitle
 
@@ -1063,7 +927,7 @@ class MainActivityUI(
                                 .background(bgColor)
                                 .then(
                                     if (enabled) Modifier.clickable {
-                                        if (userType == 3 && (row.mode == NavMode.TMAP || row.mode == NavMode.AMAP_MOBILE)) {
+                                        if (userType == 3 && (row.mode == NavMode.TENCENT)) {
                                             onRestrictedModeUsed(row.mode)
                                         }
                                         onSelect(row.mode)
@@ -1112,32 +976,21 @@ class MainActivityUI(
         navMode: NavMode,
         onModeChange: (NavMode) -> Unit,
         carrotManFields: CarrotManFields,
-        showLaneCard: Boolean = true,
-        onLaneCardClick: () -> Unit = {},
-        currentLane: Int = 0,
         isPortrait: Boolean,
         userType: Int,
         cruiseSetSpeed: Int,
         carCruiseSpeed: Int,
         carrotParamClient: CarrotParamClient?,
-        isLedConnected: Boolean,
-        ledDisplayText: String,
-        ledDisplayColor: Color,
-        ledAnimCode: Int,
-        ledDisplayBitmapData: List<ByteArray>,
         homeAddressSet: Boolean,
         companyAddressSet: Boolean,
         commaConnectionState: Int = 0, // 0=未连接, 1=已连接, 2=异常
         onShowAdvancedDialog: () -> Unit,
         onPageChange: (Int) -> Unit,
         onSearchClick: () -> Unit,
-        onLedMatrixClick: () -> Unit,
-        onLedPreviewClick: () -> Unit,
         onHomeNavClick: () -> Unit,
         onHomeNavLongClick: () -> Unit,
         onCompanyNavClick: () -> Unit,
         onCompanyNavLongClick: () -> Unit,
-        laneChangeReminder: LaneChangeReminder? = null
     ) {
         val panelContext = LocalContext.current
         val scrollState = rememberScrollState()
@@ -1150,8 +1003,7 @@ class MainActivityUI(
                 val prefs = panelContext.getSharedPreferences("navipilot_prefs", Context.MODE_PRIVATE)
                 val today = java.time.LocalDate.now().toString()
                 restrictedModesUsedToday = setOf(
-                    NavMode.TMAP.takeIf { prefs.getString("restricted_used_TMAP", "") == today },
-                    NavMode.AMAP_MOBILE.takeIf { prefs.getString("restricted_used_AMAP_MOBILE", "") == today }
+                    NavMode.TENCENT.takeIf { prefs.getString("restricted_used_TENCENT", "") == today }
                 ).filterNotNull().toSet()
             }
         }
@@ -1178,11 +1030,6 @@ class MainActivityUI(
 
         val coroutineScope = rememberCoroutineScope()
         val tileBg = Surface800.copy(alpha = 0.72f)
-        val ledBg by animateColorAsState(
-            targetValue = if (isLedConnected) Color(0xFF10B981).copy(alpha = 0.9f) else tileBg,
-            animationSpec = tween(durationMillis = 400),
-            label = "ledBgColor"
-        )
         val searchBgTarget = when (commaConnectionState) {
             1 -> Color(0xFF10B981).copy(alpha = 0.9f)
             2 -> Color(0xFFEF4444).copy(alpha = 0.9f)
@@ -1286,33 +1133,6 @@ class MainActivityUI(
                 horizontalAlignment = if (isPortrait) Alignment.Start else Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (isPortrait) 10.dp else 12.dp)
             ) {
-                // 车道信息卡 / LED 预览切换
-                if (showLaneCard) {
-                    val modelTotalLanes = if (carrotManFields.nLaneCount > 0) carrotManFields.nLaneCount
-                        else if (carrotManFields.laneInfoList.size >= 2) carrotManFields.laneInfoList.size
-                        else 0
-                    LaneCard(
-                        laneConfig = carrotManFields.laneInfoList,
-                        currentLane = currentLane,
-                        confidence = if (currentLane > 0 && carrotManFields.nLaneCount > 0) 0.7f else 0f,
-                        turnDist = carrotManFields.nTBTDist,
-                        turnText = carrotManFields.szTBTMainText,
-                        totalLanesFromModel = modelTotalLanes,
-                        onClick = onLaneCardClick,
-                        laneChangeReminder = laneChangeReminder,
-                        turnType = carrotManFields.nTBTTurnType,
-                    )
-                } else {
-                    val hasRealtimeLedText = ledDisplayText.isNotBlank()
-                    LedMatrixPreview(
-                        text = if (hasRealtimeLedText) ledDisplayText else "机械小鸽",
-                        color = if (hasRealtimeLedText) ledDisplayColor else Color(0xFFFF6B35),
-                        animCode = if (hasRealtimeLedText) ledAnimCode else 0,
-                        bitmapData = if (hasRealtimeLedText) ledDisplayBitmapData else emptyList(),
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onLedPreviewClick,
-                    )
-                }
                 // 🐛 限速调试横幅（实时显示 nRoadLimitSpeed 值，用于验证限速数据是否正确更新）
                 SpeedLimitDebugBanner(
                     nRoadLimitSpeed = carrotManFields.nRoadLimitSpeed,
@@ -1382,14 +1202,6 @@ class MainActivityUI(
                             icon = Icons.Default.SwapHoriz,
                             contentDescription = localized("模型切换器", "Model Switcher"),
                             onClick = { onPageChange(13) }
-                        )
-                        HomeControlPanelCircleIcon(
-                            modifier = Modifier.weight(1f),
-                            background = ledBg,
-                            icon = Icons.Default.Bluetooth,
-                            contentDescription = localized("LED点阵屏", "LED Matrix"),
-                            iconTint = if (isLedConnected) Color.White else Color(0xFF94A3B8),
-                            onClick = onLedMatrixClick
                         )
                     }
                 } else {
@@ -1466,14 +1278,6 @@ class MainActivityUI(
                                     icon = Icons.Default.SwapHoriz,
                                     contentDescription = localized("模型切换器", "Model Switcher"),
                                     onClick = { onPageChange(13) }
-                                )
-                                HomeControlPanelCircleIcon(
-                                    modifier = Modifier.weight(1f),
-                                    background = ledBg,
-                                    icon = Icons.Default.Bluetooth,
-                                    contentDescription = localized("LED点阵屏", "LED Matrix"),
-                                    iconTint = if (isLedConnected) Color.White else Color(0xFF94A3B8),
-                                    onClick = onLedMatrixClick
                                 )
                             }
                         }

@@ -323,7 +323,6 @@
 # - com.example.navipilot.ui.components.HelpPage
 # - com.example.navipilot.ui.components.LaneComponents
 # - com.example.navipilot.ui.components.LaneWarningOverlay
-# - com.example.navipilot.ui.components.LedMatrixManager
 # - com.example.navipilot.ui.components.MapSearchService
 # - com.example.navipilot.ui.components.NavigationIcons
 # - com.example.navipilot.ui.components.ProfilePage

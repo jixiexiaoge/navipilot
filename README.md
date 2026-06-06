@@ -650,12 +650,9 @@ com.example.navipilot/
 │
 ├── [UI 组件层] ui/components/
 │   ├── GoogleNavPage.kt                # Google NavigationView 嵌入页
-│   ├── AmapMobileNavPage.kt            # 高德手机 SDK 导航页
 │   ├── TencentNavPage.kt               # 腾讯导航 SDK 页面
 │   ├── OsmMapView.kt                   # OSM 地图组件（MapLibre GL）
 │   ├── MapSearchService.kt             # 统一地点搜索
-│   ├── LedMatrixManager.kt             # LED 点阵屏控制（20 级优先级）
-│   ├── LedMatrixPreview.kt             # LED 预览组件
 │   ├── ModelSwitcherPage.kt            # openpilot 驾驶模型管理
 │   ├── AutoSwitchExperimentPage.kt     # 条件实验模式配置页
 │   ├── ProfilePage.kt                  # 个人中心（评分概览）

@@ -417,13 +417,11 @@ fun OsmMapView(
     commaConnectionState: Int = 0, // 🆕 连接状态：0=未连接, 1=已连接, 2=异常
     // ===== 面板按钮触发器（父级递增 → OsmMapView 执行内部逻辑）=====
     searchShowTrigger: Int = 0,
-    ledMatrixTrigger: Int = 0,
     homeNavTrigger: Int = 0,
     homeNavLongTrigger: Int = 0,
     companyNavTrigger: Int = 0,
     companyNavLongTrigger: Int = 0,
     // ===== 内部状态上报回调（OsmMapView → 父级，用于按钮外观）=====
-    onLedConnectionChange: (Boolean) -> Unit = {},
     onHomeAddressChange: (Boolean) -> Unit = {},
     onCompanyAddressChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
@@ -460,42 +458,6 @@ fun OsmMapView(
 
     remember { MapLibre.getInstance(context.applicationContext) }
 
-    // LED点阵屏状态
-    var showLedMatrixDialog by remember { mutableStateOf(false) }
-    var isLedConnected by remember { mutableStateOf(false) }
-    var ledAutoConnectFailed by remember { mutableStateOf(false) }
-    val ledManager = remember { LedMatrixManager.getInstance(context) }
-    DisposableEffect(Unit) {
-        ledManager.onStateChanged = { state, _ ->
-            isLedConnected = (state == LedMatrixManager.State.CONNECTED || state == LedMatrixManager.State.SENDING)
-        }
-        // 仅在未连接时自动连接（单例可能已经连着了）
-        if (ledManager.state == LedMatrixManager.State.IDLE) {
-            ledManager.autoConnect(
-                initText = "机械小鸽",
-                onNotFound = { ledAutoConnectFailed = true }
-            )
-        } else {
-            // 已连接，同步状态
-            isLedConnected = (ledManager.state == LedMatrixManager.State.CONNECTED || ledManager.state == LedMatrixManager.State.SENDING)
-        }
-        onDispose {
-            // 单例不销毁，仅清除回调避免泄漏
-            ledManager.onStateChanged = null
-        }
-    }
-    // 自动连接失败提示
-    LaunchedEffect(ledAutoConnectFailed) {
-        if (ledAutoConnectFailed) {
-            ledAutoConnectFailed = false
-            if (ledManager.getSavedDeviceAddress() != null) {
-                android.widget.Toast.makeText(context,
-                    localized("⚠️ LED屏未找到，请手动连接", "⚠️ LED not found, connect manually"),
-                    android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-    // 🤖 LED 自动化显示引擎已移至 MainActivityUI 顶层（不受页面切换影响）
     // 默认：OpenFreeMap 矢量（OSM 数据、免 Key）；国内 tile.openstreetmap.org 常不可用故不再默认直连官方栅格
     val dashyStyleJson = remember { getDashyNavMapDarkStyleJson() }
 
@@ -510,11 +472,6 @@ fun OsmMapView(
     // 触发：显示搜索面板
     LaunchedEffect(searchShowTrigger) {
         if (searchShowTrigger > 0) showSearch = true
-    }
-
-    // 触发：显示 LED 对话框
-    LaunchedEffect(ledMatrixTrigger) {
-        if (ledMatrixTrigger > 0) showLedMatrixDialog = true
     }
 
     fun startExternalNavigation(destName: String, destLat: Double, destLon: Double): Boolean {
@@ -636,7 +593,6 @@ fun OsmMapView(
     }
 
     // ===== 内部状态上报回调（用于面板按钮外观同步）=====
-    LaunchedEffect(isLedConnected) { onLedConnectionChange(isLedConnected) }
     LaunchedEffect(homeDest) { onHomeAddressChange(homeDest != null) }
     LaunchedEffect(companyDest) { onCompanyAddressChange(companyDest != null) }
 
@@ -1092,12 +1048,4 @@ fun OsmMapView(
                 }
     }
 
-    // LED点阵屏对话框
-    if (showLedMatrixDialog) {
-        LedMatrixDialog(
-            onDismiss = { showLedMatrixDialog = false },
-            ledManagerExternal = ledManager,
-            onConnectionStateChanged = { connected -> isLedConnected = connected }
-        )
     }
-}

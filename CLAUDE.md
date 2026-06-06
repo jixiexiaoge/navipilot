@@ -212,16 +212,10 @@ com.example.navipilot/
 │   │   └── Type.kt
 │   ├── components/               # Compose UI 组件
 │   │   ├── GoogleNavPage.kt      # Google NavigationView 内嵌
-│   │   ├── AmapMobileNavPage.kt  # 高德手机 SDK 导航页
 │   │   ├── TencentNavPage.kt     # 腾讯导航 SDK 页面
 │   │   ├── OsmMapView.kt         # MapLibre GL 地图
 │   │   ├── NavMode.kt            # 导航模式枚举（AMAP_AUTO/TMAP/AMAP_MOBILE/OSM/GOOGLE）
 │   │   ├── MapSearchService.kt   # 统一地点搜索（高德SDK→Web REST→腾讯→Photon 兜底）
-│   │   ├── LedMatrixManager.kt   # LED 点阵屏控制（蓝牙 BLE + 20 级优先级引擎）
-│   │   ├── LedMatrixPreview.kt   # LED 预览组件
-│   │   ├── LedMatrixDialog.kt    # LED 设置对话框
-│   │   ├── LaneChangeReminder.kt # 变道提醒（转弯类型感知 + 非机动车道识别 + TTS）
-│   │   ├── LaneCard.kt           # 车道信息卡片
 │   │   ├── FullscreenBrowserDialog.kt  # 全屏浏览器对话框
 │   │   ├── Carrot7706JsonDebugOverlay.kt  # UDP 7706 数据调试层
 │   │   ├── ModelSwitcherPage.kt  # openpilot 驾驶模型管理

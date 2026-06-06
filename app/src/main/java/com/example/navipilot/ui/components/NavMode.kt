@@ -8,8 +8,6 @@ package com.example.navipilot.ui.components
  */
 enum class NavMode {
     AMAP_AUTO,
-    TMAP,
-    AMAP_MOBILE,
-    OSM,
+    TENCENT,
     GOOGLE,
 }

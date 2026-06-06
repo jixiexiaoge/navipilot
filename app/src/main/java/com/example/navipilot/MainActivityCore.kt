@@ -32,7 +32,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 import com.example.navipilot.navigation.GoogleNavManager
-import com.example.navipilot.navigation.TencentPassiveSpeedMonitor
 import com.example.navipilot.scoring.DrivingDataCollector
 
 
@@ -68,7 +67,7 @@ class MainActivityCore(
         /** 与停车/坐标等共用，保存用户选择的地图/导航源 */
         private const val PREF_CARROT_AMAP = "CarrotAmap"
         private const val KEY_USER_SELECTED_NAV_MODE = "user_selected_nav_mode"
-        private val VALID_USER_NAV_MODES = setOf("OSM", "AMAP", "TENCENT", "AMAP_MOBILE", "GOOGLE")
+        private val VALID_USER_NAV_MODES = setOf("AMAP", "TENCENT", "GOOGLE")
         
         // 🆕 API基础URL配置
         // 优先使用IP方式，失败后切换到网站URL
@@ -188,8 +187,6 @@ class MainActivityCore(
      */
     fun switchToTencentMode() {
         Log.i(TAG, "🔄 切换到腾讯导航模式 (之前: ${activeNavMode.value})")
-        // 进入腾讯模式前必须先停止被动监控，避免与 TencentNavPage 的 NavigatorDrive 冲突
-        TencentPassiveSpeedMonitor.stop()
         activeNavMode.value = "TENCENT"
         mapServiceType.value = "TENCENT"
         // 设置数据源标记
@@ -215,8 +212,6 @@ class MainActivityCore(
         activeNavMode.value = "AMAP_MOBILE"
         mapServiceType.value = "AMAP_MOBILE"
         carrotManFields.value = carrotManFields.value.copy(source_last = "amap_mobile")
-        // 启动腾讯后台被动限速监控（自由行驶模式，为高德提供摄像头限速补充）
-        startTencentPassiveMonitor()
     }
 
     /** 退出高德手机嵌入导航 */
@@ -225,7 +220,6 @@ class MainActivityCore(
         val timeSinceLastBroadcast = currentTime - lastAmapBroadcastTime.value
         val fallbackMode = if (timeSinceLastBroadcast < 30000) "AMAP" else "OSM"
         Log.i(TAG, "🔄 退出高德手机导航模式 → $fallbackMode")
-        TencentPassiveSpeedMonitor.stop()
         activeNavMode.value = fallbackMode
         mapServiceType.value = fallbackMode
     }
@@ -236,8 +230,6 @@ class MainActivityCore(
         activeNavMode.value = "GOOGLE"
         mapServiceType.value = "GOOGLE"
         carrotManFields.value = carrotManFields.value.copy(source_last = "google_nav")
-        // 启动腾讯后台被动限速监控（自由行驶模式，为谷歌导航提供摄像头限速补充）
-        startTencentPassiveMonitor()
     }
 
     /** 退出 Google 导航 */
@@ -246,47 +238,10 @@ class MainActivityCore(
         val timeSinceLastBroadcast = currentTime - lastAmapBroadcastTime.value
         val fallbackMode = if (timeSinceLastBroadcast < 30000) "AMAP" else "OSM"
         Log.i(TAG, "🔄 退出 Google 导航模式 → $fallbackMode")
-        TencentPassiveSpeedMonitor.stop()
         activeNavMode.value = fallbackMode
         mapServiceType.value = fallbackMode
     }
 
-    /**
-     * 启动腾讯后台被动限速监控，并将摄像头限速结果写入 [carrotManFields]。
-     *
-     * 仅在 AMAP_MOBILE / GOOGLE 模式下调用；进入 TENCENT 模式或退出时停止。
-     *
-     * ⚠️ 限速优先级策略：
-     * 1. Amap SDK 的 [AmapNavDataBridge.onUpdateNaviSpeedLimitSection] — 最高（道路分段限速）
-     * 2. Amap SDK 的 TTS 文本提取 — 次高
-     * 3. 腾讯被动摄像头限速 — **仅当以上来源未提供限速时**（nRoadLimitSpeed <= 0）
-     *
-     * 原因：腾讯 `onCameraInfoUpdate` 返回的是**摄像头执法限速**（如学校区域 40km/h），
-     * 而非当前路段的**道路限速**（如 80km/h）。用摄像头限速覆盖道路限速会导致发送错误数据。
-     */
-    private fun startTencentPassiveMonitor() {
-        val app = context.applicationContext as android.app.Application
-        TencentPassiveSpeedMonitor.onSpeedLimitUpdate = { speedLimitKmh ->
-            if (speedLimitKmh > 0) {
-                val cur = carrotManFields.value
-                // 🎯 仅当 Amap SDK 尚未提供道路限速时，才用腾讯摄像头限速兜底
-                if (cur.nRoadLimitSpeed <= 0) {
-                    Log.i(TAG, "📷 腾讯被动监控提供限速: ${speedLimitKmh}km/h → 写入 nRoadLimitSpeed（Amap 无限速，兜底）")
-                    carrotManFields.value = cur.copy(
-                        nRoadLimitSpeed = speedLimitKmh,
-                        roadcate = if (speedLimitKmh >= 100) 10 else cur.roadcate.takeIf { it > 0 } ?: 6,
-                        source_last = cur.source_last  // 保留当前导航源标记
-                    )
-                } else {
-                    Log.d(TAG, "📷 腾讯摄像头限速 ${speedLimitKmh}km/h 跳过 — Amap 已提供限速 ${cur.nRoadLimitSpeed}km/h，不覆盖")
-                }
-            } else {
-                // speedLimitKmh == -1：摄像头已过，不清除（让 SDK 自身管理清除逻辑）
-                Log.d(TAG, "📷 腾讯被动监控：摄像头已过，保持当前限速")
-            }
-        }
-        TencentPassiveSpeedMonitor.start(app)
-    }
 
     // 实时网络流程事件（用于在主页顶部显示发现->连接链路）
     val pipelineEvents = mutableStateListOf<String>()

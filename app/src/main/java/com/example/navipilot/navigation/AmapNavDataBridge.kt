@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 算路须在 [onInitNaviSuccess] 之后由 UI 通过 [pendingCalculateRoute] 触发（与官方 NaviDemo 一致）。
  *
  * **TTS 说明**：
- * [AmapMobileNavPage] 使用 `setUseInnerVoice(false, true)` 启动导航，
+ * 之前由 [AmapMobileNavPage]（已移除）使用 `setUseInnerVoice(false, true)` 启动导航，
  * 导航文字通过 [onGetNavigationText] 回调到此桥接器，由内置 TTS 引擎朗读。
  * 摄像头提示音（第二参数 true）仍由 SDK 内部处理，无需应用层干预。
  *
