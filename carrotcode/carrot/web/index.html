@@ -1,0 +1,726 @@
+﻿<!doctype html>
+<html class="notranslate" translate="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="google" content="notranslate" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>CarrotPilot</title>
+  <link rel="icon" type="image/png" href="/assets/img_chffr_wheel.png?v=2604-01" />
+  <script>
+    (function () {
+      var primaryPages = { carrot: 1, setting: 1, tools: 1, logs: 1, terminal: 1 };
+      var startPage = "carrot";
+      try {
+        var webSettings = window.__CARROT_BOOTSTRAP__ && window.__CARROT_BOOTSTRAP__.webSettings;
+        var setting = (webSettings && webSettings.start_page) || "last";
+        if (setting === "last") {
+          var lastPage = localStorage.getItem("carrot_web_last_page");
+          startPage = primaryPages[lastPage] ? lastPage : "carrot";
+        } else {
+          startPage = primaryPages[setting] ? setting : "carrot";
+        }
+      } catch (e) {}
+      document.documentElement.dataset.carrotStartPage = startPage;
+    })();
+  </script>
+  <style>
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageCar,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageSetting,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageTools,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageBranch,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageTerminal,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageLogs,
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) #pageCarrot {
+      display: none !important;
+    }
+
+    html[data-carrot-start-page="carrot"]:not([data-carrot-bootstrapped]) #pageCarrot,
+    html[data-carrot-start-page="setting"]:not([data-carrot-bootstrapped]) #pageSetting,
+    html[data-carrot-start-page="logs"]:not([data-carrot-bootstrapped]) #pageLogs {
+      display: block !important;
+    }
+
+    html[data-carrot-start-page="terminal"]:not([data-carrot-bootstrapped]) #pageTerminal {
+      display: flex !important;
+    }
+
+    html[data-carrot-start-page="tools"]:not([data-carrot-bootstrapped]) #pageTools {
+      display: block !important;
+    }
+
+    @media (orientation: landscape) {
+      html[data-carrot-start-page="tools"]:not([data-carrot-bootstrapped]) #pageTools {
+        display: grid !important;
+      }
+    }
+
+    html[data-carrot-start-page]:not([data-carrot-bootstrapped]) .topbar .nav-btn.active {
+      color: var(--md-on-surface-var) !important;
+      font-weight: 600 !important;
+      background: transparent !important;
+    }
+
+    html[data-carrot-start-page="carrot"]:not([data-carrot-bootstrapped]) .topbar #btnHome,
+    html[data-carrot-start-page="setting"]:not([data-carrot-bootstrapped]) .topbar #btnSetting,
+    html[data-carrot-start-page="tools"]:not([data-carrot-bootstrapped]) .topbar #btnTools,
+    html[data-carrot-start-page="logs"]:not([data-carrot-bootstrapped]) .topbar #btnLogs,
+    html[data-carrot-start-page="terminal"]:not([data-carrot-bootstrapped]) .topbar #btnTerminal {
+      color: var(--md-primary) !important;
+      font-weight: 700 !important;
+      background: color-mix(in srgb, var(--md-primary) 14%, transparent) !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/css/tokens.css?v=2605-09" />
+  <link rel="stylesheet" href="/css/layout_tokens.css?v=2605-07" />
+  <link rel="stylesheet" href="/css/hud_card.css?v=2605-03" />
+  <link rel="stylesheet" href="/css/base.css?v=2605-10" />
+  <link rel="stylesheet" href="/css/layout.css?v=2605-08" />
+  <link rel="stylesheet" href="/css/components.css?v=2605-09" />
+  <link rel="stylesheet" href="/css/pages/logs.css?v=2605-21" />
+  <link rel="stylesheet" href="/css/pages/terminal.css?v=2605-07" />
+  <link rel="stylesheet" href="/css/pages/settings/base.css?v=2605-37" />
+  <link rel="stylesheet" href="/css/pages/settings/panels.css?v=2605-37" />
+  <link rel="stylesheet" href="/css/pages/settings/device.css?v=2605-39" />
+  <link rel="stylesheet" href="/css/pages/tools/base.css?v=2605-43" />
+  <link rel="stylesheet" href="/css/pages/tools/qr.css?v=2605-40" />
+  <link rel="stylesheet" href="/css/pages/tools/main.css?v=2605-50" />
+  <link rel="stylesheet" href="/css/pages/drive.css?v=2606-04" />
+  <link rel="stylesheet" href="/css/components/nav_hud.css?v=2605-26" />
+  <link rel="stylesheet" href="/css/responsive.css?v=2605-10" />
+  <link rel="stylesheet" href="/css/vendor/plyr.css?v=3.7.8" />
+</head>
+
+<body class="notranslate" translate="no">
+
+  <div class="wrap swipe-container" id="swipeContainer">
+    <!-- ════════════ CAR SELECT ════════════ -->
+    <div id="pageCar" class="page page--bounded" hidden style="display:none;">
+      <div class="page-header">
+        <h2 id="carTitle" class="page-title" style="cursor:pointer;">Car Select</h2>
+        <button id="btnBackCar" class="btn">Back</button>
+      </div>
+
+      <!-- Current Car -->
+      <div class="row-between mb-md" style="padding:var(--sp-md) 0; border-bottom:1px solid var(--md-outline-var);">
+        <div id="curCarLabelCar" style="font-weight:700; font-size:var(--fs-title-md);">-</div>
+      </div>
+
+      <div class="muted mb-sm" id="carMeta">loading...</div>
+
+      <!-- Maker screen -->
+      <div id="carScreenMakers" class="screen">
+        <h3 id="makersTitle" class="section-title">Makers</h3>
+        <div id="makerList"></div>
+      </div>
+
+      <!-- Model screen -->
+      <div id="carScreenModels" class="screen hidden" style="display:none;">
+        <div class="row-between mb-sm">
+          <h3 id="modelTitle" class="section-title" style="cursor:pointer; margin:0;">Models</h3>
+          <span class="muted" id="modelMeta">-</span>
+        </div>
+        <div id="modelList"></div>
+      </div>
+    </div>
+
+    <!-- ════════════ SETTING ════════════ -->
+    <div id="pageSetting" class="page page--setting" hidden style="display:none;">
+      <div class="page-fab-layer page-fab-layer--setting">
+        <div id="settingFabMenu" class="setting-fab-menu">
+          <div id="settingFabActions" class="setting-fab-actions" role="menu" aria-labelledby="btnSettingSearch" hidden>
+            <button id="btnSettingFabProfileAdd" class="setting-fab-action" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4m-8-2V7H4V5h3V2h2v3h3v2H9v3zm8 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4"/>
+              </svg>
+              <span id="settingFabProfileAddLabel">프로필 추가</span>
+            </button>
+            <button id="btnSettingFabResetDefaults" class="setting-fab-action" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M12 5V2L7 7l5 5V9c3.31 0 6 2.69 6 6 0 1.01-.25 1.96-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 15c0-4.42-3.58-8-8-8m-6 4.74A7.93 7.93 0 0 0 4 15c0 4.42 3.58 8 8 8v-2c-3.31 0-6-2.69-6-6 0-1.01.25-1.96.7-2.8z"/>
+              </svg>
+              <span id="settingFabResetDefaultsLabel">설정 초기화</span>
+            </button>
+            <button id="btnSettingFabSearch" class="setting-fab-action" type="button" role="menuitem">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79L19 20.49 20.49 19zM9.5 14A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/>
+              </svg>
+              <span id="settingFabSearchLabel">설정 검색</span>
+            </button>
+          </div>
+          <button id="btnSettingSearch" class="fab fab--round fab--icon fab--setting-search fab--setting-menu" type="button" aria-label="설정 작업" aria-expanded="false" aria-haspopup="menu" aria-controls="settingFabActions">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="page-header page-header--hidden" aria-hidden="true">
+        <h2 id="settingTitle" style="margin:0; font-size:var(--fs-headline); font-weight:700; cursor:pointer;"><span id="settingTitleText">Setting</span></h2>
+      </div>
+
+      <div class="muted mb-sm" id="settingsMeta">loading...</div>
+
+      <div id="settingScreenHost" class="screen-host">
+        <!-- Groups Screen -->
+        <div id="settingScreenGroups" class="screen">
+          <div id="settingCarRow" class="mb-md setting-car-entry" role="button" tabindex="0" aria-label="차량 선택 열기">
+            <div class="setting-car-entry__text">
+              <div id="settingCarEyebrow" class="setting-car-entry__eyebrow">차량 선택</div>
+              <div id="curCarLabelSetting" class="setting-car-entry__value">-</div>
+            </div>
+            <span class="setting-car-entry__chevron" aria-hidden="true"></span>
+          </div>
+
+          <div id="settingTabBar" class="setting-tabbar" role="tablist" aria-label="Setting categories">
+            <button type="button" class="setting-tab" id="settingTabDevice" data-setting-tab="device" role="tab" aria-selected="false">
+              <span id="settingTabDeviceLabel">디바이스</span>
+            </button>
+            <button type="button" class="setting-tab is-active" id="settingTabCarrot" data-setting-tab="carrot" role="tab" aria-selected="true">
+              <span id="settingTabCarrotLabel">당근파일럿</span>
+            </button>
+          </div>
+
+          <!-- CarrotPilot Groups -->
+          <div id="carrotTabContent">
+            <div id="groupList"></div>
+          </div>
+
+          <!-- Device tab content (hidden by default) -->
+          <div id="deviceTabContent" hidden>
+            <div id="deviceGroupList"></div>
+          </div>
+        </div>
+
+        <!-- Items Screen -->
+        <div id="settingScreenItems" class="screen hidden" style="display:none;">
+          <div id="settingSubnavWrap" class="setting-subnav-wrap">
+            <div id="settingSubnav" class="setting-subnav" aria-label="Setting groups"></div>
+            <div id="deviceSubnav" class="setting-subnav" hidden aria-label="Device groups"></div>
+          </div>
+          <div class="row-between mb-sm">
+            <h3 id="itemsTitle" class="section-title" style="cursor:pointer; margin:0;">Items</h3>
+            <span class="muted" id="groupMeta">-</span>
+          </div>
+          <div id="items"></div>
+          <div id="deviceItems" hidden></div>
+        </div>
+      </div>
+
+      <button id="settingSearchBackdrop" class="setting-search-backdrop" type="button" hidden aria-label="Close search"></button>
+      <div id="settingSearchPanel" class="setting-search-panel" hidden aria-hidden="true">
+        <form id="settingSearchForm" class="setting-search-form">
+          <input id="settingSearchInput" type="text" class="setting-search-form__input" placeholder="설정 검색" autocomplete="off" />
+          <button id="btnSettingSearchSubmit" class="setting-search-form__submit" type="submit" aria-label="Search settings">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79L19 20.49 20.49 19zM9.5 14A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/>
+            </svg>
+          </button>
+        </form>
+        <div id="settingSearchResults" class="setting-search-results"></div>
+      </div>
+    </div>
+
+    <!-- ════════════ TOOLS ════════════ -->
+    <div id="pageTools" class="page page--full page--split page--tools" hidden style="display:none;">
+      <div class="page-header page-header--hidden" aria-hidden="true">
+        <h2 id="toolsTitle" class="page-title">Tools</h2>
+      </div>
+
+      <div class="muted mb-md" id="toolsMeta">-</div>
+      <div id="toolsProgress" class="tools-progress" hidden aria-hidden="true">
+        <div id="toolsProgressBar" class="tools-progress__bar"></div>
+      </div>
+
+      <div class="tools-scroll-stack">
+        <div class="tools-quick-actions ui-action-grid ui-action-grid--quick mb-md">
+          <a id="btnQuickLinkWeb" class="btn btn--filled" href="#" aria-disabled="true">CarrotMan</a>
+          <button id="btnDeviceInfo" class="btn btn--filled" type="button">Carrot Info</button>
+        </div>
+
+        <div class="section tools-group is-open" data-tools-group="git">
+          <button class="tools-group__toggle" type="button" aria-expanded="true" aria-controls="toolsGroupBodyGit">
+            <span id="gitCommandsTitle" class="section-title tools-group__title">Git Commands</span>
+            <span class="tools-group__chevron" aria-hidden="true"></span>
+          </button>
+          <div id="toolsGroupBodyGit" class="tools-group__body ui-action-grid">
+            <button id="btnGitPull" class="btn git-pull-btn" type="button">
+              <span>git pull</span>
+              <span id="gitPullBadge" class="git-pull-btn__badge" hidden aria-label="pending commits">0</span>
+            </button>
+            <button id="btnGitSync" class="btn">git sync</button>
+            <button id="btnGitReset" class="btn">git reset</button>
+            <button id="btnGitLog" class="btn">git log</button>
+            <button id="btnGitRemote" class="btn">change repository</button>
+            <button id="btnGitBranch" class="btn">change branch</button>
+            <button id="btnGitAddRemote" class="btn">add remote</button>
+            <button id="btnGitResetRepo" class="btn btn--danger">reset repo</button>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="section tools-group" data-tools-group="system">
+          <button class="tools-group__toggle" type="button" aria-expanded="false" aria-controls="toolsGroupBodySystem">
+            <span id="userSystemTitle" class="section-title tools-group__title">User / System</span>
+            <span class="tools-group__chevron" aria-hidden="true"></span>
+          </button>
+          <div id="toolsGroupBodySystem" class="tools-group__body ui-action-grid hidden" hidden>
+            <button id="btnDeviceLang" class="btn">Device Lang</button>
+            <button id="btnResetCalib" class="btn btn--danger">Reset Calib</button>
+            <button id="btnSendTmuxLog" class="btn">capture tmux</button>
+            <button id="btnSendTmuxServerLog" class="btn">send tmux</button>
+            <button id="btnInstallRequired" class="btn">install flask</button>
+            <button id="btnDeleteVideos" class="btn btn--danger">delete all videos</button>
+            <button id="btnDeleteLogs" class="btn btn--danger">delete all logs</button>
+            <button id="btnRebuildAll" class="smallBtn btn--danger">Rebuild All</button>
+            <button id="btnReboot" class="btn">reboot</button>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="section tools-group" data-tools-group="settings">
+          <button class="tools-group__toggle" type="button" aria-expanded="false" aria-controls="toolsGroupBodySettings">
+            <span id="userSettingsTitle" class="section-title tools-group__title">Settings</span>
+            <span class="tools-group__chevron" aria-hidden="true"></span>
+          </button>
+          <div id="toolsGroupBodySettings" class="tools-group__body ui-action-grid hidden" hidden>
+            <button id="btnBackupSettings" class="btn">Backup</button>
+            <button id="btnRestoreSettings" class="btn">Restore</button>
+            <button id="btnQrBackupSettings" class="btn">QR Backup</button>
+            <button id="btnQrRestoreSettings" class="btn">QR Restore</button>
+            <button id="btnCopySettings" class="btn">Copy</button>
+            <button id="btnViewSettings" class="btn">View</button>
+          </div>
+        </div>
+
+
+      </div>
+
+      <div class="tools-console-dock">
+        <div class="tools-console-shell">
+          <div class="tools-console-meta hidden" aria-hidden="true">
+            <span id="sysCmdTitle">System Command</span>
+            <span id="outputTitle">Output</span>
+          </div>
+          <form id="sysCmdForm" class="tools-console-form">
+            <span class="tools-console-prompt" aria-hidden="true">&gt;_</span>
+            <input id="sysCmdInput" type="text" class="input-text" placeholder="" />
+            <button id="btnSysCmdInfo" class="tools-console-iconBtn" type="button" aria-expanded="false" aria-controls="sysCmdHelpPanel" aria-label="Allowed commands">
+              <svg class="tools-console-iconBtn__svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M11 17h2v-6h-2zm0-8h2V7h-2zm1 13C6.48 22 2 17.52 2 12S6.48 2 12 2s10 4.48 10 10-4.48 10-10 10m0-18a8 8 0 1 0 0 16 8 8 0 0 0 0-16"/>
+              </svg>
+            </button>
+          </form>
+          <div id="sysCmdHelpPanel" class="tools-console-help" hidden>
+            <span id="sysCmdHelp">Allowed: git pull/status/branch/log, df, free, uptime</span>
+          </div>
+          <pre id="toolsOut" class="tools-console-log">-</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════ BRANCH SELECT ════════════ -->
+    <div id="pageBranch" class="page page--bounded" hidden style="display:none;">
+      <div class="page-header">
+        <h2 id="branchTitle" class="page-title" style="cursor:pointer;">Branch Select</h2>
+        <button id="btnBackBranch" class="btn">Back</button>
+      </div>
+
+      <div class="muted mb-sm" id="branchMeta">-</div>
+      <div id="branchList"></div>
+    </div>
+
+    <!-- ════════════ TERMINAL ════════════ -->
+    <div id="pageTerminal" class="page page--full page--terminal" hidden style="display:none;">
+      <div class="terminal-shell">
+        <div class="terminal-head">
+          <div class="page-header terminal-pageHeader">
+            <h2 id="terminalTitle" class="page-title">Terminal</h2>
+          </div>
+
+          <div class="muted terminal-meta" id="terminalMeta">connecting...</div>
+
+          <div class="terminal-toolbar">
+            <div id="terminalSessionMeta" class="terminal-sessionMeta">IP</div>
+            <div class="terminal-toolbar__actions">
+              <button id="btnTerminalCtrlC" class="smallBtn" type="button">Ctrl+C</button>
+              <button id="btnTerminalClear" class="smallBtn" type="button">Clear</button>
+              <button id="btnTerminalReconnect" class="smallBtn" type="button">Reconnect</button>
+            </div>
+          </div>
+        </div>
+        <div id="terminalScreen" class="terminal-screen">
+          <pre id="terminalOutput" class="terminal-output">...</pre>
+        </div>
+        <form id="terminalForm" class="terminal-form">
+          <span class="terminal-form__prompt" aria-hidden="true">&gt;</span>
+          <input
+            id="terminalInput"
+            type="text"
+            class="terminal-form__input"
+            autocomplete="off"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="send"
+          />
+          <button id="btnTerminalSend" class="smallBtn btn--filled" type="submit">Send</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ════════════ LOGS ════════════ -->
+    <div id="pageLogs" class="page page--full page--logs" hidden style="display:none;">
+      <div class="logs-shell">
+        <div class="logs-tabbar">
+          <div class="logs-tabs" role="tablist" aria-label="Logs">
+            <button id="logsTabDashcam" class="logs-tab is-active" type="button" role="tab" aria-selected="true">
+              <span id="logsDashcamTitle">대시캠</span>
+            </button>
+            <button id="logsTabScreen" class="logs-tab" type="button" role="tab" aria-selected="false">
+              <span id="logsScreenTitle">화면녹화</span>
+            </button>
+          </div>
+        </div>
+
+        <section id="logsDashcamPanel" class="logs-panel" aria-labelledby="logsTabDashcam">
+          <div id="dashcamStatus" class="dashcam-status" hidden></div>
+          <div id="dashcamRoutes" class="dashcam-routes"></div>
+        </section>
+
+        <section id="logsScreenPanel" class="logs-panel" hidden aria-labelledby="logsTabScreen">
+          <div id="screenrecordStatus" class="dashcam-status" hidden></div>
+          <div id="screenrecordVideos" class="screenrecord-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ════════════ CARROT TEST ════════════ -->
+    <div id="pageCarrot" class="page page--full page--drive" hidden style="display:none;">
+      <div class="page-header page-header--hidden" aria-hidden="true">
+        <h2 id="carrotTitle" class="page-title">Home</h2>
+      </div>
+
+      <div id="carrotStage" class="carrot-stage">
+        <canvas id="carrotAmbientCanvas" class="carrot-stage__ambient" aria-hidden="true"></canvas>
+        <video id="carrotRoadVideo" class="carrot-stage__video" autoplay playsinline muted disablepictureinpicture></video>
+        <canvas id="carrotLastFrameCanvas" class="carrot-stage__videoHold" aria-hidden="true"></canvas>
+        <canvas id="carrotOverlayCanvas" class="carrot-stage__canvas"></canvas>
+        <canvas id="carrotHudCanvas" class="carrot-stage__hud"></canvas>
+        <div id="carrotMapDock" class="carrot-map-dock" hidden>
+          <iframe id="carrotMapFrame" class="carrot-map-frame" title="Carrot map" loading="eager" referrerpolicy="no-referrer"></iframe>
+          <div class="carrot-map-zoom" data-carrot-map-zoom-bar>
+            <button type="button" class="carrot-map-zoom__btn" data-carrot-map-zoom="out" aria-label="지도 축소">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+            </button>
+            <div class="carrot-map-zoom-level" data-carrot-map-zoom-level hidden>기본</div>
+            <button type="button" class="carrot-map-zoom__btn" data-carrot-map-zoom="in" aria-label="지도 확대">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="carrotNavHud" class="carrot-nav-hud" hidden aria-live="polite">
+          <div class="carrot-nav-hud__side" data-nav-hud-side hidden>
+            <div class="carrot-nav-hud__side-sign" data-nav-hud-side-sign></div>
+            <div class="carrot-nav-hud__side-body">
+              <div class="carrot-nav-hud__side-dist" data-nav-hud-side-dist></div>
+              <div class="carrot-nav-hud__side-label" data-nav-hud-side-label></div>
+            </div>
+            <div class="carrot-nav-hud__side-countdown" data-nav-hud-side-countdown hidden></div>
+          </div>
+          <div class="carrot-nav-hud__main" data-nav-hud-main>
+            <div class="carrot-nav-hud__atc" data-nav-hud-atc hidden></div>
+            <div class="carrot-nav-hud__icon" data-nav-hud-icon>↑</div>
+            <div class="carrot-nav-hud__body">
+              <div class="carrot-nav-hud__dist-row">
+                <span class="carrot-nav-hud__dist" data-nav-hud-dist></span>
+                <span class="carrot-nav-hud__advice" data-nav-hud-advice hidden></span>
+                <span class="carrot-nav-hud__countdown" data-nav-hud-countdown hidden></span>
+              </div>
+              <div class="carrot-nav-hud__road-row">
+                <span class="carrot-nav-hud__road" data-nav-hud-road></span>
+                <span class="carrot-nav-hud__limit" data-nav-hud-limit hidden></span>
+              </div>
+              <div class="carrot-nav-hud__meta" data-nav-hud-meta hidden></div>
+            </div>
+            <div class="carrot-nav-hud__hint" data-nav-hud-hint hidden></div>
+          </div>
+        </div>
+        <div id="carrotOnroadAlert" class="carrot-stage__alert" hidden aria-live="polite" aria-atomic="true">
+          <div id="carrotOnroadAlertBox" class="carrot-stage__alert-box">
+            <div id="carrotOnroadAlertText1" class="carrot-stage__alert-text carrot-stage__alert-text--primary"></div>
+            <div id="carrotOnroadAlertText2" class="carrot-stage__alert-text carrot-stage__alert-text--secondary" hidden></div>
+          </div>
+        </div>
+
+        <div id="visionStartOverlay" class="vision-start-overlay">
+          <button id="btnStartVision" class="btn btn--filled" type="button" style="font-size:1.2rem; padding: 16px 32px; border-radius: 99px;">
+            ▶ 주행 비전 시작
+          </button>
+          <div id="visionDisabledMessage" class="vision-start-overlay__message" hidden></div>
+        </div>
+
+        <div id="carrotStageLoading" class="carrot-stage__loading" hidden aria-live="polite" aria-busy="true">
+          <div class="carrot-stage__loadingPanel">
+            <div class="carrot-stage__spinner" aria-hidden="true"></div>
+            <div id="carrotStageLoadingText" class="carrot-stage__loadingText"></div>
+            <div id="carrotStageLoadingDetail" class="carrot-stage__loadingDetail"></div>
+          </div>
+        </div>
+
+        <div class="carrot-stage__topbar">
+          <div id="carrotStageStatus" class="carrot-stage__status">waiting stream...</div>
+        </div>
+        <div id="carrotStageDebug" class="carrot-stage__debug">LD:- LT:- SR:-</div>
+        <div class="carrot-stage__controls" role="group" aria-label="Display and recording controls">
+          <button id="btnDisplayModeCycle" class="carrot-stage__controlBtn carrot-stage__controlBtn--display" type="button" aria-label="Display mode">Normal</button>
+          <button id="btnRecordToggle" class="carrot-stage__controlBtn carrot-stage__controlBtn--record" type="button" aria-label="Record">Record</button>
+        </div>
+
+        <div id="carrotStageMeta" class="carrot-stage__meta">model:- road:- cal:-</div>
+      </div>
+      <div id="carrotHudDock" class="carrot-hud-dock"></div>
+    </div>
+  </div>
+
+  <div id="driveHudCard">
+    <div id="carrotRtcPerfHud" class="carrot-rtc-perf" hidden>
+      <section id="carrotRtcPerfSummary" class="carrot-rtc-perf-summary" data-tone="offline" hidden aria-label="Carrot Vision live diagnostic summary">
+        <div class="carrot-rtc-perf-summary__head">
+          <span class="carrot-rtc-perf__dot" aria-hidden="true"></span>
+          <strong id="carrotRtcPerfTitle" class="carrot-rtc-perf-summary__title">VISION OFFLINE</strong>
+          <button id="carrotRtcPerfLogBtn" class="carrot-rtc-perf-summary__action" type="button">LOG</button>
+          <button id="carrotRtcPerfCloseBtn" class="carrot-rtc-perf-summary__close" type="button" aria-label="Close Carrot Vision diagnostic summary">x</button>
+        </div>
+        <div class="carrot-rtc-perf-summary__sub">RTC ROAD CAMERA / LIVE DIAGNOSTIC</div>
+        <div class="carrot-rtc-perf-summary__grid">
+          <span>Video</span><strong id="carrotRtcPerfVideo">-</strong>
+          <span>Codec</span><strong id="carrotRtcPerfCodec">-</strong>
+          <span>Bitrate</span><strong id="carrotRtcPerfBitrate">-</strong>
+          <span>RTT</span><strong id="carrotRtcPerfRtt">-</strong>
+          <span>Jitter</span><strong id="carrotRtcPerfJitter">-</strong>
+          <span>Loss</span><strong id="carrotRtcPerfLoss">-</strong>
+          <span>Freeze</span><strong id="carrotRtcPerfFreeze">-</strong>
+          <span class="carrot-rtc-perf-summary__path-label">Path</span><strong id="carrotRtcPerfPath" class="carrot-rtc-perf-summary__path-value">-</strong>
+        </div>
+      </section>
+      <div id="carrotRtcPerfGlance" class="carrot-rtc-perf-glance" data-tone="offline" aria-live="polite">
+        <span class="carrot-rtc-perf__dot" aria-hidden="true"></span>
+        <span id="carrotRtcPerfGlanceText" class="carrot-rtc-perf-glance__text">VISION OFFLINE</span>
+      </div>
+    </div>
+    <button id="carrotRtcPerfHoldTarget" class="carrot-rtc-perf-hold-target" type="button" aria-label="Hold HUD to toggle Carrot Vision diagnostic summary"></button>
+    <div class="hudWrap" id="hudRoot">
+      <div class="hudMetricBar" role="presentation">
+        <div class="hudMetricCell">
+          <span class="hudMetricIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path fill="currentColor" d="M15 13.76V5a3 3 0 1 0-6 0v8.76A5 5 0 1 0 15 13.76M11 5a1 1 0 1 1 2 0v9.66l.59.3A3 3 0 1 1 10.41 15l.59-.34z"/>
+            </svg>
+          </span>
+          <span id="hudCpuVal" class="hudMetricValue">--°</span>
+        </div>
+        <div class="hudMetricDivider" aria-hidden="true"></div>
+        <div class="hudMetricCell">
+          <span class="hudMetricIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path fill="currentColor" d="M7 7h10v10H7zm-2 2H3v6h2zm16 0h-2v6h2zM9 3H7v2h2zm4 0h-2v2h2zm4 0h-2v2h2zm-8 16H7v2h2zm4 0h-2v2h2zm4 0h-2v2h2z"/>
+            </svg>
+          </span>
+          <span id="hudMemVal" class="hudMetricValue">--%</span>
+        </div>
+        <div class="hudMetricDivider" aria-hidden="true"></div>
+        <div class="hudMetricCell">
+          <span class="hudMetricIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path id="hudAuxIconPath" fill="currentColor" d="M11 21h-1l1-7H8.5a.5.5 0 0 1-.39-.81L13 3h1l-1 7h2.5a.5.5 0 0 1 .39.81z"/>
+            </svg>
+          </span>
+          <span id="hudDiskVal" class="hudMetricValue">--.-V</span>
+        </div>
+      </div>
+
+      <div class="hudBody">
+        <div class="hudSpeedColumn">
+          <div id="hudSpeedLabel" class="hudSectionLabel">현재속도</div>
+          <div id="hudSpeed" class="hudSpeedValue">--</div>
+        </div>
+        <div class="hudBodyDivider" aria-hidden="true"></div>
+        <div class="hudSupportColumn">
+          <div id="hudSetSpeedLabel" class="hudSectionLabel">설정속도</div>
+          <div id="hudSetSpeed" class="hudSetSpeedValue">--</div>
+          <div class="hudInlineDivider" aria-hidden="true"></div>
+          <div class="hudSupportLine">
+            <span id="hudTempReason" class="hudSupportKey">TEMP</span>
+            <span id="hudTempSpeed" class="hudSupportValue">--</span>
+          </div>
+          <div class="hudInlineDivider" aria-hidden="true"></div>
+          <div class="hudSupportDetail">
+            <div class="hudGapStatus">
+              <div id="hudBars" class="hudGapBars">
+                <div class="hudGapBar"></div>
+                <div class="hudGapBar"></div>
+                <div class="hudGapBar"></div>
+                <div class="hudGapBar"></div>
+              </div>
+              <div id="hudGapNum" class="hudGapText">(--)</div>
+            </div>
+            <div class="hudGearStatus">
+              <div id="hudGearStep" class="hudGearStep" hidden>1</div>
+              <div id="hudGearLabel" class="hudGearLabel">GEAR</div>
+              <div id="hudGear" class="hudGearValue">P</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hudBottomStrip">
+        <div class="hudSignalSlot">
+          <span id="hudSignalDot" class="hudSignalDot" aria-hidden="true"></span>
+        </div>
+        <div class="hudMetricDivider" aria-hidden="true"></div>
+        <div id="hudDriveMode" class="hudBottomSegment">일반</div>
+        <div class="hudMetricDivider" aria-hidden="true"></div>
+        <div id="hudRoadLimitDisplay" class="hudBottomSegment">LIMIT --</div>
+        <div class="hudMetricDivider" aria-hidden="true"></div>
+        <div id="hudConnectivity" class="hudBottomSegment">--</div>
+      </div>
+    </div>
+  </div>
+
+  <video id="rtcVideo" class="rtcVideo rtcVideo--shared" autoplay playsinline muted disablepictureinpicture></video>
+
+  <!-- Bottom Navigation (Material 3 style) -->
+  <nav class="topbar">
+    <button id="btnHome" class="nav-btn active">
+      <span class="nav-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      </span>
+      <span>Drive</span>
+    </button>
+    <button id="btnSetting" class="nav-btn">
+      <span class="nav-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg>
+      </span>
+      <span>Setting</span>
+    </button>
+    <button id="btnTools" class="nav-btn">
+      <span class="nav-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+      </span>
+      <span>Tools</span>
+    </button>
+    <button id="btnLogs" class="nav-btn">
+      <span class="nav-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm0 2.5L17.5 8H14zM8 13h8v2H8zm0 4h8v2H8zm0-8h4v2H8z"/></svg>
+      </span>
+      <span>Logs</span>
+    </button>
+    <button id="btnTerminal" class="nav-btn">
+      <span class="nav-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2m0 2v10h16V7zm2.8 8.6 3.8-3.6-3.8-3.6 1.4-1.4 5.2 5-5.2 5zm7.7 0H18v2h-3.5z"/></svg>
+      </span>
+      <span>Terminal</span>
+    </button>
+  </nav>
+
+  <div id="appToastHost" class="app-toast-host" aria-live="polite" aria-atomic="true"></div>
+
+  <div id="appDialog" class="app-dialog" hidden>
+    <button id="appDialogBackdrop" class="app-dialog__backdrop" type="button" aria-label="Close dialog"></button>
+    <div class="app-dialog__sheet" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle" aria-describedby="appDialogBody">
+      <div class="app-dialog__head">
+        <div id="appDialogTitle" class="app-dialog__title">알림</div>
+      </div>
+      <div id="appDialogBody" class="app-dialog__body">-</div>
+      <div id="appDialogChoices" class="app-dialog__choices" hidden></div>
+      <div id="appDialogInputWrap" class="app-dialog__inputWrap" hidden>
+        <input id="appDialogInput" type="text" class="input-text app-dialog__input" />
+      </div>
+      <div class="app-dialog__actions">
+        <button id="appDialogCopy" class="smallBtn" type="button" hidden>복사</button>
+        <button id="appDialogDefault" class="smallBtn" type="button" hidden>기본값</button>
+        <button id="appDialogCancel" class="smallBtn" type="button">취소</button>
+        <button id="appDialogConfirm" class="smallBtn btn--filled" type="button">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="appBranchPicker" class="app-dialog app-branch-picker" hidden>
+    <button id="appBranchPickerBackdrop" class="app-dialog__backdrop" type="button" aria-label="Close branch picker"></button>
+    <div class="app-dialog__sheet app-branch-picker__sheet" role="dialog" aria-modal="true" aria-labelledby="appBranchPickerTitle" aria-describedby="appBranchPickerMeta">
+      <div class="app-branch-picker__head">
+        <div class="app-branch-picker__titles">
+          <div id="appBranchPickerTitle" class="app-dialog__title">Branch Select</div>
+          <div id="appBranchPickerMeta" class="muted app-branch-picker__meta">-</div>
+        </div>
+        <button id="appBranchPickerClose" class="smallBtn" type="button">Close</button>
+      </div>
+      <div id="appBranchPickerList" class="app-branch-picker__list"></div>
+    </div>
+  </div>
+
+  <div id="appCarPicker" class="app-dialog app-car-picker" hidden>
+    <button id="appCarPickerBackdrop" class="app-dialog__backdrop" type="button" aria-label="Close car picker"></button>
+    <div class="app-dialog__sheet app-branch-picker__sheet app-car-picker__sheet" role="dialog" aria-modal="true" aria-labelledby="appCarPickerTitle" aria-describedby="appCarPickerMeta">
+      <div class="app-branch-picker__head app-car-picker__head">
+        <div class="app-branch-picker__titles">
+          <div id="appCarPickerTitle" class="app-dialog__title">차량 선택</div>
+          <div id="appCarPickerMeta" class="muted app-branch-picker__meta">-</div>
+        </div>
+        <button id="appCarPickerClose" class="smallBtn" type="button">닫기</button>
+      </div>
+      <div id="appCarPickerList" class="app-branch-picker__list app-car-picker__list"></div>
+    </div>
+  </div>
+
+  <script src="/js/vendor/plyr.min.js?v=3.7.8"></script>
+  <script src="/js/vendor/qrcode-generator.js?v=1.4.4"></script>
+  <script src="/js/vendor/jsQR.js?v=1.4.0"></script>
+  <script src="/js/translations/registry.js?v=2605-09"></script>
+  <script src="/js/translations/ko.js?v=2605-17"></script>
+  <script src="/js/translations/en.js?v=2605-17"></script>
+  <script src="/js/translations/zh.js?v=2605-17"></script>
+  <script src="/js/realtime/hud_card.js?v=2604-05"></script>
+  <script src="/js/shared/constants.js?v=2604-72"></script>
+  <script src="/js/shared/dom.js?v=2604-71"></script>
+  <script src="/js/shared/utils.js?v=2604-71"></script>
+  <script src="/js/shared/i18n.js?v=2605-06"></script>
+  <script src="/js/shared/api.js?v=2604-73"></script>
+  <script src="/js/shared/setting_diff.js?v=2605-01"></script>
+  <script src="/js/shared/activity.js?v=2604-04"></script>
+  <script src="/js/shared/ui/focus_trap.js?v=2605-15"></script>
+  <script src="/js/shared/ui/dialog.js?v=2604-73"></script>
+  <script src="/js/shared/ui/viewport.js?v=2604-71"></script>
+  <script src="/js/shared/ui/effects.js?v=2604-72"></script>
+  <script src="/js/shared/ui/navigation.js?v=2605-14"></script>
+  <script src="/js/pages/car.js?v=2604-75"></script>
+  <script src="/js/pages/setting.js?v=2605-17"></script>
+  <script src="/js/pages/setting_device_config.js?v=2605-05"></script>
+  <script src="/js/pages/setting_device_render.js?v=2605-04"></script>
+  <script src="/js/pages/setting_device_network.js?v=2605-01"></script>
+  <script src="/js/pages/setting_device_actions.js?v=2605-04"></script>
+  <script src="/js/pages/setting_device.js?v=2605-10"></script>
+  <script src="/js/pages/tools_web_settings.js?v=2605-09"></script>
+  <script src="/js/pages/tools_notifications.js?v=2605-30"></script>
+  <script src="/js/pages/tools.js?v=2605-17"></script>
+  <script src="/js/pages/tools_settings_qr.js?v=2605-11"></script>
+  <script src="/js/pages/branch.js?v=2604-82"></script>
+  <script src="/js/pages/logs/shared.js?v=2605-15"></script>
+  <script src="/js/pages/logs/dashcam.js?v=2605-15"></script>
+  <script src="/js/pages/logs/screenrecord.js?v=2605-15"></script>
+  <script src="/js/pages/terminal.js?v=2604-72"></script>
+  <script src="/js/realtime/raw_capnp.js?v=2604-05"></script>
+  <script src="/js/realtime/vision_state.js?v=2605-01"></script>
+  <script src="/js/realtime/vision_rtc.js?v=2606-06"></script>
+  <script src="/js/realtime/vision_raw.js?v=2605-01"></script>
+  <script src="/js/realtime/app_realtime.js?v=2606-04"></script>
+  <script src="/js/realtime/vision_diag.js?v=2606-07"></script>
+  <script src="/js/realtime/carrot_map.js?v=2606-02"></script>
+  <script src="/js/realtime/nav_hud.js?v=2605-17"></script>
+  <script src="/js/pages/vision_background.js?v=2605-01"></script>
+  <script src="/js/realtime/home_drive.js?v=2606-05"></script>
+  <script src="/js/app.js?v=2604-76"></script>
+</body>
+</html>
