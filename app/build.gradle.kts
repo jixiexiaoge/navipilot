@@ -407,9 +407,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     
     // ExoPlayer - 用于视频播放
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-ui:1.2.1")
-    implementation("androidx.media3:media3-common:1.2.1")
+    // 已移除（无代码使用）
+    // implementation("androidx.media3:media3-exoplayer:1.2.1")
+    // implementation("androidx.media3:media3-ui:1.2.1")
+    // implementation("androidx.media3:media3-common:1.2.1")
     
 
     
@@ -422,7 +423,8 @@ dependencies {
     implementation("com.jakewharton.timber:timber:5.0.1")
     
     // DataStore - P3 功能增强（示例）
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    // 已移除（无代码使用）
+    // implementation("androidx.datastore:datastore-preferences:1.0.0")
     
     // 🆕 安全存储（EncryptedSharedPreferences）
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
@@ -448,15 +450,15 @@ dependencies {
     implementation("org.zeromq:jeromq:0.6.0")
 
     // SSH - 用于远程连接 comma3 设备
-    // 使用 SSHJ 替代 JSch（更好的现代SSH支持，兼容Android）
-    implementation("com.hierynomus:sshj:0.38.0")
-    
+    // 已移除（SshConnectionManager 已删除）
+    // implementation("com.hierynomus:sshj:0.38.0")
+    //
     // SLF4J - SSHJ依赖的日志框架
-    implementation("org.slf4j:slf4j-api:2.0.9")
-    implementation("com.github.tony19:logback-android:3.0.0")
-
+    // implementation("org.slf4j:slf4j-api:2.0.9")
+    // implementation("com.github.tony19:logback-android:3.0.0")
+    //
     // BouncyCastle - 用于解析 RSA 私钥（SSHJ需要）
-    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
+    // implementation("org.bouncycastle:bcprov-jdk18on:1.77")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
 
     // 测试框架 - P0 优先级优化

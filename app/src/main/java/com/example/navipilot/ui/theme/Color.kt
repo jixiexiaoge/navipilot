@@ -78,9 +78,7 @@ val OvertakeDisabled = Surface400     // Gray for disabled
 val OvertakeManual = PrimaryLight     // Blue for manual
 val OvertakeAuto = Success            // Green for auto
 
-// LED Matrix Colors
-val LedConnected = Success
-val LedDisconnected = Surface500
+// Colors
 
 // Card and Container Colors
 val CardBackground = Color.White

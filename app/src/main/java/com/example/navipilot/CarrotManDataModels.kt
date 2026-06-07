@@ -231,11 +231,11 @@ data class CarrotManFields(
     var isOnroad: Boolean = false,           // 7705: 是否在道路上行驶
     var xState: Int = 0,                     // 7705: 纵向控制状态码
     var vEgoKph: Int = 0,                    // 7705: 当前实际车速(km/h)
-    var trafficState: Int = -1,              // 7705: 交通灯状态（用于 LED 矩阵显示）
+    var trafficState: Int = -1,              // 7705: 交通灯状态
     var vCruiseKph: Float = 0.0f,            // 7705: 巡航设定速度(km/h)
     var carcruiseSpeed: Float = 0.0f,        // 7705: 车辆巡航速度(km/h)
 
-    // ATC 弯道减速（LED 矩阵显示）
+    // ATC 弯道减速
     var atcType: String = "",
     var vTurnSpeed: Double = 0.0,
 

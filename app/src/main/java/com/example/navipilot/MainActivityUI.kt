@@ -376,7 +376,7 @@ class MainActivityUI(
         var isDataCardExpanded by remember { mutableStateOf(true) }
         // 高阶功能对话框状态
         var showAdvancedDialog by remember { mutableStateOf(false) }
-        // 点击首页 LED 预览条：全屏 7706 JSON 调试
+        // 点击首页预览条：全屏 7706 JSON 调试
         var show7706JsonDebug by remember { mutableStateOf(false) }
         val carrotFieldsLive by core.carrotManFields
         val mapContext = LocalContext.current
@@ -968,7 +968,7 @@ class MainActivityUI(
 
     /**
      * 首页功能控制面板（竖屏下方 2/9，横屏右侧 2/9）
-     * 上方为模拟 LED 预览，其下为图标网格：竖屏 4+4（已移除原第5位账户、第8位找车）、横屏 3+3+2
+     * 上方为限速横幅，其下为图标网格：竖屏 4+4（已移除原第5位账户、第8位找车）、横屏 3+3+2
      */
     @Composable
     private fun HomeControlPanel(
@@ -1144,7 +1144,7 @@ class MainActivityUI(
                 )
 
                 if (isPortrait) {
-                    // 竖屏：第一行 4 格（蓝速/地图/绿速/搜索），第二行 4 格（家/公司/实验/LED）；已移除第5位账户与第8位找车
+                    // 竖屏：第一行 4 格（蓝速/地图/绿速/搜索），第二行 4 格（家/公司/实验）；已移除第5位账户与第8位找车
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1205,7 +1205,7 @@ class MainActivityUI(
                         )
                     }
                 } else {
-                    // 横屏：3 + 3 + 2 网格（末行已移除账户，仅实验/LED）
+                    // 横屏：3 + 3 + 2 网格（末行已移除账户，仅实验）
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.Center
