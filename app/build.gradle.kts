@@ -414,10 +414,10 @@ dependencies {
     
 
     
-    // Koin依赖注入 - P1 架构优化
-    implementation("io.insert-koin:koin-android:3.5.3")  // Koin核心
-    implementation("io.insert-koin:koin-androidx-compose:3.5.3")  // Compose集成
-    implementation("io.insert-koin:koin-androidx-navigation:3.5.3")  // Navigation集成
+    // Koin依赖注入 - 已移除（无使用）
+    // implementation("io.insert-koin:koin-android:3.5.3")
+    // implementation("io.insert-koin:koin-androidx-compose:3.5.3")
+    // implementation("io.insert-koin:koin-androidx-navigation:3.5.3")
     
     // Timber日志库 - P2 代码质量优化
     implementation("com.jakewharton.timber:timber:5.0.1")
@@ -446,8 +446,8 @@ dependencies {
     api("org.chromium.net:cronet-fallback:119.6045.31")
     api("com.google.android.libraries.places:places:4.0.0")
     
-    // ZeroMQ - 用于与comma3设备通信
-    implementation("org.zeromq:jeromq:0.6.0")
+    // ZeroMQ - 已移除（无使用）
+    // implementation("org.zeromq:jeromq:0.6.0")
 
     // SSH - 用于远程连接 comma3 设备
     // 已移除（SshConnectionManager 已删除）
@@ -459,7 +459,8 @@ dependencies {
     //
     // BouncyCastle - 用于解析 RSA 私钥（SSHJ需要）
     // implementation("org.bouncycastle:bcprov-jdk18on:1.77")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
+    // BouncyCastle - 已移除（SSH 已删除）
+    // implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
 
     // 测试框架 - P0 优先级优化
     testImplementation(libs.junit)

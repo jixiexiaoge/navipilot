@@ -236,8 +236,8 @@ class MainActivityUI(
                         0 -> HomePage(
                             userType = core.userType.value,
                             carrotManFields = core.carrotManFields.value,
-                            xiaogeTcpConnected = core.xiaogeTcpConnected.value,
-                            xiaogeDataTimeout = core.xiaogeDataTimeout.value,
+                            wsConnected = core.wsConnected.value,
+                            wsDataTimeout = core.wsDataTimeout.value,
                             onSendCommand = { command, arg -> core.sendCarrotCommand(command, arg) },
                             onSendRoadLimitSpeed = { core.sendCurrentRoadLimitSpeed() },
                             onLaunchAmap = { core.launchAmapAuto() },
@@ -314,8 +314,8 @@ class MainActivityUI(
     private fun HomePage(
         userType: Int,
         carrotManFields: CarrotManFields,
-        xiaogeTcpConnected: Boolean,
-        xiaogeDataTimeout: Boolean,
+        wsConnected: Boolean,
+        wsDataTimeout: Boolean,
         onSendCommand: (String, String) -> Unit,
         onSendRoadLimitSpeed: () -> Unit,
         onLaunchAmap: () -> Unit,
@@ -380,7 +380,7 @@ class MainActivityUI(
         // comma 设备连接状态：0=未连接, 1=已连接, 2=异常
         val commaConnectionState = core.getNetworkClientSafely()?.let { client ->
             when {
-                core.xiaogeDataTimeout.value -> 2
+                core.wsDataTimeout.value -> 2
                 client.isRunning() && client.getCurrentDevice() != null -> 1
                 else -> 0
             }
@@ -514,6 +514,9 @@ class MainActivityUI(
 
         // ===== 横屏布局：左4 : 中12 : 右4 三栏布局 =====
         val cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 }
+        val wsClient = core.carrotWsClient
+        val wsVehicleData = wsClient?.vehicleData?.collectAsState()?.value
+        val wsDeviceStatus = wsClient?.deviceStatus?.collectAsState()?.value
         Row(modifier = Modifier.fillMaxSize()) {
             // 左侧（4份）：HomeControlPanel
             HomeControlPanel(
@@ -537,6 +540,8 @@ class MainActivityUI(
                 onHomeNavLongClick = { homeNavLongTrigger++ },
                 onCompanyNavClick = { companyNavTrigger++ },
                 onCompanyNavLongClick = { companyNavLongTrigger++ },
+                vehicleData = wsVehicleData,
+                deviceStatus = wsDeviceStatus,
             )
                 // 中央（12份）：地图
                 Box(
@@ -544,22 +549,68 @@ class MainActivityUI(
                         .fillMaxHeight()
                         .weight(12f)
                 ) { mapZoneContent() }
-                // 右侧（4份）：搜索/家/公司 三个功能按钮
+                // 右侧（4份）：摄像头 + 功能按钮 + 驾驶数据
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(4f)
-                        .background(Surface900),
-                    verticalArrangement = Arrangement.SpaceEvenly,
+                        .background(Surface900)
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 搜索/家/公司 三个功能按钮排成一行
+                    val wsClient = core.carrotWsClient
+
+                    // ===== 右上：实时摄像头画面（占位区）=====
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(90.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val connState = wsClient?.connectionState?.collectAsState()
+                            val isConn = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
+                            if (isConn) {
+                                // 已连接：显示摄像头待命状态
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("📷", fontSize = 20.sp)
+                                    Text(
+                                        localized("摄像头待命", "Camera ready"),
+                                        fontSize = 9.sp, color = Color(0xFF64748B)
+                                    )
+                                    Text(
+                                        localized("连接 ws://.../ws/camera/road", ""),
+                                        fontSize = 7.sp, color = Color(0xFF475569)
+                                    )
+                                }
+                            } else {
+                                // 未连接：摄像头占位
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("📹", fontSize = 20.sp)
+                                    Text(
+                                        localized("实时画面", "Live Camera"),
+                                        fontSize = 9.sp, color = Color(0xFF64748B)
+                                    )
+                                    Text(
+                                        localized("未连接", "Disconnected"),
+                                        fontSize = 8.sp, color = Color(0xFF475569)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ===== 搜索/家/公司 三个功能按钮 =====
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 搜索目的地
                         HomeControlPanelCircleIcon(
                             modifier = Modifier,
                             background = Color(0xFF10B981).copy(alpha = 0.9f),
@@ -567,7 +618,6 @@ class MainActivityUI(
                             contentDescription = localized("搜索", "Search"),
                             onClick = { searchShowTrigger++ }
                         )
-                        // 回家
                         HomeControlPanelEmojiAddress(
                             modifier = Modifier,
                             emoji = "🏠",
@@ -576,7 +626,6 @@ class MainActivityUI(
                             onShortClick = { homeNavTrigger++ },
                             onLongClick = { homeNavLongTrigger++ }
                         )
-                        // 去公司
                         HomeControlPanelEmojiAddress(
                             modifier = Modifier,
                             emoji = "🏢",
@@ -585,6 +634,88 @@ class MainActivityUI(
                             onShortClick = { companyNavTrigger++ },
                             onLongClick = { companyNavLongTrigger++ }
                         )
+                    }
+
+                    // ===== 智能驾驶状态卡片 =====
+                    val vehicleData = wsClient?.vehicleData?.collectAsState()
+                    val deviceStats = wsClient?.deviceStatus?.collectAsState()
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // 车辆数据卡片
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.85f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = localized("🚗 驾驶数据", "🚗 Driving"),
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF94A3B8),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                val data = vehicleData?.value
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    val vEgo = data?.carState?.let { "${(it.vEgo * 3.6).toInt()} km/h" } ?: "--"
+                                    val lead = data?.modelV2?.let {
+                                        if (it.leadProb > 0.3) "${it.leadX.toInt()}m" else "无前车"
+                                    } ?: "--"
+                                    
+                                    Text("📊 ${vEgo}", fontSize = 11.sp, color = Color.White)
+                                    Text("🚘 ${lead}", fontSize = 11.sp, color = Color.White)
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                
+                                val active = data?.selfdriveState?.active
+                                val statusText = when (active) {
+                                    true -> localized("🟢 已激活", "🟢 Active")
+                                    false -> localized("⚪ 待机", "⚪ Standby")
+                                    null -> localized("⚫ 未连接", "⚫ Offline")
+                                }
+                                Text(statusText, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        // 设备状态卡片
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.85f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = localized("⚙️ 设备状态", "⚙️ Device"),
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF94A3B8),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val stats = deviceStats?.value
+                                val cpu = stats?.let { "${it.cpuUsage.toInt()}%/${it.cpuTemp.toInt()}°C" } ?: "--"
+                                val mem = stats?.let { "${it.memoryUsage.toInt()}%" } ?: "--"
+                                val bat = stats?.let { "${it.batteryPercent}%" } ?: "--"
+                                
+                                Text("CPU ${cpu} | MEM ${mem}", fontSize = 10.sp, color = Color(0xFFCBD5E1))
+                                Text("BAT ${bat}", fontSize = 10.sp, color = Color(0xFFCBD5E1))
+                            }
+                        }
+
+                        // 连接状态指示
+                        val connState = wsClient?.connectionState?.collectAsState()
+                        val isConnected = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
+                        val isTimeout = wsClient?.isDataTimeout?.collectAsState()?.value ?: false
+                        val connText = if (isConnected) {
+                            if (isTimeout) localized("⚠️ 数据超时", "⚠️ Data timeout")
+                            else localized("✅ 已连接", "✅ Connected")
+                        } else {
+                            localized("🔴 未连接", "🔴 Disconnected")
+                        }
+                        Text(connText, fontSize = 9.sp, color = Color(0xFF94A3B8))
                     }
                 }
             }
@@ -902,7 +1033,7 @@ class MainActivityUI(
 
     /**
      * 首页功能控制面板 - 横屏三栏布局
-     * 上：车道和盲区 | 中：速度圆环+地图源 | 下：红绿灯倒计时
+     * 上：道路信息+限速+前车 | 中：速度圆环+地图源 | 下：驾驶状态+红绿灯
      */
     @Composable
     private fun HomeControlPanel(
@@ -916,7 +1047,7 @@ class MainActivityUI(
         carrotParamClient: CarrotParamClient?,
         homeAddressSet: Boolean,
         companyAddressSet: Boolean,
-        commaConnectionState: Int = 0, // 0=未连接, 1=已连接, 2=异常
+        commaConnectionState: Int = 0,
         onShowAdvancedDialog: () -> Unit,
         onPageChange: (Int) -> Unit,
         onSearchClick: () -> Unit,
@@ -924,6 +1055,8 @@ class MainActivityUI(
         onHomeNavLongClick: () -> Unit,
         onCompanyNavClick: () -> Unit,
         onCompanyNavLongClick: () -> Unit,
+        vehicleData: com.example.navipilot.data.VehicleData? = null,
+        deviceStatus: com.example.navipilot.data.DeviceStatus? = null,
     ) {
         val panelContext = LocalContext.current
         val scrollState = rememberScrollState()
@@ -1061,13 +1194,15 @@ class MainActivityUI(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 上：车道和盲区UI
-                LaneBlindSpotPanel(
-                    laneType = 0,  // 预留：当前无laneType字段
-                    blindSpotWarning = false,
+                // 上：道路信息 + 限速 + 前车距离
+                RoadInfoCard(
+                    roadName = carrotManFields.szPosRoadName,
+                    limitSpeed = carrotManFields.nRoadLimitSpeed,
+                    leadDist = vehicleData?.modelV2?.leadX ?: 0f,
+                    leadProb = vehicleData?.modelV2?.leadProb ?: 0f,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(52.dp)
                 )
 
                 // 中：速度圆环 + 地图切换 三个按钮排成一行
@@ -1098,9 +1233,14 @@ class MainActivityUI(
                     )
                 }
 
-                // 下：红绿灯倒计时
-                TrafficLightCountdownPanel(
+                // 下：驾驶状态 + 红绿灯
+                DrivingStatusPanel(
+                    active = vehicleData?.selfdriveState?.active ?: false,
+                    vEgo = carrotManFields.vEgoKph,
+                    vCruise = (vehicleData?.controlsState?.vCruise?.let { (it * 3.6).toInt() } ?: cruiseSetSpeed),
+                    isExperimental = isExperimentalMode,
                     trafficState = carrotManFields.trafficState,
+                    trafficCountdown = carrotManFields.trafficLightCountdown,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
@@ -1222,111 +1362,146 @@ class MainActivityUI(
         }
     }
 
-    /** 车道和盲区UI面板 */
+    /** 道路信息卡片（道路名 + 限速 + 前车距离） */
     @Composable
-    private fun LaneBlindSpotPanel(
-        laneType: Int = 0,
-        blindSpotWarning: Boolean = false,
+    private fun RoadInfoCard(
+        roadName: String,
+        limitSpeed: Int,
+        leadDist: Float,
+        leadProb: Float,
         modifier: Modifier = Modifier
     ) {
-        // laneType: 0=未知, 1=直行, 2=左转, 3=右转, 4=变道
-        // blindSpotWarning: true=有盲区预警
         Row(
             modifier = modifier
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFF1E293B).copy(alpha = 0.9f))
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 车道指示
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = when (laneType) {
-                        1 -> Icons.Default.ArrowUpward
-                        2 -> Icons.Default.ArrowBack
-                        3 -> Icons.Default.ArrowForward
-                        4 -> Icons.Default.SwapHoriz
-                        else -> Icons.Default.HelpOutline
-                    },
-                    contentDescription = localized("车道", "Lane"),
-                    tint = when (laneType) {
-                        1 -> Color(0xFF22C55E)
-                        2, 3 -> Color(0xFFFBBF24)
-                        4 -> Color(0xFF3B82F6)
-                        else -> Color(0xFF64748B)
-                    },
-                    modifier = Modifier.size(24.dp)
-                )
+            // 道路名 + 限速
+            Column(horizontalAlignment = Alignment.Start) {
                 Text(
-                    text = when (laneType) {
-                        1 -> localized("直行", "Straight")
-                        2 -> localized("左转", "Left")
-                        3 -> localized("右转", "Right")
-                        4 -> localized("变道", "Change")
-                        else -> localized("未知", "Unknown")
-                    },
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 9.sp
+                    text = if (roadName.isNotEmpty()) roadName else localized("未知道路", "Unknown Rd"),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("⛔", fontSize = 11.sp)
+                    Spacer(Modifier.width(2.dp))
+                    Text(
+                        text = if (limitSpeed > 0) "${limitSpeed} km/h" else localized("-- km/h", "-- km/h"),
+                        color = Color(0xFFFBBF24),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            Divider(
-                modifier = Modifier
-                    .height(36.dp)
-                    .width(1.dp),
-                color = Color(0xFF475569)
-            )
-            // 盲区预警指示
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = if (blindSpotWarning) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    contentDescription = localized("盲区预警", "Blind Spot"),
-                    tint = if (blindSpotWarning) Color(0xFFEF4444) else Color(0xFF22C55E),
-                    modifier = Modifier.size(24.dp)
+            // 前车距离
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = localized("🚘 前车", "🚘 Lead"),
+                    fontSize = 9.sp,
+                    color = Color(0xFF94A3B8)
                 )
                 Text(
-                    text = localized("盲区", "Blind"),
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 9.sp
+                    text = if (leadProb > 0.3f) "${leadDist.toInt()} m" else localized("-- m", "-- m"),
+                    color = if (leadProb > 0.3f) Color(0xFF22C55E) else Color(0xFF64748B),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
     }
 
-    /** 红绿灯倒计时面板 */
+    /** 驾驶状态面板（openpilot 状态 + 巡航 + 红绿灯倒计时） */
     @Composable
-    private fun TrafficLightCountdownPanel(
-        trafficState: Int = -1,
+    private fun DrivingStatusPanel(
+        active: Boolean,
+        vEgo: Int,
+        vCruise: Int,
+        isExperimental: Boolean?,
+        trafficState: Int,
+        trafficCountdown: Int,
         modifier: Modifier = Modifier
     ) {
         // trafficState: -1=无数据, 0=绿灯, 1=红灯, 2=黄灯
-        val (icon, color, text) = when (trafficState) {
-            0 -> Triple(Icons.Default.Circle, Color(0xFF22C55E), localized("绿灯", "Green"))
-            1 -> Triple(Icons.Default.Circle, Color(0xFFEF4444), localized("红灯", "Red"))
-            2 -> Triple(Icons.Default.Circle, Color(0xFFFBBF24), localized("黄灯", "Yellow"))
-            else -> Triple(Icons.Default.Circle, Color(0xFF64748B), localized("无信号", "None"))
+        val (tColor, tText) = when (trafficState) {
+            0 -> Color(0xFF22C55E) to localized("绿灯", "Green")
+            1 -> Color(0xFFEF4444) to localized("红灯", "Red")
+            2 -> Color(0xFFFBBF24) to localized("黄灯", "Yellow")
+            else -> Color(0xFF64748B) to localized("--", "--")
         }
         Row(
             modifier = modifier
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFF1E293B).copy(alpha = 0.9f))
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.Center,
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = text,
-                tint = color,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = text,
-                color = color,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
+            // openpilot 状态
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (active) "🟢" else "⚪",
+                    fontSize = 16.sp
+                )
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text(
+                        text = if (active) localized("已激活", "Active")
+                               else localized("待机", "Standby"),
+                        fontSize = 11.sp,
+                        color = if (active) Color(0xFF22C55E) else Color(0xFF94A3B8),
+                        fontWeight = FontWeight.Bold
+                    )
+                    val expText = when (isExperimental) {
+                        true -> localized("🧪 实验", "🧪 Exp")
+                        false -> localized("❄️ Chill", "❄️ Chill")
+                        null -> "--"
+                    }
+                    Text(expText, fontSize = 8.sp, color = Color(0xFF64748B))
+                }
+            }
+            // 速度信息
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${vEgo}/${vCruise}",
+                    fontSize = 14.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = localized("km/h", "km/h"),
+                    fontSize = 8.sp,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+            // 红绿灯倒计时
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(tColor)
+                )
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text(
+                        text = if (trafficCountdown > 0) "${trafficCountdown}s" else tText,
+                        fontSize = 13.sp,
+                        color = tColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = localized("🚥", "🚥"),
+                        fontSize = 8.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
         }
     }
 

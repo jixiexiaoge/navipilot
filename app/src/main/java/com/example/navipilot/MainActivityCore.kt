@@ -352,11 +352,15 @@ class MainActivityCore(
     // 设备管理器
     lateinit var deviceManager: DeviceManager
     
-    // 小鸽数据接收器
-    lateinit var xiaogeDataReceiver: XiaogeDataReceiver
+    // ===== WebSocket 数据源 =====
+    var carrotWsClient: com.example.navipilot.data.CarrotWsClient? = null
+
+    // 车辆数据（兼容 XiaogeVehicleData 结构）
     val xiaogeData = mutableStateOf<XiaogeVehicleData?>(null)
-    val xiaogeTcpConnected = mutableStateOf(false)  // 🆕 TCP连接状态
-    val xiaogeDataTimeout = mutableStateOf(false)  // 🆕 数据超时状态（连接但数据超时）
+
+    // WebSocket 连接状态
+    val wsConnected = mutableStateOf(false)
+    val wsDataTimeout = mutableStateOf(false)
     
     // 自动超车管理器
     lateinit var autoOvertakeManager: AutoOvertakeManager
@@ -1290,13 +1294,6 @@ class MainActivityCore(
     }
 
     /**
-     * 获取小鸽数据接收器实例（如果已初始化）
-     */
-    fun getXiaogeDataReceiverOrNull(): XiaogeDataReceiver? {
-        return if (::xiaogeDataReceiver.isInitialized) xiaogeDataReceiver else null
-    }
-    
-    /**
      * 获取高德广播管理器实例（如果已初始化）
      */
     fun getAmapBroadcastManagerOrNull(): AmapBroadcastManager? {
@@ -1357,11 +1354,10 @@ class MainActivityCore(
      */
     fun cleanupManagers() {
         try {
-            // 清理小鸽数据接收器
-            if (::xiaogeDataReceiver.isInitialized) {
-                xiaogeDataReceiver.stop()
-                Log.i(TAG, "🧹 小鸽数据接收器已停止")
-            }
+            // 清理 WebSocket 客户端
+            carrotWsClient?.disconnect()
+            carrotWsClient = null
+            Log.i(TAG, "🧹 WebSocket 客户端已清理")
 
             // 清理自动超车管理器
             if (::autoOvertakeManager.isInitialized) {

@@ -62,7 +62,7 @@ class NetworkManager(
     // 🆕 CarrotMan命令索引 - 用于Python端检测命令变化
     private var carrotCmdIndex = 0
     
-    // 🆕 XiaogeDataReceiver IP更新回调 - 当从JSON解析到设备IP时通知
+    // 🆕 设备IP更新回调 - 当从JSON解析到设备IP时通知 WebSocket 客户端
     private var onDeviceIPUpdated: ((String) -> Unit)? = null
     
     // 🆕 性能优化 - 网络数据差分发送
@@ -107,10 +107,10 @@ class NetworkManager(
                         Log.i(TAG, "🎯 发现Comma3设备: $device")
                     }
                     
-                    // 🆕 设备发现时，立即通知XiaogeDataReceiver连接
+                    // 🆕 设备发现时，立即通知 WebSocket 客户端连接
                     val deviceIP = device.ip
                     if (deviceIP.isNotEmpty()) {
-                        //Log.i(TAG, "📡 设备发现，通知XiaogeDataReceiver连接: $deviceIP")
+                        //Log.i(TAG, "📡 设备发现，通知 WebSocket 连接: $deviceIP")
                         onDeviceIPUpdated?.invoke(deviceIP)
                     }
                 }
@@ -234,10 +234,10 @@ class NetworkManager(
                 lastUpdateTime = System.currentTimeMillis()
             )
             
-            // 🆕 如果JSON中包含设备IP，直接通知XiaogeDataReceiver连接
+            // 🆕 如果JSON中包含设备IP，直接通知 WebSocket 客户端连接
             if (deviceIP.isNotEmpty() && devicePort > 0) {
                 onDeviceIPUpdated?.invoke(deviceIP)
-                //Log.d(TAG, "📡 从JSON解析到设备IP: $deviceIP:$devicePort，已通知XiaogeDataReceiver")
+                //Log.d(TAG, "📡 从JSON解析到设备IP: $deviceIP:$devicePort，已通知 WebSocket")
             }
 
             val oldData = openpilotStatusData.value
@@ -425,7 +425,7 @@ class NetworkManager(
     
     /**
      * 🆕 设置设备IP更新回调
-     * 当从JSON解析到设备IP时，直接通知XiaogeDataReceiver连接
+     * 当从JSON解析到设备IP时，直接通知 WebSocket 客户端连接
      * @param callback IP更新回调函数，参数为设备IP地址
      */
     fun setOnDeviceIPUpdated(callback: ((String) -> Unit)?) {

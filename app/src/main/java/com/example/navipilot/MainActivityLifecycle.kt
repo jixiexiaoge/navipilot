@@ -235,12 +235,12 @@ class MainActivityLifecycle(
                         Log.w(TAG, "⚠️ 清理设备管理器失败: ${e.message}")
                     }
                     
-                    // 停止小鸽数据接收器
+                    // 停止 WebSocket 客户端
                     try {
-                        core.getXiaogeDataReceiverOrNull()?.stop()
-                        Log.i(TAG, "✅ 小鸽数据接收器已停止")
+                        core.carrotWsClient?.disconnect()
+                        Log.i(TAG, "✅ WebSocket 客户端已停止")
                     } catch (e: Exception) {
-                        Log.w(TAG, "⚠️ 停止小鸽数据接收器失败: ${e.message}")
+                        Log.w(TAG, "⚠️ 停止 WebSocket 客户端失败: ${e.message}")
                     }
                     
                     // 清理HTTP参数客户端
@@ -781,7 +781,7 @@ class MainActivityLifecycle(
                 updateSelfCheckStatusAsync("网络服务", "启动完成", true)
                 delay(100)
 
-                // 12. 等待设备发现并启动XiaogeDataReceiver
+                // 12. 等待设备发现并启动 WebSocket 客户端
                 waitForDeviceAndStartXiaogeReceiver()
 
                 // 13. 根据用户类型条件启动AutoOvertakeManager
@@ -791,15 +791,7 @@ class MainActivityLifecycle(
                     try {
                         core.autoOvertakeManager = AutoOvertakeManager(activity, core.networkManager)
                         
-                        // 如果XiaogeDataReceiver已启动，记录日志
-                        try {
-                            val currentReceiver = core.xiaogeDataReceiver
-                            // 注意：XiaogeDataReceiver的回调在创建时设置，无法直接更新
-                            // 但回调中已经检查autoOvertakeManager是否存在，所以会自动使用
-                            Log.i(TAG, "✅ AutoOvertakeManager已创建，XiaogeDataReceiver将使用它")
-                        } catch (e: UninitializedPropertyAccessException) {
-                            Log.w(TAG, "⚠️ XiaogeDataReceiver未初始化，AutoOvertakeManager将在XiaogeDataReceiver启动后可用")
-                        }
+                        // WebSocket 客户端已创建，数据将自动桥接到 AutoOvertakeManager
                         
                         updateSelfCheckStatusAsync("自动超车管理器", "初始化完成", true)
                     } catch (e: Exception) {
@@ -854,126 +846,118 @@ class MainActivityLifecycle(
     }
 
     /**
-     * 等待设备发现并启动XiaogeDataReceiver
-     * 🆕 简化：立即启动，由NetworkManager回调触发连接
+     * 等待设备发现并启动 WebSocket 客户端（替代 XiaogeDataReceiver）
      */
     private suspend fun waitForDeviceAndStartXiaogeReceiver() {
-        updateSelfCheckStatusAsync("小鸽数据接收器", "正在初始化...", false)
-        
-        // 创建XiaogeDataReceiver（回调中检查autoOvertakeManager是否存在）
+        updateSelfCheckStatusAsync("车辆数据连接", "正在初始化...", false)
+
         try {
-            core.xiaogeDataReceiver = XiaogeDataReceiver(
-                context = activity,
-                onDataReceived = { data ->
-                    // 🆕 确保数据立即更新到主线程，保证UI实时刷新
+            // 创建 WebSocket 客户端
+            val wsClient = com.example.navipilot.data.CarrotWsClient()
+            core.carrotWsClient = wsClient
+
+            // 监听连接状态
+            CoroutineScope(Dispatchers.Default).launch {
+                wsClient.connectionState.collect { state ->
                     lifecycleScope.launch {
-                    // 🆕 从carrotManFields获取tbtDist（如果JSON中没有或为0，使用carrotManFields的值）
-                    val tbtDist = if (data?.tbtDist != null && data.tbtDist > 0) {
-                        data.tbtDist  // 优先使用JSON中的值
-                    } else {
-                        core.carrotManFields.value.nTBTDist  // 从高德地图广播获取
+                        core.wsConnected.value = (state == com.example.navipilot.data.ConnectionState.CONNECTED)
                     }
-                    
-                    // 🆕 更新data中的tbtDist
-                    val dataWithTbtDist = data?.copy(tbtDist = tbtDist)
-                    
-                    // 🆕 从carrotManFields获取道路类型（高德地图 ROAD_TYPE）
-                    val roadType = core.carrotManFields.value.roadType
-                    
-                    // 检查autoOvertakeManager是否已初始化
-                    val overtakeStatus = try {
-                        // 尝试访问autoOvertakeManager，如果未初始化会抛出UninitializedPropertyAccessException
-                        // 🆕 传递道路类型参数，如果为默认值8（未知）则传递null（向后兼容）
-                        val roadTypeParam = if (roadType == 8) null else roadType
-                        // 🆕 获取导航辅助动作和TBT文本
-                        val segAssistantAction = core.carrotManFields.value.segAssistantAction
-                        val tbtMainText = core.carrotManFields.value.szTBTMainText
-                        core.autoOvertakeManager.navLaneCountCache = core.carrotManFields.value.nLaneCount
-                        core.autoOvertakeManager.update(
-                            dataWithTbtDist, 
-                            roadTypeParam,
-                            segAssistantAction,
-                            tbtMainText
+                }
+            }
+
+            // 监听数据超时
+            CoroutineScope(Dispatchers.Default).launch {
+                wsClient.isDataTimeout.collect { timeout ->
+                    lifecycleScope.launch {
+                        core.wsDataTimeout.value = timeout
+                    }
+                }
+            }
+
+            // 监听车辆数据 → 映射到旧的 XiaogeVehicleData（兼容 AutoOvertakeManager + UI）
+            CoroutineScope(Dispatchers.Default).launch {
+                wsClient.vehicleData.collect { vd ->
+                    if (vd == null) return@collect
+                    lifecycleScope.launch {
+                        val data = vd
+                        // 从高德广播获取补充字段
+                        val tbtDist = core.carrotManFields.value.nTBTDist
+                        val roadType = core.carrotManFields.value.roadType
+
+                        // 构建兼容的 XiaogeVehicleData
+                        val xiaogeData = XiaogeVehicleData(
+                            sequence = 0,
+                            timestamp = data.timestamp.toDouble() / 1000.0,
+                            ip = null,
+                            receiveTime = data.timestamp,
+                            carState = data.carState?.let { cs ->
+                                com.example.navipilot.CarStateData(
+                                    vEgo = cs.vEgo,
+                                    steeringAngleDeg = cs.steeringAngleDeg,
+                                    leftLatDist = 0f,
+                                    leftBlindspot = false,
+                                    rightBlindspot = false
+                                )
+                            },
+                            modelV2 = data.modelV2?.let { mv ->
+                                com.example.navipilot.ModelV2Data(
+                                    lead0 = com.example.navipilot.LeadData(
+                                        x = mv.leadX,
+                                        y = 0f,
+                                        v = mv.leadV,
+                                        prob = mv.leadProb
+                                    ),
+                                    leadLeft = null,
+                                    leadRight = null,
+                                    laneLineProbs = mv.laneLineProbs,
+                                    meta = com.example.navipilot.MetaData(
+                                        distanceToRoadEdgeLeft = mv.leftDist,
+                                        distanceToRoadEdgeRight = mv.rightDist
+                                    ),
+                                    curvature = null
+                                )
+                            },
+                            systemState = data.selfdriveState?.let { ss ->
+                                com.example.navipilot.SystemStateData(
+                                    enabled = ss.enabled,
+                                    active = ss.active
+                                )
+                            },
+                            overtakeStatus = null,
+                            tbtDist = tbtDist
                         )
-                    } catch (e: UninitializedPropertyAccessException) {
-                        // 如果未初始化，返回null
-                        null
-                    } catch (e: Exception) {
-                        // 其他异常也返回null
-                        Log.w(TAG, "⚠️ AutoOvertakeManager.update()异常: ${e.message}")
-                        null
+
+                        // AutoOvertakeManager 更新
+                        val overtakeStatus = try {
+                            val roadTypeParam = if (roadType == 8) null else roadType
+                            val segAction = core.carrotManFields.value.segAssistantAction
+                            val tbtText = core.carrotManFields.value.szTBTMainText
+                            core.autoOvertakeManager.navLaneCountCache = core.carrotManFields.value.nLaneCount
+                            core.autoOvertakeManager.update(
+                                xiaogeData, roadTypeParam, segAction, tbtText
+                            )
+                        } catch (_: Exception) { null }
+
+                        core.xiaogeData.value = xiaogeData.copy(overtakeStatus = overtakeStatus)
                     }
-                        // 🆕 立即更新数据到UI，包含超车状态（可能为null），确保UI实时显示最新数据
-                    core.xiaogeData.value = dataWithTbtDist?.copy(overtakeStatus = overtakeStatus)
-                    }
-                },
-                onConnectionStatusChanged = { connected ->
-                    // 更新TCP连接状态
-                    core.xiaogeTcpConnected.value = connected
-                    Log.d(TAG, "🔗 TCP连接状态变化: $connected")
-                },
-                onReconnectFailed = {
-                    // 🆕 重连失败回调：提示用户重启app
-                    Log.e(TAG, "❌ TCP连接失败，已尝试3次重连，请重启app")
-                    // 在主线程显示Toast提示
-                    lifecycleScope.launch {
-                        android.widget.Toast.makeText(
-                            activity,
-                            "TCP连接失败，已尝试3次重连\n请重启app恢复连接",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                },
-                onDataTimeoutChanged = { isTimeout ->
-                    // 🆕 数据超时状态回调：更新数据超时状态
-                    core.xiaogeDataTimeout.value = isTimeout
-                    Log.d(TAG, "⏱️ 数据超时状态变化: $isTimeout")
                 }
-            )
-            
-            // 设置NetworkManager引用，用于自动获取设备IP
-            core.xiaogeDataReceiver.setNetworkManager(core.networkManager)
-            
-            // 🆕 记录上次连接的IP，避免重复连接
-            var lastConnectedIP = ""
-            
-            // 🆕 设置NetworkManager的IP更新回调，当获取到设备IP时立即通知XiaogeDataReceiver连接
+            }
+
+            // 设置网络回调：获取设备 IP 后连接
             core.networkManager.setOnDeviceIPUpdated { deviceIP ->
-                //Log.i(TAG, "📡 从NetworkManager收到设备IP: $deviceIP，立即通知XiaogeDataReceiver连接")
-                // 立即设置IP并触发连接
-                core.xiaogeDataReceiver.setServerIP(deviceIP)
-                
-                // 🆕 同时自动连接ZMQ客户端（仅在IP变化时）
-                if (deviceIP != lastConnectedIP) {
-                    lastConnectedIP = deviceIP
-
-                    // 创建HTTP参数客户端（无状态，直接创建即可）
-                    core.carrotParamClient = CarrotParamClient(deviceIP)
-                    Log.i(TAG, "✅ HTTP参数客户端已创建: $deviceIP:7000")
+                if (deviceIP.isNotEmpty()) {
+                    wsClient.connect(deviceIP)
+                    // HTTP 参数客户端
+                    core.carrotParamClient = com.example.navipilot.CarrotParamClient(deviceIP)
+                    Log.i(TAG, "✅ WebSocket 客户端已连接: $deviceIP:7000")
                 }
             }
-            
-            // 🆕 立即启动XiaogeDataReceiver，如果有IP则立即连接，否则等待NetworkManager回调
-            val initialIP = core.networkManager.getCurrentDeviceIP()
-            if (initialIP != null && initialIP.isNotEmpty()) {
-                Log.i(TAG, "🚀 使用已有IP启动XiaogeDataReceiver: $initialIP")
-                core.xiaogeDataReceiver.start(initialIP)
-                updateSelfCheckStatusAsync("小鸽数据接收器", "已启动（设备IP: $initialIP）", true)
-                
-                lastConnectedIP = initialIP
 
-                // 创建HTTP参数客户端（无状态，直接创建即可）
-                core.carrotParamClient = CarrotParamClient(initialIP)
-                Log.i(TAG, "✅ HTTP参数客户端已创建: $initialIP:7000")
-            } else {
-                Log.i(TAG, "🚀 启动XiaogeDataReceiver（等待NetworkManager发现设备IP）")
-                core.xiaogeDataReceiver.start(null) // 传入null，等待NetworkManager回调设置IP
-                updateSelfCheckStatusAsync("小鸽数据接收器", "已启动（等待设备发现）", true)
-            }
-            
+            updateSelfCheckStatusAsync("车辆数据连接", "等待设备IP...", true)
+
         } catch (e: Exception) {
-            Log.e(TAG, "❌ 小鸽数据接收器初始化失败: ${e.message}", e)
-            updateSelfCheckStatusAsync("小鸽数据接收器", "初始化失败: ${e.message}", false)
+            Log.e(TAG, "❌ WebSocket 客户端初始化失败: ${e.message}")
+            updateSelfCheckStatusAsync("车辆数据连接", "初始化失败: ${e.message}", false)
         }
     }
 
