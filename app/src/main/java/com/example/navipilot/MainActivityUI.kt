@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -63,6 +64,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.navipilot.ui.theme.Surface700
 import com.example.navipilot.ui.theme.Surface800
 import com.example.navipilot.ui.theme.Surface900
 import androidx.compose.ui.platform.LocalConfiguration
@@ -552,6 +554,7 @@ class MainActivityUI(
                 onCompanyNavLongClick = { companyNavLongTrigger++ },
                 vehicleData = wsVehicleData,
                 deviceStatus = wsDeviceStatus,
+                onLanePanelClick = { show7706JsonDebug = true },
             )
                 // 中央（12份）：地图
                 Box(
@@ -564,7 +567,7 @@ class MainActivityUI(
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(4f)
-                        .background(Surface900)
+                        .background(Surface800)
                         .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -585,8 +588,8 @@ class MainActivityUI(
                     val cameraFrame = wsClient?.cameraFrame?.collectAsState()
                     val camData = cameraFrame?.value
                     Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Surface800.copy(alpha = 0.85f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(90.dp)
@@ -715,6 +718,15 @@ class MainActivityUI(
                 carrotManFields = carrotManFields,
                 networkManager = core.networkManager,
                 context = mapContext
+            )
+        }
+
+        // 7706 JSON 调试面板（点击车道盲区面板触发）
+        if (show7706JsonDebug) {
+            Carrot7706JsonDebugOverlay(
+                fields = carrotFieldsLive,
+                networkClient = core.getNetworkClientSafely(),
+                onDismiss = { show7706JsonDebug = false }
             )
         }
     }
@@ -1039,6 +1051,7 @@ class MainActivityUI(
         onCompanyNavLongClick: () -> Unit,
         vehicleData: com.example.navipilot.data.VehicleData? = null,
         deviceStatus: com.example.navipilot.data.DeviceStatus? = null,
+        onLanePanelClick: () -> Unit = {},
     ) {
         val panelContext = LocalContext.current
         val scrollState = rememberScrollState()
@@ -1176,19 +1189,22 @@ class MainActivityUI(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 顶部：车道线 + 盲区动态面板
+                // 顶部：车道线 + 盲区动态面板（点击打开 7706 调试）
                 LaneBlindspotPanel(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
+                        .height(224.dp)
+                        .clickable { onLanePanelClick() },
                     laneLineProbs = vehicleData?.modelV2?.laneLineProbs ?: emptyList(),
                     leftDist = vehicleData?.modelV2?.leftDist ?: 0f,
                     rightDist = vehicleData?.modelV2?.rightDist ?: 0f,
                     leftBlindspot = vehicleData?.carState?.leftBlindspot ?: false,
                     rightBlindspot = vehicleData?.carState?.rightBlindspot ?: false,
                     leftLatDist = vehicleData?.carState?.leftLatDist ?: 0f,
+                    leadX = vehicleData?.modelV2?.leadX ?: 0f,
+                    leadProb = vehicleData?.modelV2?.leadProb ?: 0f,
                 )
-                // 中：魔行星红绿灯数据（无障碍读取）
+                // 中：红绿灯数据（高德车机版 + 魔行星距离辅助）
                 val trafficData by com.example.navipilot.FloatWindowReaderService.trafficData.collectAsState()
                 val panelCtx = panelContext
                 fun isAccessibilityEnabled(): Boolean {
@@ -1208,71 +1224,81 @@ class MainActivityUI(
                         kotlinx.coroutines.delay(3000)
                     }
                 }
-                if (trafficData.distance > 0 || trafficData.lanes.isNotEmpty()) {
-                    Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                Text("${trafficData.distance}m", fontSize = 9.sp, color = Color(0xFF94A3B8))
-                            }
-                            trafficData.lanes.forEach { lane ->
-                                val lColor = when (lane.state) {
-                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.RED -> Color(0xFFEF4444)
-                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.GREEN -> Color(0xFF22C55E)
-                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.YELLOW -> Color(0xFFFBBF24)
-                                    else -> Color(0xFF64748B)
-                                }
-                                val arrow = when (lane.direction) {
-                                    "左转" -> "←"
-                                    "直行" -> "↑"
-                                    "右转" -> "→"
-                                    else -> "●"
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(lColor))
-                                        Spacer(Modifier.width(3.dp))
-                                        Text(arrow, fontSize = 11.sp, color = Color.White)
-                                    }
-                                    Text("${lane.countdown}s", fontSize = 12.sp, color = lColor, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+                // 高德车机版红绿灯数据
+                val amapState = carrotManFields.trafficLightState     // -1=无, 0=绿灯, 1=红灯, 2=黄灯
+                val amapCountdown = carrotManFields.trafficLightCountdown // 倒计时秒数
+                val amapDist = carrotManFields.trafficLightDistance    // 距离
+                val hasAmapData = amapState >= 0 && amapCountdown > 0
+                val hasMXingDist = trafficData.distance > 0
+                val showTrafficCard = hasAmapData || hasMXingDist || !accessibilityOn.value
+
+                if (showTrafficCard) {
+                    // 红绿灯颜色
+                    val tColor = when (amapState) {
+                        0 -> Color(0xFF22C55E)   // 绿灯
+                        1 -> Color(0xFFEF4444)   // 红灯
+                        2 -> Color(0xFFFBBF24)   // 黄灯
+                        else -> Color(0xFF64748B)
                     }
-                } else if (!accessibilityOn.value) {
+                    val tLabel = when (amapState) {
+                        0 -> localized("绿灯", "Green")
+                        1 -> localized("红灯", "Red")
+                        2 -> localized("黄灯", "Yellow")
+                        else -> localized("--", "--")
+                    }
+
                     Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                try {
-                                    panelCtx.startActivity(
-                                        android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                    )
-                                } catch (_: Exception) {}
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Surface800.copy(alpha = 0.85f)),
+                        modifier = if (!accessibilityOn.value && !hasAmapData)
+                            Modifier.fillMaxWidth().clickable {
+                                try { panelCtx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) } catch (_: Exception) {}
                             }
+                        else Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("📡", fontSize = 14.sp)
-                            Spacer(Modifier.width(4.dp))
-                            Column {
-                                Text(localized("开启无障碍读取红绿灯", "Enable traffic light reader"), fontSize = 10.sp, color = Color(0xFF94A3B8))
-                                Text(localized("点击跳转设置 → 开启「悬浮窗读取服务」", "Tap → Accessibility → FloatWindowReader"), fontSize = 7.sp, color = Color(0xFF64748B), maxLines = 2)
+                            // 高德红绿灯
+                            if (hasAmapData) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(tColor))
+                                    Spacer(Modifier.width(3.dp))
+                                    Column {
+                                        Text(tLabel, fontSize = 9.sp, color = tColor, fontWeight = FontWeight.Bold)
+                                        Text("${amapCountdown}s", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                // 分隔
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(Color(0xFF374151)))
                             }
-                            Spacer(Modifier.width(4.dp))
-                            Text("⚙️", fontSize = 14.sp)
+                            // 高德距离
+                            if (hasAmapData && amapDist > 0) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("📏", fontSize = 12.sp)
+                                    Text("${amapDist}m", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                }
+                                Box(modifier = Modifier.width(1.dp).height(20.dp).background(Color(0xFF374151)))
+                            }
+                            // 魔行星距离（补充）
+                            if (hasMXingDist) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("🚥", fontSize = 12.sp)
+                                    Text("${trafficData.distance}m", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                }
+                            }
+                            // 无障碍引导（无数据时显示）
+                            if (!hasAmapData && !hasMXingDist && !accessibilityOn.value) {
+                                Text("📡", fontSize = 14.sp)
+                                Spacer(Modifier.width(4.dp))
+                                Column {
+                                    Text(localized("开启读取红绿灯", "Enable traffic reader"), fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                    Text(localized("点击设置", "Tap to settings"), fontSize = 7.sp, color = Color(0xFF64748B))
+                                }
+                                Spacer(Modifier.width(4.dp))
+                            }
                         }
                     }
                 }
@@ -1472,7 +1498,7 @@ class MainActivityUI(
         }
     }
 
-    /** 车道线与盲区动态面板 */
+    /** 车道感知仪表盘 - 俯视三车道视图 */
     @Composable
     private fun LaneBlindspotPanel(
         modifier: Modifier = Modifier,
@@ -1481,167 +1507,184 @@ class MainActivityUI(
         rightDist: Float,
         leftBlindspot: Boolean,
         rightBlindspot: Boolean,
-        leftLatDist: Float
+        leftLatDist: Float,
+        leadX: Float = 0f,
+        leadProb: Float = 0f
     ) {
-        // 判断是否有数据
-        val hasData = laneLineProbs.isNotEmpty() || leftDist > 0f || rightDist > 0f
+        val ll0 = laneLineProbs.getOrNull(0) ?: 0.5f  // 左路缘
+        val ll1 = laneLineProbs.getOrNull(1) ?: 0.5f  // 左车道线
+        val ll2 = laneLineProbs.getOrNull(2) ?: 0.5f  // 右车道线
+        val ll3 = laneLineProbs.getOrNull(3) ?: 0.5f  // 右路缘
+        val hasLead = leadProb > 0.3f && leadX > 0
 
-        // 颜色主题
-        val bgColor = if (hasData) Color(0xFF1E293B).copy(alpha = 0.9f)
-                      else Color(0xFFE2E8F0).copy(alpha = 0.9f)
-        val laneColor = if (hasData) Color(0xFF374151) else Color(0xFFCBD5E1)
-        val roadEdgeColor = Color(0xFFEF4444)  // 红色路缘线
-        val blindspotFillColor = Color(0xFFEF4444).copy(alpha = 0.3f)  // 浅红色盲区填充
-        val carColor = if (hasData) Color(0xFF3B82F6) else Color(0xFF94A3B8)
+        fun laneColor(p: Float) = if (p > 0.6f) Color(0xFF60A5FA) else Color(0xFF334155)
+        fun dashColor(p: Float) = if (p > 0.6f) Color(0xFF94A3B8) else Color(0xFF334155)
 
-        Box(
+        Column(
             modifier = modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(bgColor)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+                .clip(RoundedCornerShape(12.dp))
+                .background(Surface800.copy(alpha = 0.85f))
+                .border(1.dp, Surface700.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .padding(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 左侧车道
-                Box(
-                    modifier = Modifier
-                        .width(48.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(laneColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 路缘线 - 左（红色）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(2.dp)
-                            .background(roadEdgeColor)
-                            .align(Alignment.CenterStart)
-                    )
-                    // 盲区填充
-                    if (leftBlindspot) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(blindspotFillColor)
-                        )
-                    }
-                    // 车道线概率指示（小条）
-                    if (laneLineProbs.isNotEmpty()) {
-                        val leftLaneProb = laneLineProbs.getOrNull(0) ?: 0f
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height((leftLaneProb * 28).dp.coerceAtLeast(4.dp))
-                                .background(
-                                    when {
-                                        leftLaneProb > 0.8f -> Color(0xFF22C55E)
-                                        leftLaneProb > 0.5f -> Color(0xFFFBBF24)
-                                        else -> Color(0xFF6B7280)
-                                    }
-                                )
-                                .align(Alignment.BottomCenter)
-                        )
-                    }
-                }
+            Text(localized("🚦 车道感知", "🚦 Lane"), fontSize = 9.sp, color = Color(0xFF64748B))
+            Spacer(Modifier.height(4.dp))
 
-                // 中间：车辆俯视图
-                Box(
-                    modifier = Modifier
-                        .width(56.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (hasData) Color(0xFF1E293B) else Color(0xFFE2E8F0)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 车辆俯视图简化形状
-                    Box(
-                        modifier = Modifier
-                            .width(24.dp)
-                            .height(32.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(carColor)
-                    ) {
-                        // 车头
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                .background(carColor.copy(alpha = 0.8f))
-                                .align(Alignment.TopCenter)
-                        )
-                        // 车轮标记
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height(6.dp)
-                                .background(Color.Black.copy(alpha = 0.3f))
-                                .align(Alignment.TopStart)
-                                .padding(start = 2.dp, top = 2.dp)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height(6.dp)
-                                .background(Color.Black.copy(alpha = 0.3f))
-                                .align(Alignment.TopEnd)
-                                .padding(end = 2.dp, top = 2.dp)
-                        )
-                    }
-                }
+            // 俯视道路图
+            Box(modifier = Modifier.fillMaxWidth().height(130.dp)) {
+                // 道路底色
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width; val h = size.height
+                    val laneW = w / 3f         // 每车道宽度
+                    val leftEdge = 0f
+                    val rightEdge = w
 
-                // 右侧车道
-                Box(
-                    modifier = Modifier
-                        .width(48.dp)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(laneColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 路缘线 - 右（红色）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(2.dp)
-                            .background(roadEdgeColor)
-                            .align(Alignment.CenterEnd)
-                    )
-                    // 盲区填充
-                    if (rightBlindspot) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(blindspotFillColor)
-                        )
+                    // 道路沥青底色
+                    drawRect(Color(0xFF141E33))
+
+                    // 路缘线（第0条和第3条）
+                    drawLine(laneColor(ll0), androidx.compose.ui.geometry.Offset(leftEdge + 2f, 0f), androidx.compose.ui.geometry.Offset(leftEdge + 2f, h), 3f)
+                    drawLine(laneColor(ll3), androidx.compose.ui.geometry.Offset(rightEdge - 2f, 0f), androidx.compose.ui.geometry.Offset(rightEdge - 2f, h), 3f)
+
+                    // 车道虚线（第1条和第2条）
+                    fun drawDashed(x: Float, color: Color) {
+                        var y = 0f
+                        while (y < h) { drawLine(color, androidx.compose.ui.geometry.Offset(x, y), androidx.compose.ui.geometry.Offset(x, (y + 10f).coerceAtMost(h)), 2f); y += 18f }
                     }
-                    // 车道线概率指示（小条）
-                    if (laneLineProbs.size > 3) {
-                        val rightLaneProb = laneLineProbs.getOrNull(3) ?: 0f
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height((rightLaneProb * 28).dp.coerceAtLeast(4.dp))
-                                .background(
-                                    when {
-                                        rightLaneProb > 0.8f -> Color(0xFF22C55E)
-                                        rightLaneProb > 0.5f -> Color(0xFFFBBF24)
-                                        else -> Color(0xFF6B7280)
-                                    }
-                                )
-                                .align(Alignment.BottomCenter)
-                        )
+                    drawDashed(laneW, dashColor(ll1))
+                    drawDashed(laneW * 2f, dashColor(ll2))
+
+                    // 侧方车辆 - 左右盲区
+                    fun drawSideCar(cx: Float, blind: Boolean) {
+                        if (blind) {
+                            for (i in 1..2) drawCircle(Color(0xFFEF4444).copy(alpha = 0.15f), 18f + i * 5f, androidx.compose.ui.geometry.Offset(cx, h * 0.35f))
+                            drawRoundRect(Color(0xFF6B7280), androidx.compose.ui.geometry.Offset(cx - 7f, h * 0.35f - 10f), androidx.compose.ui.geometry.Size(14f, 20f), androidx.compose.ui.geometry.CornerRadius(3f))
+                            drawLine(Color(0xFFEF4444), androidx.compose.ui.geometry.Offset(cx, h * 0.35f + 10f), androidx.compose.ui.geometry.Offset(cx, h * 0.45f), 1f)
+                        }
+                    }
+                    drawSideCar(laneW / 2f, leftBlindspot)
+                    drawSideCar(laneW * 2.5f, rightBlindspot)
+
+                    // 前车（中间车道顶部）
+                    if (hasLead) {
+                        val s = (leadX.coerceIn(15f, 80f) / 80f).coerceIn(0.3f, 1f)
+                        val carW = (16f / s).coerceIn(14f, 26f)
+                        val carH = carW * 1.5f
+                        val cx = laneW * 1.5f
+                        val cy = h * 0.08f + carH / 2f
+                        for (i in 1..3) drawCircle(Color(0xFF3B82F6).copy(alpha = 0.08f), carW * 0.6f + i * 5f, androidx.compose.ui.geometry.Offset(cx, cy))
+                        // 前车车身 - 俯视
+                        drawRoundRect(Color(0xFF94A3B8), androidx.compose.ui.geometry.Offset(cx - carW / 2, cy - carH / 2), androidx.compose.ui.geometry.Size(carW, carH), androidx.compose.ui.geometry.CornerRadius(3f))
+                        drawRoundRect(Color(0xFF6B7280).copy(alpha = 0.5f), androidx.compose.ui.geometry.Offset(cx - carW * 0.3f, cy - carH / 3), androidx.compose.ui.geometry.Size(carW * 0.6f, carH * 0.2f), androidx.compose.ui.geometry.CornerRadius(1f))
+                        // 连接到本车虚线
+                        drawLine(Color(0xFF475569).copy(alpha = 0.5f), androidx.compose.ui.geometry.Offset(cx, cy + carH / 2), androidx.compose.ui.geometry.Offset(cx, h * 0.55f), 1f)
+                    }
+
+                    // 本车（中间车道底部）
+                    val myCX = laneW * 1.5f
+                    val myCY = h * 0.72f
+                    val myW = 24f
+                    val myH = 38f
+                    // 车身蓝色光晕
+                    for (i in 1..2) drawCircle(Color(0xFF3B82F6).copy(alpha = 0.08f), myW * 0.7f + i * 6f, androidx.compose.ui.geometry.Offset(myCX, myCY))
+                    // 车身（深蓝）
+                    drawRoundRect(Color(0xFF2563EB), androidx.compose.ui.geometry.Offset(myCX - myW / 2, myCY - myH / 2), androidx.compose.ui.geometry.Size(myW, myH), androidx.compose.ui.geometry.CornerRadius(5f))
+                    // 车头（浅蓝高亮）
+                    drawRoundRect(Color(0xFF60A5FA).copy(alpha = 0.4f), androidx.compose.ui.geometry.Offset(myCX - myW * 0.35f, myCY - myH / 2), androidx.compose.ui.geometry.Size(myW * 0.7f, myH * 0.25f), androidx.compose.ui.geometry.CornerRadius(2f))
+                    // 挡风玻璃
+                    drawRoundRect(Color(0xFF1E3A5F).copy(alpha = 0.7f), androidx.compose.ui.geometry.Offset(myCX - myW * 0.3f, myCY - myH * 0.15f), androidx.compose.ui.geometry.Size(myW * 0.6f, myH * 0.2f), androidx.compose.ui.geometry.CornerRadius(1f))
+                    // 左大灯
+                    drawCircle(Color(0xFFFBBF24).copy(alpha = 0.6f), 2f, androidx.compose.ui.geometry.Offset(myCX - myW * 0.35f, myCY - myH / 2 + 3f))
+                    // 右大灯
+                    drawCircle(Color(0xFFFBBF24).copy(alpha = 0.6f), 2f, androidx.compose.ui.geometry.Offset(myCX + myW * 0.35f, myCY - myH / 2 + 3f))
+                    // 尾灯
+                    drawCircle(Color(0xFFEF4444).copy(alpha = 0.5f), 2f, androidx.compose.ui.geometry.Offset(myCX - myW * 0.3f, myCY + myH / 2 - 3f))
+                    drawCircle(Color(0xFFEF4444).copy(alpha = 0.5f), 2f, androidx.compose.ui.geometry.Offset(myCX + myW * 0.3f, myCY + myH / 2 - 3f))
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            // 底部车道线置信度 + 盲区状态条
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // 四条车道线概率条
+                val probs = listOf(ll0, ll1, ll2, ll3)
+                probs.forEachIndexed { i, p ->
+                    val barColor = when {
+                        p > 0.8f -> Color(0xFF22C55E)
+                        p > 0.5f -> Color(0xFFFBBF24)
+                        else -> Color(0xFF475569)
+                    }
+                    val label = when (i) { 0 -> "L0"; 1 -> "L1"; 2 -> "L2"; else -> "L3" }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                        Box(modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(barColor.copy(alpha = p.coerceIn(0.2f, 1f))))
+                        Text(label, fontSize = 6.sp, color = Color(0xFF64748B))
                     }
                 }
+                // 盲区指示
+                Box(modifier = Modifier.width(1.dp).height(16.dp).background(Color(0xFF334155)))
+                Text(if (leftBlindspot) "⚠" else "●", fontSize = 8.sp, color = if (leftBlindspot) Color(0xFFEF4444) else Color(0xFF22C55E))
+                Text(if (rightBlindspot) "⚠" else "●", fontSize = 8.sp, color = if (rightBlindspot) Color(0xFFEF4444) else Color(0xFF22C55E))
             }
         }
     }
+
+@Composable
+private fun LaneIndicator(
+    label: String,
+    lineProb: Float,
+    laneProb: Float,
+    hasBlindspot: Boolean,
+    isLeft: Boolean
+) {
+    val lineColor = if (lineProb > 0.5f) Color(0xFF60A5FA) else Color(0xFF374151)
+    val laneColor = if (laneProb > 0.5f) Color(0xFF475569) else Color(0xFF1E293B)
+    val activeColor = Color(0xFF3B82F6)
+    val warnColor = Color(0xFFEF4444)
+
+    Column(
+        modifier = Modifier.width(36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // 路缘线
+        Box(
+            modifier = Modifier
+                .width(2.dp).height(20.dp)
+                .background(lineColor)
+        )
+        // 车道区域（有盲区时变红）
+        Box(
+            modifier = Modifier
+                .width(28.dp).height(36.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (hasBlindspot) warnColor.copy(alpha = 0.2f) else laneColor),
+            contentAlignment = Alignment.Center
+        ) {
+            if (hasBlindspot) {
+                // 盲区车辆
+                Box(
+                    modifier = Modifier
+                        .size(14.dp, 18.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF6B7280))
+                )
+            }
+            // 车道线置信度指示条
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(20.dp)
+                    .align(if (isLeft) Alignment.CenterEnd else Alignment.CenterStart)
+                    .background(activeColor.copy(alpha = laneProb.coerceIn(0.2f, 1f)))
+            )
+        }
+        Box(
+            modifier = Modifier
+                .width(2.dp).height(20.dp)
+                .background(lineColor)
+        )
+    }
+}
 
     /** 驾驶状态面板（openpilot 状态 + 巡航 + 红绿灯倒计时） */
     @Composable

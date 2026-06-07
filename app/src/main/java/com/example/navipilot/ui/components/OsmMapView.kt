@@ -1,6 +1,8 @@
 package com.example.navipilot.ui.components
 
 import android.content.Context
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
@@ -314,6 +316,11 @@ internal fun SpeedRingButton(
     diameter: Dp = 36.dp,
     valueTextSize: TextUnit = 11.sp
 ) {
+    val animatedValue by animateIntAsState(
+        targetValue = value,
+        animationSpec = tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "speedRing"
+    )
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -337,7 +344,7 @@ internal fun SpeedRingButton(
             )
         }
         Text(
-            text = value.toString(),
+            text = animatedValue.toString(),
             fontSize = valueTextSize,
             fontWeight = FontWeight.Bold,
             color = color

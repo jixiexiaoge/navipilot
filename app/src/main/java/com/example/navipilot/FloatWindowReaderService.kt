@@ -55,7 +55,7 @@ class FloatWindowReaderService : AccessibilityService() {
     }
 
     /**
-     * 扫描所有窗口，找到目标 App 的悬浮窗
+     * 扫描所有窗口，找到目标 App 的悬浮窗并提取距离
      */
     private fun scanAllWindows() {
         val allWindows = windows ?: return
@@ -63,105 +63,35 @@ class FloatWindowReaderService : AccessibilityService() {
             val pkgName = window.root?.packageName?.toString() ?: continue
             if (pkgName != TARGET_PACKAGE) continue
 
-            window.root?.let { rootNode ->
-                textNodes.clear()
-                parseTrafficData(rootNode)
-                resolveCollectedData()
+            Log.i(TAG, "✅ 找到魔行星窗口")
+            // 直接遍历控件树找 "数字+米" 的组合
+            val distance = findDistance(window.root)
+            if (distance > 0) {
+                val prev = _trafficData.value
+                _trafficData.value = prev.copy(distance = distance)
+                Log.d(TAG, "📏 距离: ${distance}m")
             }
         }
     }
 
     /**
-     * 遍历控件树，提取红绿灯和路口数据
-     *
-     * 魔行星悬浮窗结构示例：
-     *   "135米"          → 距离
-     *   "←" + 红色 + "21" → 左转红灯 21s
-     *   "↑" + 红色 + "21" → 直行红灯 21s
+     * 递归查找 "数字 + 米" 文本组合
      */
-    private fun parseTrafficData(node: AccessibilityNodeInfo) {
-        val text = node.text?.toString()
-        val contentDesc = node.contentDescription?.toString()
-        val displayText = (text ?: contentDesc ?: "").trim()
-        val bounds = android.graphics.Rect()
-        node.getBoundsInScreen(bounds)
-        val viewId = node.viewIdResourceName ?: ""
-
-        // 收集所有文本节点及其屏幕坐标位置
-        if (displayText.isNotEmpty()) {
-            collectTextNode(displayText, bounds.centerX(), bounds.centerY())
+    private fun findDistance(node: android.view.accessibility.AccessibilityNodeInfo?): Int {
+        if (node == null) return 0
+        val text = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
+        // 查找类似 "135米" 或 "135 米" 的文本
+        if (text.contains("米") || text.contains("m")) {
+            val digits = text.replace("米", "").replace("m", "").trim()
+            val dist = digits.toIntOrNull()
+            if (dist != null && dist in 1..9999) return dist
         }
-
         // 递归子节点
         for (i in 0 until node.childCount) {
-            node.getChild(i)?.let { parseTrafficData(it) }
+            val result = findDistance(node.getChild(i))
+            if (result > 0) return result
         }
-    }
-
-    // 按 y 坐标分组的文本节点（同一行的为一组）
-    private data class TextNode(val text: String, val x: Int, val y: Int)
-    private val textNodes = mutableListOf<TextNode>()
-
-    private fun collectTextNode(text: String, x: Int, y: Int) {
-        textNodes.add(TextNode(text, x, y))
-    }
-
-    /**
-     * 收集完一轮后按行分组解析
-     */
-    private fun resolveCollectedData() {
-        if (textNodes.isEmpty()) return
-        val nodes = textNodes.toList()
-        textNodes.clear()
-
-        // 按 y 坐标分组（同一行容差 20px）
-        val rows = nodes.groupBy { it.y / 20 }
-        var distance = 0
-        val lanes = mutableListOf<LaneData>()
-
-        for ((_, rowNodes) in rows) {
-            val texts = rowNodes.sortedBy { it.x }.map { it.text }
-
-            // 整行拼接
-            val line = texts.joinToString(" ")
-
-            // 检测距离: 包含"米"或纯数字+单位
-            if (line.contains("米") || line.contains("m")) {
-                val digits = line.filter { it.isDigit() || it == '.' }
-                distance = digits.toDoubleOrNull()?.toInt() ?: 0
-                continue
-            }
-
-            // 检测车道方向行: 箭头 + 颜色 + 数字
-            val arrow = texts.firstOrNull { it in listOf("←", "↑", "→", "↙", "↗", "↘", "<", "^", ">") }
-            val number = texts.firstOrNull { it.toIntOrNull() != null }
-
-            if (arrow != null && number != null) {
-                val sec = number.toIntOrNull() ?: 0
-                // 判断颜色: 检查是否有红色/绿色描述文本，或从 contentDesc 推断
-                val isRed = texts.any { it.contains("红") || it.contains("red") }
-                val isGreen = texts.any { it.contains("绿") || it.contains("green") }
-                val state = when {
-                    isRed -> TrafficLightState.RED
-                    isGreen -> TrafficLightState.GREEN
-                    else -> TrafficLightState.RED // 默认红灯
-                }
-                val direction = when (arrow) {
-                    "←", "<" -> "左转"
-                    "↑", "^" -> "直行"
-                    "→", ">" -> "右转"
-                    else -> "未知"
-                }
-                lanes.add(LaneData(direction, state.zhName, state, sec))
-            }
-        }
-
-        // 更新状态
-        val prev = _trafficData.value
-        _trafficData.value = prev.copy(
-            distance = if (distance > 0) distance else prev.distance,
-            lanes = lanes.ifEmpty { prev.lanes }
-        )
+        return 0
     }
 
     override fun onServiceConnected() {

@@ -135,14 +135,7 @@ private fun FAQItemCard(faq: FAQItem) {
     }
 }
 
-private fun faqItems(): List<FAQItem> = listOf(
-    FAQItem(
-        localized("国际版有何不同？", "What makes the International Edition different?"),
-        localized(
-            "核心优势：① 国内配合高德车机版使用 ② 海外支持OSM地图 ③ 国内高德/腾讯搜索，海外谷歌搜索 ④ 车道级定位提醒 ⑤ 中英文自动切换",
-            "Key advantages: ① Works with Amap Auto in China ② OSM maps overseas ③ Amap/Tencent search in China, Google abroad ④ Lane-level positioning ⑤ Auto language switching"
-        )
-    ),
+private fun faqItems(): List<FAQItem> = listOf<FAQItem>(
     FAQItem(
         localized("CarrotAmap 和 CP搭子有什么区别？", "CarrotAmap vs NaviPilot?"),
         localized(
@@ -165,38 +158,10 @@ private fun faqItems(): List<FAQItem> = listOf(
         )
     ),
     FAQItem(
-        localized("只能用高德车机版吗？", "Only Amap Auto?"),
-        localized(
-            "目前高德车机版适配最完整。其他导航应用技术上可接，但暂未适配。",
-            "Amap Auto is the most complete option. Other navigation apps are technically possible but not yet adapted."
-        )
-    ),
-    FAQItem(
-        localized("为什么不是所有车都能自动超车？", "Why not all cars support auto-overtake?"),
-        localized(
-            "核心是安全问题。不同车型传感器差异大，部分缺少盲区监测，无法确保变道安全，必须逐车型验证。",
-            "Safety is the key. Vehicles have different sensor configs — some lack blind-spot monitoring, so each model must be individually validated."
-        )
-    ),
-    FAQItem(
         localized("为什么需要赞助才能使用？", "Why sponsorship required?"),
         localized(
-            "项目初衷非盈利，但服务器、维护、支持需要持续投入。用户规模扩大后个人难以承担，赞助模式用于控制规模、保证质量。",
+            "项目初衷非盈利，但服务器，维护，支持需要持续投入。用户规模扩大后个人难以承担，赞助模式用于控制规模、保证质量。",
             "The project isn't for profit, but servers, maintenance, and support cost resources. Sponsorship keeps it sustainable as the user base grows."
-        )
-    ),
-    FAQItem(
-        localized("CP搭子国际版有哪些变化？", "What's new in the International Edition?"),
-        localized(
-            "三大调整：① 精简本地化功能 ② 强化首页布局和地图展示 ③ 国内高德/海外谷歌导航方案。界面根据语言自动切换中英文。",
-            "Three changes: ① Simplified localization ② Better home layout & map display ③ Region-based navigation: Amap in China, Google abroad. UI auto-switches language."
-        )
-    ),
-    FAQItem(
-        localized("App 定位模式是什么意思？", "What do positioning modes mean?"),
-        localized(
-            "系统自动选择可用的最高精度方案：GPS(3-15m) → SBAS(2-5m) → L1+L5(1-3m) → L1L5+S(1-2m) → DGNSS(1-2m) → RTK(厘米级)。开阔环境效果最好。",
-            "The system picks the best available: GPS(3-15m) → SBAS(2-5m) → L1+L5(1-3m) → L1L5+S(1-2m) → DGNSS(1-2m) → RTK(cm-level). Open areas work best."
         )
     ),
     FAQItem(
@@ -205,5 +170,41 @@ private fun faqItems(): List<FAQItem> = listOf(
             "iOS 需分别适配国内外地图 SDK，开发和维护成本高，目前无计划。欢迎开发者基于现有思路探索。",
             "iOS would need separate map SDK integrations, making development expensive. No active plans, but developers are welcome to explore."
         )
+    ),
+    FAQItem(
+        localized("高德车机版有什么局限？", "Limitations of Amap Auto?"),
+        localized(
+            "高德车机版需要配合车机版导航使用，数据通过广播分发到手机，存在广播延迟问题。此外红绿灯信息不提供距离数据，仅有倒计时。",
+            "Amap Auto requires the in-car navigation system. Data is broadcast to the phone with inherent delays. Traffic light info provides countdown only, no distance data."
+        )
+    ),
+    FAQItem(
+        localized("为何放弃百度地图？", "Why not Baidu Maps?"),
+        localized(
+            "百度地图SDK接入过于复杂，API设计不够友好，维护成本高，故放弃。",
+            "Baidu Maps SDK integration is overly complex with an unfriendly API, so it was abandoned."
+        )
+    ),
+    FAQItem(
+        localized("为何放弃高德手机 SDK？", "Why not Amap Mobile SDK?"),
+        localized(
+            "高德手机SDK不提供当前道路限速信息，无法满足导航辅助驾驶的核心需求，故忍痛放弃。",
+            "Amap Mobile SDK does not provide current road speed limit data, which is essential for navigation-assisted driving, so it was abandoned."
+        )
+    ),
+    FAQItem(
+        localized("谷歌地图有什么局限？", "Google Maps limitations?"),
+        localized(
+            "谷歌导航SDK同样不提供当前道路限速，需调用Google Roads API查询。部分小路数据缺失，导致限速信息不完整。",
+            "Google Navigation SDK does not provide current road speed limits either, requiring Google Roads API queries. Some minor roads have incomplete data, leading to gaps in speed limit info."
+        )
+    ),
+    FAQItem(
+        localized("端到端驾驶需要车辆具备哪些功能？", "End-to-end driving requirements?"),
+        localized(
+            "①纵向控制：自动起步和停车 ②雷达融合：包括外挂雷达，支持至少90度转弯 ③车道保持：融合算法实现车道级定位。具备以上功能即可体验自动超车和变道的完整端到端体验。",
+            "① Longitudinal control: auto start/stop ② Radar fusion: including external radar, supporting 90+ degree turns ③ Lane keeping: lane-level positioning via fusion algorithms. With these, you can enjoy full end-to-end auto overtake and lane change."
+        )
     )
 )
+

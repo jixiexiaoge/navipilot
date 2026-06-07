@@ -3,15 +3,19 @@ package com.example.navipilot.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
@@ -35,7 +39,6 @@ import com.example.navipilot.CarrotManNetworkClient
 import com.example.navipilot.ui.utils.localized
 import org.json.JSONObject
 
-/** 将 JSON 单元格格式化为单行展示（7706 包体均为标量） */
 private fun jsonScalarToDisplayString(value: Any?): String = when (value) {
     null -> "null"
     is String -> value
@@ -44,7 +47,7 @@ private fun jsonScalarToDisplayString(value: Any?): String = when (value) {
 }
 
 /**
- * 全屏调试：以紧凑表格展示与 UDP 7706 即将发送正文一致的字段（键 / 值）。
+ * 紧凑多列 7706 字段调试表 - 横屏优先，两列并排显示。
  */
 @Composable
 fun Carrot7706JsonDebugOverlay(
@@ -54,7 +57,7 @@ fun Carrot7706JsonDebugOverlay(
 ) {
     BackHandler(enabled = true, onBack = onDismiss)
 
-    val rows = remember(fields, networkClient) {
+    val pairs = remember(fields, networkClient) {
         runCatching {
             val obj: JSONObject = networkClient?.preview7706Json(fields)
                 ?: CarrotManNetworkClient.build7706Payload(
@@ -63,147 +66,104 @@ fun Carrot7706JsonDebugOverlay(
                 )
             val sourceLast = fields.source_last
             val speedLimitSource = when (sourceLast) {
-                "AMAP" -> "  (高德车机)"
-                "amap_mobile" -> "  (腾讯优先)"
-                "TENCENT" -> "  (腾讯)"
-                "google_nav" -> "  (Google)"
+                "AMAP" -> "  (高德车机)"; "amap_mobile" -> "  (腾讯优先)"
+                "TENCENT" -> "  (腾讯)"; "google_nav" -> "  (Google)"
                 else -> ""
             }
             obj.keys().asSequence().sorted().map { key ->
                 val value = jsonScalarToDisplayString(obj.opt(key))
-                key to if (key == "nRoadLimitSpeed" && (obj.optInt(key, 0) > 0)) {
-                    "$value$speedLimitSource"
-                } else {
-                    value
-                }
+                key to if (key == "nRoadLimitSpeed" && (obj.optInt(key, 0) > 0)) "$value$speedLimitSource" else value
             }.toList()
         }.getOrElse { e ->
             listOf("_exception" to (e.message ?: e.toString()))
         }
     }
 
+    // 分成两列：偶数索引在左，奇数索引在右
+    val leftCol = pairs.filterIndexed { i, _ -> i % 2 == 0 }
+    val rightCol = pairs.filterIndexed { i, _ -> i % 2 == 1 }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Color(0xFF0F172A),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0F172A)) {
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
+                // 标题栏
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = localized("7706 字段表", "7706 fields"),
-                        color = Color.White,
-                        fontSize = 15.sp,
+                        color = Color.White, fontSize = 14.sp,
                         modifier = Modifier.padding(start = 2.dp),
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.padding(0.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = localized("关闭", "Close"),
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.padding(4.dp),
-                        )
-                    }
-                }
-                Text(
-                    text = localized(
-                        "序号=下一包预览；未连接时用占位序号。",
-                        "Index = next-packet preview; placeholder if offline.",
-                    ),
-                    color = Color(0xFF64748B),
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
-                    modifier = Modifier.padding(start = 2.dp, bottom = 2.dp, end = 2.dp),
-                )
-                if (networkClient == null) {
                     Text(
-                        text = localized("未连接", "Offline"),
-                        color = Color(0xFFFBBF24),
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(start = 2.dp, bottom = 2.dp),
+                        text = " (${pairs.size}字段 · 两列)",
+                        color = Color(0xFF64748B), fontSize = 10.sp,
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (networkClient == null) {
+                        Text(localized("未连接", "Offline"), color = Color(0xFFFBBF24), fontSize = 9.sp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.padding(0.dp)) {
+                        Icon(Icons.Default.Close, localized("关闭", "Close"), tint = Color(0xFF94A3B8), modifier = Modifier.padding(4.dp))
+                    }
                 }
 
-                val headerBg = Color(0xFF1E293B)
-                val rowDivider = Color(0xFF334155)
-                val keyColor = Color(0xFF94A3B8)
-                val valColor = Color(0xFFE2E8F0)
-
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(headerBg)
-                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = localized("字段", "Key"),
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(0.34f),
-                            )
-                            Text(
-                                text = localized("值", "Value"),
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(0.66f),
-                            )
-                        }
-                        HorizontalDivider(color = rowDivider, thickness = 0.5.dp)
-                    }
-                    items(rows, key = { it.first }) { (key, value) ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Text(
-                                text = key,
-                                color = if (key == "_exception") Color(0xFFF87171) else keyColor,
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(0.34f),
-                            )
-                            Text(
-                                text = value,
-                                color = valColor,
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp,
-                                maxLines = 6,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(0.66f),
-                            )
-                        }
-                        HorizontalDivider(color = rowDivider.copy(alpha = 0.55f), thickness = 0.5.dp)
-                    }
+                // 两列布局
+                Row(modifier = Modifier.fillMaxSize().weight(1f).padding(top = 2.dp)) {
+                    // 左侧列
+                    ColumnList(pairs = leftCol, modifier = Modifier.weight(1f).fillMaxHeight())
+                    // 分隔线
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Color(0xFF334155)).padding(horizontal = 2.dp))
+                    // 右侧列
+                    ColumnList(pairs = rightCol, modifier = Modifier.weight(1f).fillMaxHeight())
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ColumnList(
+    pairs: List<Pair<String, String>>,
+    modifier: Modifier = Modifier
+) {
+    val keyColor = Color(0xFF94A3B8)
+    val valColor = Color(0xFFE2E8F0)
+
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 2.dp),
+        contentPadding = PaddingValues(bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        itemsIndexed(pairs) { _, (key, value) ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 2.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = key,
+                    color = if (key == "_exception") Color(0xFFF87171) else keyColor,
+                    fontSize = 9.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(0.45f),
+                )
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    text = value,
+                    color = valColor,
+                    fontSize = 9.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(0.55f),
+                )
+            }
+            HorizontalDivider(color = Color(0xFF334155).copy(alpha = 0.4f), thickness = 0.3.dp)
         }
     }
 }
