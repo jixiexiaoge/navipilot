@@ -59,7 +59,7 @@ fun PrivacyConsentDialog(
     onDisagree: () -> Unit
 ) {
     val context = LocalContext.current
-    
+
     AlertDialog(
         onDismissRequest = { /* 不允许点击外部关闭 */ },
         title = {
@@ -72,60 +72,46 @@ fun PrivacyConsentDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 350.dp)
+                    .heightIn(max = 280.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
                     text = localized(
-                        "欢迎使用 Navipilot！在使用本应用前，请仔细阅读以下内容：",
-                        "Welcome to Navipilot! Please read the following before using this app:"
+                        "欢迎使用 Navipilot！使用本应用需要您同意以下条款：",
+                        "Welcome to Navipilot! Your agreement is required to use this app:"
                     ),
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = Color(0xFF374151)
                 )
-                Spacer(Modifier.height(12.dp))
-                
+                Spacer(Modifier.height(10.dp))
+
                 PrivacySection(
-                    title = localized("📍 位置信息", "📍 Location Data"),
+                    title = localized("📍 位置与导航数据", "📍 Location & Nav Data"),
                     content = localized(
-                        "我们收集 GPS 位置数据用于导航和路线规划。位置数据仅在导航期间使用，不会上传到第三方服务器。",
-                        "We collect GPS location data for navigation and route planning. Location data is only used during navigation and is not uploaded to third-party servers."
-                    )
-                )
-                PrivacySection(
-                    title = localized("🚗 驾驶数据", "🚗 Driving Data"),
-                    content = localized(
-                        "我们记录驾驶行为数据（速度、加速度、接管次数）用于驾驶评分功能。数据存储在本地设备上。",
-                        "We record driving behavior data (speed, acceleration, takeover events) for the driving score feature. Data is stored locally on your device."
-                    )
-                )
-                PrivacySection(
-                    title = localized("📱 设备信息", "📱 Device Info"),
-                    content = localized(
-                        "我们收集设备标识符用于用户识别和崩溃报告。崩溃日志包含设备型号和系统版本，用于改进应用稳定性。",
-                        "We collect device identifiers for user identification and crash reporting. Crash logs include device model and OS version to improve app stability."
+                        "GPS 位置数据仅用于导航和路线规划，不上传第三方服务器。",
+                        "GPS location data is used for navigation only and is not uploaded to third-party servers."
                     )
                 )
                 PrivacySection(
                     title = localized("🔒 数据安全", "🔒 Data Security"),
                     content = localized(
-                        "敏感数据使用加密存储。您可以随时在「我的」页面删除所有本地数据。",
-                        "Sensitive data is stored with encryption. You can delete all local data at any time from the Profile page."
+                        "敏感数据使用加密存储。可在「个人中心」删除所有本地数据。",
+                        "Sensitive data is encrypted. You can delete all local data from Profile."
                     )
                 )
                 PrivacySection(
-                    title = localized("📡 网络通信", "📡 Network Communication"),
+                    title = localized("📡 第三方依赖", "📡 Third-Party SDKs"),
                     content = localized(
-                        "应用通过 UDP 与 comma3 设备通信（局域网），通过 HTTP/HTTPS 访问路线规划服务和用户 API。",
-                        "The app communicates with comma3 devices via UDP (LAN), and accesses routing services and user API via HTTP/HTTPS."
+                        "集成高德地图/腾讯/Google 导航 SDK，遵循各厂商隐私政策。应用自身不收集个人身份信息。",
+                        "Integrates Amap/Tencent/Google navigation SDKs which follow their own privacy policies. The app itself does not collect personal identification information."
                     )
                 )
-                
-                Spacer(Modifier.height(8.dp))
+
+                Spacer(Modifier.height(6.dp))
                 Text(
                     text = buildAnnotatedString {
-                        append(localized("点击「同意」即表示您已阅读并同意", "By clicking \"Agree\", you accept "))
+                        append(localized("点击「同意」即表示您接受", "By clicking \"Agree\", you accept "))
                         withStyle(SpanStyle(color = Color(0xFF2563EB), textDecoration = TextDecoration.Underline)) {
                             append(localized("《用户协议》", "Terms of Service"))
                         }
@@ -134,8 +120,8 @@ fun PrivacyConsentDialog(
                             append(localized("《隐私政策》", "Privacy Policy"))
                         }
                     },
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
                     color = Color(0xFF6B7280)
                 )
             }
@@ -210,7 +196,7 @@ fun setGoogleWelcomeShown(context: Context) {
 }
 
 /**
- * Google 地图首次使用欢迎弹窗
+ * Google 地图首次使用欢迎弹窗（简化版）
  */
 @Composable
 fun GoogleWelcomeDialog(
@@ -222,7 +208,7 @@ fun GoogleWelcomeDialog(
         onDismissRequest = { /* 不允许点击外部关闭 */ },
         title = {
             Text(
-                text = localized("欢迎使用 Google 地图导航", "Welcome to Google Navigation"),
+                text = localized("Google 导航", "Google Navigation"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -231,8 +217,8 @@ fun GoogleWelcomeDialog(
             Column {
                 Text(
                     text = localized(
-                        "您选择了 Google 地图导航模式。\n\n请确保：",
-                        "You selected Google Maps navigation mode.\n\nPlease ensure:"
+                        "您选择了 Google 地图导航模式。请确保已安装 Google Maps 应用且网络连接正常。",
+                        "You selected Google Maps navigation. Please ensure Google Maps is installed and network is available."
                     ),
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
@@ -241,18 +227,8 @@ fun GoogleWelcomeDialog(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = localized(
-                        "• 已安装 Google Maps 应用\n• 网络连接正常\n• 定位权限已开启",
-                        "• Google Maps app is installed\n• Network connection is available\n• Location permission is granted"
-                    ),
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                    color = Color(0xFF6B7280)
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = localized(
-                        "导航数据将通过 UDP 端口 7706 发送至 comma3 设备，辅助自动驾驶功能。",
-                        "Navigation data will be sent to your comma3 device via UDP port 7706 to assist automated driving."
+                        "导航数据将通过 UDP 7706 发送至 comma3 设备。",
+                        "Navigation data is sent to comma3 via UDP 7706."
                     ),
                     fontSize = 12.sp,
                     lineHeight = 17.sp,

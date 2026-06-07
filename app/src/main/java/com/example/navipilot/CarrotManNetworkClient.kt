@@ -126,16 +126,20 @@ class CarrotManNetworkClient(
     private var isRunning = false
     private val discoveredDevices = ConcurrentHashMap<String, DeviceInfo>()
     private var currentTargetDevice: DeviceInfo? = null
-    
+
     // 动态端口配置（基于逆向分析）
     private var dynamicSendPort: Int = MAIN_DATA_PORT  // 从广播数据动态获取
     private var deviceIP: String? = null               // 从广播数据动态获取
     private var phoneIP: String = ""                   // 手机IP地址
-    
+
     // Socket连接管理
     private var listenSocket: DatagramSocket? = null
     private var dataSocket: DatagramSocket? = null
     private var tcpSocket: Socket? = null  // TCP连接（用于Vertex数据）
+
+    // TCP 7712 连接管理（rgdata/vrtx）
+    private var tcp7712Socket: Socket? = null
+    private var tcp7712Writer: java.io.PrintWriter? = null
     
     // 协程任务管理
     private val networkScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -273,10 +277,13 @@ class CarrotManNetworkClient(
         listenSocket?.close()
         dataSocket?.close()
         tcpSocket?.close()
-        
+        tcp7712Socket?.close()
+
         listenSocket = null
         dataSocket = null
         tcpSocket = null
+        tcp7712Socket = null
+        tcp7712Writer = null
         currentTargetDevice = null
         
         // 保存停止状态到SharedPreferences
@@ -1304,6 +1311,233 @@ class CarrotManNetworkClient(
                 Log.w(TAG, "⚠️ 路线点TCP发送失败: ${e.message}")
                 // 不触发网络错误恢复，TCP发送失败不影响UDP通信
             }
+        }
+    }
+
+    // ==================== 7712/7713 端口支持 ====================
+
+    private val TCP_NAVI_PORT = 7712  // TCP导航端口（rgdata/vrtx）
+    private val HTTP_NAVI_PORT = 7713  // HTTP导航端口（sinf）
+
+    /**
+     * 连接到 TCP 7712 端口（rgdata/vrtx）
+     */
+    private fun connectTcp7712(ip: String) {
+        try {
+            tcp7712Socket?.close()
+            tcp7712Socket = Socket()
+            tcp7712Socket?.connect(InetSocketAddress(ip, TCP_NAVI_PORT), 5000)
+            tcp7712Socket?.soTimeout = 5000
+            tcp7712Writer = java.io.PrintWriter(java.io.BufferedWriter(java.io.OutputStreamWriter(tcp7712Socket?.getOutputStream())), true)
+            Log.i(TAG, "✅ TCP 7712 连接成功: $ip:$TCP_NAVI_PORT")
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ TCP 7712 连接失败: ${e.message}")
+            tcp7712Socket = null
+            tcp7712Writer = null
+        }
+    }
+
+    /**
+     * 通过 TCP 7712 发送 rgdata（导航状态数据）
+     * 格式: {"rgdata": {...}}
+     */
+    fun sendRgdataViaTcp7712(fields: CarrotManFields) {
+        val device = currentTargetDevice ?: return
+        val ip = device.ip
+
+        // 确保连接已建立
+        if (tcp7712Socket == null || tcp7712Writer == null) {
+            connectTcp7712(ip)
+        }
+
+        networkScope.launch {
+            try {
+                val rgdataJson = buildRgdataJson(fields)
+                tcp7712Writer?.println(rgdataJson)
+                Log.v(TAG, "📤 TCP 7712 rgdata 发送成功")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ TCP 7712 rgdata 发送失败: ${e.message}")
+                // 重置连接，下次会重新建立
+                tcp7712Socket = null
+                tcp7712Writer = null
+            }
+        }
+    }
+
+    /**
+     * 通过 TCP 7712 发送 vrtx（路线点数据）
+     * 格式: {"vrtx": [{"x": lon, "y": lat}, ...]}
+     */
+    fun sendVrtxViaTcp7712(points: List<Pair<Double, Double>>) {
+        if (points.isEmpty()) return
+
+        val device = currentTargetDevice ?: return
+        val ip = device.ip
+
+        // 确保连接已建立
+        if (tcp7712Socket == null || tcp7712Writer == null) {
+            connectTcp7712(ip)
+        }
+
+        networkScope.launch {
+            try {
+                val vrtxJson = buildVrtxJson(points)
+                tcp7712Writer?.println(vrtxJson)
+                Log.i(TAG, "📤 TCP 7712 vrtx 发送成功: ${points.size}个点")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ TCP 7712 vrtx 发送失败: ${e.message}")
+                tcp7712Socket = null
+                tcp7712Writer = null
+            }
+        }
+    }
+
+    /**
+     * 通过 HTTP 7713 发送 sinf（交通灯数据）
+     * 格式: POST /api/navi {"sinf": {...}}
+     */
+    fun sendSinfViaHttp7713(fields: CarrotManFields) {
+        val device = currentTargetDevice ?: return
+        val ip = device.ip
+
+        networkScope.launch {
+            try {
+                val sinfJson = buildSinfJson(fields)
+                val url = "http://$ip:$HTTP_NAVI_PORT/api/navi"
+                val result = sendHttpPost(url, sinfJson)
+                if (result) {
+                    Log.v(TAG, "📤 HTTP 7713 sinf 发送成功")
+                } else {
+                    Log.w(TAG, "⚠️ HTTP 7713 sinf 发送失败")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ HTTP 7713 sinf 发送异常: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 构建 rgdata JSON（从 CarrotManFields 提取导航数据）
+     */
+    private fun buildRgdataJson(fields: CarrotManFields): String {
+        val json = JSONObject()
+        val rgdata = JSONObject().apply {
+            put("nRoadLimitSpeed", fields.nRoadLimitSpeed)
+            put("roadcate", fields.roadcate)
+            put("nSdiType", fields.nSdiType)
+            put("nSdiSpeedLimit", fields.nSdiSpeedLimit)
+            put("nSdiDist", fields.nSdiDist)
+            put("nSdiSection", fields.nSdiSection)
+            put("nSdiBlockType", fields.nSdiBlockType)
+            put("nSdiBlockSpeed", fields.nSdiBlockSpeed)
+            put("nSdiBlockDist", fields.nSdiBlockDist)
+            put("nSdiPlusType", fields.nSdiPlusType)
+            put("nSdiPlusSpeedLimit", fields.nSdiPlusSpeedLimit)
+            put("nSdiPlusDist", fields.nSdiPlusDist)
+            put("nSdiPlusBlockType", fields.nSdiPlusBlockType)
+            put("nSdiPlusBlockSpeed", fields.nSdiPlusBlockSpeed)
+            put("nSdiPlusBlockDist", fields.nSdiPlusBlockDist)
+            put("nTBTDist", fields.nTBTDist)
+            put("nTBTTurnType", fields.nTBTTurnType)
+            put("szTBTMainText", fields.szTBTMainText)
+            put("szNearDirName", fields.szNearDirName)
+            put("szFarDirName", fields.szFarDirName)
+            put("nTBTNextRoadWidth", fields.nTBTNextRoadWidth)
+            put("nTBTDistNext", fields.nTBTDistNext)
+            put("nTBTTurnTypeNext", fields.nTBTTurnTypeNext)
+            put("szTBTMainTextNext", fields.szTBTMainTextNext)
+            put("nGoPosDist", fields.nGoPosDist)
+            put("nGoPosTime", fields.nGoPosTime)
+            put("szPosRoadName", fields.szPosRoadName)
+            put("vpPosPointLat", fields.vpPosPointLat)
+            put("vpPosPointLon", fields.vpPosPointLon)
+            put("nPosAngle", fields.nPosAngle)
+            put("nPosSpeed", fields.nPosSpeed)
+            put("goalPosX", fields.goalPosX)
+            put("goalPosY", fields.goalPosY)
+            put("szGoalName", fields.szGoalName)
+            put("timestamp_ms", System.currentTimeMillis())
+        }
+        json.put("rgdata", rgdata)
+        return json.toString()
+    }
+
+    /**
+     * 构建 vrtx JSON（路线点数组）
+     */
+    private fun buildVrtxJson(points: List<Pair<Double, Double>>): String {
+        val json = JSONObject()
+        val vrtxArray = org.json.JSONArray()
+        for ((lon, lat) in points) {
+            val point = JSONObject().apply {
+                put("x", lon)
+                put("y", lat)
+                put("valid", true)
+            }
+            vrtxArray.put(point)
+        }
+        json.put("vrtx", vrtxArray)
+        return json.toString()
+    }
+
+    /**
+     * 构建 sinf JSON（交通灯数据）
+     */
+    private fun buildSinfJson(fields: CarrotManFields): String {
+        val json = JSONObject()
+        val sinf = JSONObject().apply {
+            put("distance", fields.trafficLightDistance)
+            when (fields.trafficLightState) {
+                1 -> {  // 红灯
+                    put("redLightOn", true)
+                    put("redLightRemainTime", fields.trafficLightCountdown)
+                }
+                2 -> {  // 绿灯
+                    put("greenLightOn", true)
+                    put("greenLightRemainTime", fields.trafficLightCountdown)
+                }
+                else -> {
+                    put("redLightOn", false)
+                    put("greenLightOn", false)
+                }
+            }
+            // 添加GPS位置（可选）
+            if (fields.latitude != 0.0 && fields.longitude != 0.0) {
+                val location = JSONObject().apply {
+                    put("latitude", fields.latitude)
+                    put("longitude", fields.longitude)
+                }
+                put("location", location)
+            }
+        }
+        json.put("sinf", sinf)
+        return json.toString()
+    }
+
+    /**
+     * 发送 HTTP POST 请求
+     */
+    private suspend fun sendHttpPost(url: String, jsonBody: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val urlObj = URL(url)
+            val conn = urlObj.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+
+            val os = conn.outputStream
+            os.write(jsonBody.toByteArray(Charsets.UTF_8))
+            os.flush()
+            os.close()
+
+            val responseCode = conn.responseCode
+            conn.disconnect()
+            responseCode in 200..299
+        } catch (e: Exception) {
+            Log.w(TAG, "HTTP POST 失败: ${e.message}")
+            false
         }
     }
 }

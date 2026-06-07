@@ -79,7 +79,6 @@ import com.example.navipilot.ui.components.OsmMapView
 import com.example.navipilot.ui.components.ProfilePage
 import com.example.navipilot.ui.components.AutoSwitchExperimentPage
 import com.example.navipilot.ui.components.Carrot7706JsonDebugOverlay
-import com.example.navipilot.ui.components.OnboardingScreen
 import com.example.navipilot.ui.components.TencentNavPage
 import com.example.navipilot.ui.components.GoogleNavPage
 import com.example.navipilot.navigation.GoogleNavManager
@@ -87,8 +86,6 @@ import com.example.navipilot.ui.components.GoogleWelcomeDialog
 import com.example.navipilot.ui.components.hasGoogleWelcomeShown
 import com.example.navipilot.ui.components.PrivacyConsentDialog
 import com.example.navipilot.ui.components.hasPrivacyConsent
-import com.example.navipilot.ui.components.isOnboardingCompleted
-import com.example.navipilot.ui.components.setOnboardingCompleted
 import com.example.navipilot.ui.driving.DrivingReportScreen
 import com.example.navipilot.ui.theme.NavipilotTheme
 import com.example.navipilot.ui.utils.localized
@@ -111,33 +108,18 @@ class MainActivityUI(
         NavipilotTheme {
             val appContext = LocalContext.current
 
-            // 🆕 隐私政策 + 新手引导流程
+            // 🆕 隐私政策
             var showPrivacyDialog by remember { mutableStateOf(!hasPrivacyConsent(appContext)) }
-            var showOnboarding by remember { mutableStateOf(
-                hasPrivacyConsent(appContext) && !isOnboardingCompleted(appContext)
-            ) }
             
             if (showPrivacyDialog) {
                 PrivacyConsentDialog(
                     onAgree = {
                         showPrivacyDialog = false
-                        if (!isOnboardingCompleted(appContext)) {
-                            showOnboarding = true
-                        }
                     },
                     onDisagree = {
-                        // 不同意则退出应用
                         (appContext as? android.app.Activity)?.finish()
                     }
                 )
-                return@NavipilotTheme
-            }
-            
-            if (showOnboarding) {
-                OnboardingScreen(onComplete = {
-                    setOnboardingCompleted(appContext)
-                    showOnboarding = false
-                })
                 return@NavipilotTheme
             }
 
@@ -577,14 +559,14 @@ class MainActivityUI(
                         .fillMaxHeight()
                         .weight(12f)
                 ) { mapZoneContent() }
-                // 右侧（4份）：摄像头 + 功能按钮 + 驾驶数据
+                // 右侧（4份）：摄像头 + 底部按钮
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(4f)
                         .background(Surface900)
                         .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // 自动连接摄像头（数据连接成功后）
@@ -599,7 +581,7 @@ class MainActivityUI(
                         }
                     }
 
-                    // ===== 右上：实时摄像头画面（点击切换全屏）=====
+                    // ===== 实时摄像头画面（点击切换全屏）=====
                     val cameraFrame = wsClient?.cameraFrame?.collectAsState()
                     val camData = cameraFrame?.value
                     Card(
@@ -668,136 +650,73 @@ class MainActivityUI(
                         }
                     }
 
-                    // ===== 搜索/家/公司 三个功能按钮 =====
+                    // ===== 底部：连接状态 + 功能按钮 =====
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                    // ===== 连接状态指示 =====
+                    val connState = wsClient?.connectionState?.collectAsState()
+                    val isConnected = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
+                    val isTimeout = wsClient?.isDataTimeout?.collectAsState()?.value ?: false
+                    val connText = if (isConnected) {
+                        if (isTimeout) localized("⚠️ 数据超时", "⚠️ Data timeout")
+                        else localized("✅ 已连接", "✅ Connected")
+                    } else {
+                        localized("🔴 未连接", "🔴 Disconnected")
+                    }
+                    Text(connText, fontSize = 9.sp, color = Color(0xFF94A3B8))
+
+                    // 右下：搜索/家/公司 三个功能按钮
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        HomeControlPanelCircleIcon(
-                            modifier = Modifier,
-                            background = Color(0xFF10B981).copy(alpha = 0.9f),
-                            icon = Icons.Default.Search,
-                            contentDescription = localized("搜索", "Search"),
-                            onClick = { searchShowTrigger++ }
-                        )
-                        HomeControlPanelEmojiAddress(
-                            modifier = Modifier,
-                            emoji = "🏠",
-                            accessibilityLabel = localized("家", "Home"),
-                            addressSet = homeAddressSet,
-                            onShortClick = { homeNavTrigger++ },
-                            onLongClick = { homeNavLongTrigger++ }
-                        )
-                        HomeControlPanelEmojiAddress(
-                            modifier = Modifier,
-                            emoji = "🏢",
-                            accessibilityLabel = localized("公司", "Work"),
-                            addressSet = companyAddressSet,
-                            onShortClick = { companyNavTrigger++ },
-                            onLongClick = { companyNavLongTrigger++ }
-                        )
-                    }
+                            HomeControlPanelCircleIcon(
+                                modifier = Modifier,
+                                background = Color(0xFF10B981).copy(alpha = 0.9f),
+                                icon = Icons.Default.Search,
+                                contentDescription = localized("搜索", "Search"),
+                                onClick = { searchShowTrigger++ }
+                            )
+                            HomeControlPanelEmojiAddress(
+                                modifier = Modifier,
+                                emoji = "🏠",
+                                accessibilityLabel = localized("家", "Home"),
+                                addressSet = homeAddressSet,
+                                onShortClick = { homeNavTrigger++ },
+                                onLongClick = { homeNavLongTrigger++ }
+                            )
+                            HomeControlPanelEmojiAddress(
+                                modifier = Modifier,
+                                emoji = "🏢",
+                                accessibilityLabel = localized("公司", "Work"),
+                                addressSet = companyAddressSet,
+                                onShortClick = { companyNavTrigger++ },
+                                onLongClick = { companyNavLongTrigger++ }
+                            )
+                    }  // 按钮Row
+                    }  // 底部Column
+                }  // 右Column
+            }  // 主Row
 
-                    // ===== 智能驾驶状态卡片 =====
-                    val vehicleData = wsClient?.vehicleData?.collectAsState()
-                    val deviceStats = wsClient?.deviceStatus?.collectAsState()
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // 车辆数据卡片
-                        Card(
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.85f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text(
-                                    text = localized("🚗 驾驶数据", "🚗 Driving"),
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF94A3B8),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                
-                                val data = vehicleData?.value
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    val vEgo = data?.carState?.let { "${(it.vEgo * 3.6).toInt()} km/h" } ?: "--"
-                                    val lead = data?.modelV2?.let {
-                                        if (it.leadProb > 0.3) "${it.leadX.toInt()}m" else "无前车"
-                                    } ?: "--"
-                                    
-                                    Text("📊 ${vEgo}", fontSize = 11.sp, color = Color.White)
-                                    Text("🚘 ${lead}", fontSize = 11.sp, color = Color.White)
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                
-                                val active = data?.selfdriveState?.active
-                                val statusText = when (active) {
-                                    true -> localized("🟢 已激活", "🟢 Active")
-                                    false -> localized("⚪ 待机", "⚪ Standby")
-                                    null -> localized("⚫ 未连接", "⚫ Offline")
-                                }
-                                Text(statusText, fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
-                            }
-                        }
-
-                        // 设备状态卡片
-                        Card(
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.85f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text(
-                                    text = localized("⚙️ 设备状态", "⚙️ Device"),
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF94A3B8),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                val stats = deviceStats?.value
-                                val cpu = stats?.let { "${it.cpuUsage.toInt()}%/${it.cpuTemp.toInt()}°C" } ?: "--"
-                                val mem = stats?.let { "${it.memoryUsage.toInt()}%" } ?: "--"
-                                val bat = stats?.let { "${it.batteryPercent}%" } ?: "--"
-                                
-                                Text("CPU ${cpu} | MEM ${mem}", fontSize = 10.sp, color = Color(0xFFCBD5E1))
-                                Text("BAT ${bat}", fontSize = 10.sp, color = Color(0xFFCBD5E1))
-                            }
-                        }
-
-                        // 连接状态指示
-                        val connState = wsClient?.connectionState?.collectAsState()
-                        val isConnected = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
-                        val isTimeout = wsClient?.isDataTimeout?.collectAsState()?.value ?: false
-                        val connText = if (isConnected) {
-                            if (isTimeout) localized("⚠️ 数据超时", "⚠️ Data timeout")
-                            else localized("✅ 已连接", "✅ Connected")
-                        } else {
-                            localized("🔴 未连接", "🔴 Disconnected")
-                        }
-                        Text(connText, fontSize = 9.sp, color = Color(0xFF94A3B8))
-                    }
-                }
-            }
-
-        // 高阶功能对话框（横屏模式暂时禁用）
-        // if (showAdvancedDialog) {
-        //     MainActivityUIComponents.AdvancedFunctionsDialog(
-        //         onDismiss = { showAdvancedDialog = false },
-        //         onSendCommand = onSendCommand,
-        //         onSendRoadLimitSpeed = onSendRoadLimitSpeed,
-        //         onLaunchAmap = onLaunchAmap,
-        //         onSendNavConfirmation = onSendNavConfirmation,
-        //         onPageChange = onPageChange,
-        //         isOpenpilotActive = carrotManFields.active,
-        //         carrotManFields = carrotManFields,
-        //         networkManager = core.networkManager,
-        //         context = mapContext
-        //     )
-        // }
+        // 高阶功能对话框 - 九宫格
+        if (showAdvancedDialog) {
+            MainActivityUIComponents.AdvancedFunctionsDialog(
+                onDismiss = { showAdvancedDialog = false },
+                onSendCommand = onSendCommand,
+                onSendRoadLimitSpeed = onSendRoadLimitSpeed,
+                onLaunchAmap = onLaunchAmap,
+                onSendNavConfirmation = onSendNavConfirmation,
+                onPageChange = onPageChange,
+                isOpenpilotActive = carrotManFields.active,
+                carrotManFields = carrotManFields,
+                networkManager = core.networkManager,
+                context = mapContext
+            )
+        }
     }
 
     /** 首页控制台：仅圆形图标（无障碍用语见 contentDescription，无底部文字） */
@@ -1257,57 +1176,43 @@ class MainActivityUI(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 上：道路信息 + 限速 + 前车距离
-                RoadInfoCard(
-                    roadName = carrotManFields.szPosRoadName,
-                    limitSpeed = carrotManFields.nRoadLimitSpeed,
-                    leadDist = vehicleData?.modelV2?.leadX ?: 0f,
-                    leadProb = vehicleData?.modelV2?.leadProb ?: 0f,
+                // 顶部：车道线 + 盲区动态面板
+                LaneBlindspotPanel(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(56.dp),
+                    laneLineProbs = vehicleData?.modelV2?.laneLineProbs ?: emptyList(),
+                    leftDist = vehicleData?.modelV2?.leftDist ?: 0f,
+                    rightDist = vehicleData?.modelV2?.rightDist ?: 0f,
+                    leftBlindspot = vehicleData?.carState?.leftBlindspot ?: false,
+                    rightBlindspot = vehicleData?.carState?.rightBlindspot ?: false,
+                    leftLatDist = vehicleData?.carState?.leftLatDist ?: 0f,
                 )
 
-                // 中：速度圆环 + 地图切换 三个按钮排成一行
+                // 下：速度圆环 + 地图切换（移至左下角）
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 蓝速环（巡航）
                     HomePanelSpeedRing(
                         modifier = Modifier,
                         value = cruiseSetSpeed,
                         color = Color(0xFF2196F3),
                         onClick = onCruiseSetClick
                     )
-                    // 绿速环（当前车速）
                     HomePanelSpeedRing(
                         modifier = Modifier,
                         value = carrotManFields.vEgoKph,
                         color = Color(0xFF22C55E),
                         onClick = { onPageChange(2) }
                     )
-                    // 地图源切换按钮
                     HomePanelMapSource(
                         modifier = Modifier,
                         navMode = navMode,
                         onClick = { showMapModeDialog = true }
                     )
                 }
-
-                // 下：驾驶状态 + 红绿灯
-                DrivingStatusPanel(
-                    active = vehicleData?.selfdriveState?.active ?: false,
-                    vEgo = carrotManFields.vEgoKph,
-                    vCruise = (vehicleData?.controlsState?.vCruise?.let { (it * 3.6).toInt() } ?: cruiseSetSpeed),
-                    isExperimental = isExperimentalMode,
-                    trafficState = carrotManFields.trafficState,
-                    trafficCountdown = carrotManFields.trafficLightCountdown,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                )
             }
         }
     }
@@ -1479,6 +1384,177 @@ class MainActivityUI(
         }
     }
 
+    /** 车道线与盲区动态面板 */
+    @Composable
+    private fun LaneBlindspotPanel(
+        modifier: Modifier = Modifier,
+        laneLineProbs: List<Float>,
+        leftDist: Float,
+        rightDist: Float,
+        leftBlindspot: Boolean,
+        rightBlindspot: Boolean,
+        leftLatDist: Float
+    ) {
+        // 判断是否有数据
+        val hasData = laneLineProbs.isNotEmpty() || leftDist > 0f || rightDist > 0f
+
+        // 颜色主题
+        val bgColor = if (hasData) Color(0xFF1E293B).copy(alpha = 0.9f)
+                      else Color(0xFFE2E8F0).copy(alpha = 0.9f)
+        val laneColor = if (hasData) Color(0xFF374151) else Color(0xFFCBD5E1)
+        val roadEdgeColor = Color(0xFFEF4444)  // 红色路缘线
+        val blindspotFillColor = Color(0xFFEF4444).copy(alpha = 0.3f)  // 浅红色盲区填充
+        val carColor = if (hasData) Color(0xFF3B82F6) else Color(0xFF94A3B8)
+
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(bgColor)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 左侧车道
+                Box(
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(laneColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // 路缘线 - 左（红色）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(2.dp)
+                            .background(roadEdgeColor)
+                            .align(Alignment.CenterStart)
+                    )
+                    // 盲区填充
+                    if (leftBlindspot) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(blindspotFillColor)
+                        )
+                    }
+                    // 车道线概率指示（小条）
+                    if (laneLineProbs.isNotEmpty()) {
+                        val leftLaneProb = laneLineProbs.getOrNull(0) ?: 0f
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height((leftLaneProb * 28).dp.coerceAtLeast(4.dp))
+                                .background(
+                                    when {
+                                        leftLaneProb > 0.8f -> Color(0xFF22C55E)
+                                        leftLaneProb > 0.5f -> Color(0xFFFBBF24)
+                                        else -> Color(0xFF6B7280)
+                                    }
+                                )
+                                .align(Alignment.BottomCenter)
+                        )
+                    }
+                }
+
+                // 中间：车辆俯视图
+                Box(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (hasData) Color(0xFF1E293B) else Color(0xFFE2E8F0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // 车辆俯视图简化形状
+                    Box(
+                        modifier = Modifier
+                            .width(24.dp)
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(carColor)
+                    ) {
+                        // 车头
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(carColor.copy(alpha = 0.8f))
+                                .align(Alignment.TopCenter)
+                        )
+                        // 车轮标记
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(6.dp)
+                                .background(Color.Black.copy(alpha = 0.3f))
+                                .align(Alignment.TopStart)
+                                .padding(start = 2.dp, top = 2.dp)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(6.dp)
+                                .background(Color.Black.copy(alpha = 0.3f))
+                                .align(Alignment.TopEnd)
+                                .padding(end = 2.dp, top = 2.dp)
+                        )
+                    }
+                }
+
+                // 右侧车道
+                Box(
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(laneColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // 路缘线 - 右（红色）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(2.dp)
+                            .background(roadEdgeColor)
+                            .align(Alignment.CenterEnd)
+                    )
+                    // 盲区填充
+                    if (rightBlindspot) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(blindspotFillColor)
+                        )
+                    }
+                    // 车道线概率指示（小条）
+                    if (laneLineProbs.size > 3) {
+                        val rightLaneProb = laneLineProbs.getOrNull(3) ?: 0f
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height((rightLaneProb * 28).dp.coerceAtLeast(4.dp))
+                                .background(
+                                    when {
+                                        rightLaneProb > 0.8f -> Color(0xFF22C55E)
+                                        rightLaneProb > 0.5f -> Color(0xFFFBBF24)
+                                        else -> Color(0xFF6B7280)
+                                    }
+                                )
+                                .align(Alignment.BottomCenter)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     /** 驾驶状态面板（openpilot 状态 + 巡航 + 红绿灯倒计时） */
     @Composable
     private fun DrivingStatusPanel(
@@ -1636,14 +1712,17 @@ class MainActivityUI(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.verticalScroll(rememberScrollState())
                 ) {
-                    // 致谢卡片
+                    // ⚠️ 雷达车型提示
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = localized("感谢各位车友的支持！您的赞助是我们持续优化的动力。", "Thank you for your support! Your sponsorship drives our continuous improvement."),
+                            text = localized(
+                                "⚠️ 仅部分支持雷达统合的车型体验最佳。非雷达车型部分功能（如前车距离检测）可能受限。",
+                                "⚠️ Best experience on vehicles with radar integration. Non-radar vehicles may have limited features (e.g. lead distance detection)."
+                            ),
                             fontSize = 13.sp,
                             color = Color(0xFF92400E),
                             lineHeight = 18.sp,
@@ -1652,19 +1731,15 @@ class MainActivityUI(
                         )
                     }
 
-                    // 核心功能
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FeatureItem("🗺️", localized("高德导航集成", "Amap Navigation"), localized("与车机版无缝对接", "Seamless integration with car system"))
-                        FeatureItem("🚗", localized("智能驾驶辅助", "Smart Driving Assist"), localized("自动按导航变道转弯", "Auto lane change & turn by navigation"))
-                        FeatureItem("👁️", localized("视觉车道感知", "Visual Lane Detection"), localized("识别实虚线避免违章", "Detect lane markings to avoid violations"))
-                        FeatureItem("🎯", localized("超车决策提醒", "Overtake Decision"), localized("智能判定超车时机", "Smart overtake timing"))
-                        FeatureItem("☁️", localized("配置云端共享", "Cloud Config Sharing"), localized("社区参数一键下发", "One-click community config sync"))
-                        FeatureItem("🚦", localized("交通灯感知", "Traffic Light Detection"), localized("红灯自动减速停车", "Auto decelerate at red lights"))
+                    // 简洁功能列表
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FeatureItem("🗺️", localized("三地图导航", "Triple Nav"), localized("高德车机/腾讯/Google", "Amap/Tencent/Google"))
+                        FeatureItem("🚗", localized("驾驶辅助", "Driving Assist"), localized("自动变道转弯", "Auto lane change & turn"))
+                        FeatureItem("📊", localized("驾驶报告", "Driving Report"), localized("评分与建议", "Score & tips"))
                     }
-                    
-                    // 底部提示
+
                     Text(
-                        text = localized("15秒后自动关闭 · 更多信息请查看「我的」页面", "Auto-close in 15s · See \"Profile\" for more info"),
+                        text = localized("15秒后自动关闭", "Auto-close in 15s"),
                         fontSize = 11.sp,
                         color = Color(0xFF94A3B8),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,

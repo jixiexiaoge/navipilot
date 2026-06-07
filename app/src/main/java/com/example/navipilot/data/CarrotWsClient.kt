@@ -218,6 +218,9 @@ class CarrotWsClient(
                 carState = CarState(
                     vEgo = (decoded["vEgo"] as? Number)?.toFloat() ?: 0f,
                     steeringAngleDeg = (decoded["steeringAngleDeg"] as? Number)?.toFloat() ?: 0f,
+                    leftLatDist = (decoded["leftLatDist"] as? Number)?.toFloat() ?: 0f,
+                    leftBlindspot = decoded["leftBlindspot"] as? Boolean ?: false,
+                    rightBlindspot = decoded["rightBlindspot"] as? Boolean ?: false,
                     leftBlinker = decoded["leftBlinker"] as? Boolean ?: false,
                     rightBlinker = decoded["rightBlinker"] as? Boolean ?: false,
                 )
@@ -227,6 +230,11 @@ class CarrotWsClient(
                     leadX = (decoded["leadX"] as? Number)?.toFloat() ?: 0f,
                     leadV = (decoded["leadV"] as? Number)?.toFloat() ?: 0f,
                     leadProb = (decoded["leadProb"] as? Number)?.toFloat() ?: 0f,
+                    laneLineProbs = (decoded["laneLineProbs"] as? List<*>)?.mapNotNull {
+                        (it as? Number)?.toFloat()
+                    } ?: emptyList(),
+                    leftDist = (decoded["leftDist"] as? Number)?.toFloat() ?: 0f,
+                    rightDist = (decoded["rightDist"] as? Number)?.toFloat() ?: 0f,
                 )
             )
             "controlsState" -> current.copy(
@@ -273,6 +281,9 @@ data class VehicleData(
 data class CarState(
     val vEgo: Float = 0f,           // m/s
     val steeringAngleDeg: Float = 0f,
+    val leftLatDist: Float = 0f,    // 横向距离 (m)
+    val leftBlindspot: Boolean = false,  // 左盲区
+    val rightBlindspot: Boolean = false, // 右盲区
     val leftBlinker: Boolean = false,
     val rightBlinker: Boolean = false,
 )
@@ -281,9 +292,9 @@ data class ModelV2(
     val leadX: Float = 0f,          // 前车距离 m
     val leadV: Float = 0f,          // 前车速度 m/s
     val leadProb: Float = 0f,       // 前车置信度
-    val laneLineProbs: List<Float> = emptyList(),
-    val leftDist: Float = 0f,       // 到左路边距离
-    val rightDist: Float = 0f,      // 到右路边距离
+    val laneLineProbs: List<Float> = emptyList(),  // 4条车道线概率
+    val leftDist: Float = 0f,       // 到左路缘距离 (m)
+    val rightDist: Float = 0f,      // 到右路缘距离 (m)
 )
 
 data class ControlsState(
@@ -425,11 +436,17 @@ object CerealDecoder {
         // carState struct:
         //   vEgo             (Float64) @10
         //   steeringAngleDeg (Float64) @14
+        //   leftLatDist      (Float64) @15
+        //   leftBlindspot    (Bool)    @42
+        //   rightBlindspot   (Bool)    @43
         //   leftBlinker      (Bool)    @40
         //   rightBlinker     (Bool)    @41
         return mapOf(
             "vEgo" to r.f64(10),
             "steeringAngleDeg" to r.f64(14),
+            "leftLatDist" to r.f64(15),
+            "leftBlindspot" to r.bool(42),
+            "rightBlindspot" to r.bool(43),
             "leftBlinker" to r.bool(40),
             "rightBlinker" to r.bool(41),
         )
@@ -439,7 +456,8 @@ object CerealDecoder {
         r.segment()
         // modelV2:
         //   lead (struct pointer @0)
-        //   laneLineProbs (list @3)  
+        //   laneLineProbs (list Float32 @3)
+        //   laneLine (list struct @4)
         //   meta (struct @5)
         //   orientationRate (Float32 @6)
         val leadPtr = r.ptr(0)
@@ -467,10 +485,28 @@ object CerealDecoder {
             prob
         } else 0.0
 
+        // 解析 laneLineProbs (list Float32 @3)
+        val laneLineProbs = r.decodeFloatList(3)
+
+        // 解析 meta struct (@5) 中的路缘距离
+        val metaPtr = r.ptr(5)
+        var leftDist = 0f
+        var rightDist = 0f
+        if (metaPtr > 0) {
+            r.savePos()
+            r.seek(metaPtr)
+            leftDist = r.f32(0)   // distanceToRoadEdgeLeft (Float32 @0)
+            rightDist = r.f32(4)  // distanceToRoadEdgeRight (Float32 @1, but @4 for 2nd float)
+            r.restorePos()
+        }
+
         return mapOf(
             "leadX" to leadX.toFloat(),
             "leadV" to leadV.toFloat(),
             "leadProb" to leadProb.toFloat(),
+            "laneLineProbs" to laneLineProbs,
+            "leftDist" to leftDist,
+            "rightDist" to rightDist,
         )
     }
 
@@ -579,6 +615,33 @@ private class CapnpReader(private val data: ByteArray) {
         if (ptrOffset + 4 > data.size) return 0
         return java.nio.ByteBuffer.wrap(data, ptrOffset, 4)
             .order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()
+    }
+
+    /** 解码 Float32 列表（@3 字段） */
+    fun decodeFloatList(fieldIndex: Int): List<Float> {
+        val listPtr = ptr(fieldIndex)
+        if (listPtr <= 0) return emptyList()
+
+        savePos()
+        // list pointer: [4字节元素数量][4字节元素大小][数据]
+        seek(listPtr * 8) // 指针以字为单位
+        val elementCount = i32(0)
+        val elementSize = i32(1) // 通常是4字节
+
+        val result = mutableListOf<Float>()
+        if (elementSize == 4 && elementCount > 0 && elementCount <= 16) {
+            // 直接读取 Float32 列表
+            for (i in 0 until elementCount) {
+                val floatOffset = (i + 2) * 4 // 从 i32(2) 开始是数据
+                val floatPos = pos + floatOffset
+                if (floatPos + 4 <= data.size) {
+                    result.add(java.nio.ByteBuffer.wrap(data, floatPos, 4)
+                        .order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat())
+                }
+            }
+        }
+        restorePos()
+        return result
     }
 
     fun savePos() { savedPositions.add(pos) }
