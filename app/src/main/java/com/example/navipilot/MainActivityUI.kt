@@ -1188,6 +1188,94 @@ class MainActivityUI(
                     rightBlindspot = vehicleData?.carState?.rightBlindspot ?: false,
                     leftLatDist = vehicleData?.carState?.leftLatDist ?: 0f,
                 )
+                // 中：魔行星红绿灯数据（无障碍读取）
+                val trafficData by com.example.navipilot.FloatWindowReaderService.trafficData.collectAsState()
+                val panelCtx = panelContext
+                fun isAccessibilityEnabled(): Boolean {
+                    return try {
+                        val am = panelCtx.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
+                        val enabledServices = android.provider.Settings.Secure.getString(
+                            panelCtx.contentResolver,
+                            android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                        ) ?: ""
+                        enabledServices.contains(panelCtx.packageName)
+                    } catch (_: Exception) { false }
+                }
+                val accessibilityOn = remember { mutableStateOf(isAccessibilityEnabled()) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        accessibilityOn.value = isAccessibilityEnabled()
+                        kotlinx.coroutines.delay(3000)
+                    }
+                }
+                if (trafficData.distance > 0 || trafficData.lanes.isNotEmpty()) {
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                Text("${trafficData.distance}m", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                            }
+                            trafficData.lanes.forEach { lane ->
+                                val lColor = when (lane.state) {
+                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.RED -> Color(0xFFEF4444)
+                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.GREEN -> Color(0xFF22C55E)
+                                    com.example.navipilot.FloatWindowReaderService.TrafficLightState.YELLOW -> Color(0xFFFBBF24)
+                                    else -> Color(0xFF64748B)
+                                }
+                                val arrow = when (lane.direction) {
+                                    "左转" -> "←"
+                                    "直行" -> "↑"
+                                    "右转" -> "→"
+                                    else -> "●"
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(lColor))
+                                        Spacer(Modifier.width(3.dp))
+                                        Text(arrow, fontSize = 11.sp, color = Color.White)
+                                    }
+                                    Text("${lane.countdown}s", fontSize = 12.sp, color = lColor, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                } else if (!accessibilityOn.value) {
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.9f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    panelCtx.startActivity(
+                                        android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📡", fontSize = 14.sp)
+                            Spacer(Modifier.width(4.dp))
+                            Column {
+                                Text(localized("开启无障碍读取红绿灯", "Enable traffic light reader"), fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                Text(localized("点击跳转设置 → 开启「悬浮窗读取服务」", "Tap → Accessibility → FloatWindowReader"), fontSize = 7.sp, color = Color(0xFF64748B), maxLines = 2)
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Text("⚙️", fontSize = 14.sp)
+                        }
+                    }
+                }
 
                 // 下：速度圆环 + 地图切换（移至左下角）
                 Row(
