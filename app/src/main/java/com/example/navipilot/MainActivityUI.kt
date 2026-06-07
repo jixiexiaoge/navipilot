@@ -328,6 +328,8 @@ class MainActivityUI(
         val data by core.xiaogeData
         // 视频展开/折叠状态（默认隐藏，用户点击摄像机图标才显示）
         var isVideoExpanded by remember { mutableStateOf(false) }
+        // 🆕 摄像头全屏模式（点击右侧摄像头预览切换）
+        var isCameraFullscreen by remember { mutableStateOf(false) }
         // 数据卡片展开/折叠状态
         var isDataCardExpanded by remember { mutableStateOf(true) }
         // 高阶功能对话框状态
@@ -455,7 +457,32 @@ class MainActivityUI(
 
         // 地图区 Composable lambda（复用于竖屏/横屏两种布局）
         val mapZoneContent: @Composable () -> Unit = {
-            val isNavActive = carrotManFields.isNavigating
+            if (isCameraFullscreen) {
+                // 摄像头全屏模式
+                val wsClient = core.carrotWsClient
+                val cameraFrame = wsClient?.cameraFrame?.collectAsState()
+                val camData = cameraFrame?.value
+                Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF0F172A))) {
+                    if (camData != null && camData.payload.isNotEmpty()) {
+                        com.example.navipilot.ui.components.CameraPreview(
+                            frameBytes = camData.payload,
+                            width = camData.width,
+                            height = camData.height,
+                            isKeyFrame = camData.keyFrame,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            androidx.compose.material3.Text(
+                                "📷 ${localized("等待摄像头画面...", "Waiting for camera...")}",
+                                fontSize = 16.sp, color = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // 正常地图模式
+                val isNavActive = carrotManFields.isNavigating
             when {
                 // 导航中：根据用户选择的模式显示对应嵌入式导航
                 isNavActive -> {
@@ -510,6 +537,7 @@ class MainActivityUI(
                 // 非导航中：统一显示 OSM 地图
                 else -> osmMapView()
             }
+            }
         }
 
         // ===== 横屏布局：左4 : 中12 : 右4 三栏布局 =====
@@ -559,47 +587,82 @@ class MainActivityUI(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val wsClient = core.carrotWsClient
+                    // 自动连接摄像头（数据连接成功后）
+                    LaunchedEffect(wsClient?.connectionState?.collectAsState()?.value) {
+                        val state = wsClient?.connectionState?.value
+                        if (state == com.example.navipilot.data.ConnectionState.CONNECTED) {
+                            // 从 core.networkManager 获取 IP
+                            val ip = core.networkManager.getCurrentDeviceIP()
+                            if (ip != null && ip.isNotEmpty()) {
+                                wsClient?.connectCamera(ip)
+                            }
+                        }
+                    }
 
-                    // ===== 右上：实时摄像头画面（占位区）=====
+                    // ===== 右上：实时摄像头画面（点击切换全屏）=====
+                    val cameraFrame = wsClient?.cameraFrame?.collectAsState()
+                    val camData = cameraFrame?.value
                     Card(
                         shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(90.dp)
+                            .clickable { isCameraFullscreen = !isCameraFullscreen }
                     ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val connState = wsClient?.connectionState?.collectAsState()
-                            val isConn = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
-                            if (isConn) {
-                                // 已连接：显示摄像头待命状态
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("📷", fontSize = 20.sp)
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (camData != null && camData.payload.isNotEmpty()) {
+                                // 有帧数据：显示实时画面
+                                com.example.navipilot.ui.components.CameraPreview(
+                                    frameBytes = camData.payload,
+                                    width = camData.width,
+                                    height = camData.height,
+                                    isKeyFrame = camData.keyFrame,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                // 无帧数据：显示待命/占位
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val connState = wsClient?.connectionState?.collectAsState()
+                                    val isConn = connState?.value == com.example.navipilot.data.ConnectionState.CONNECTED
+                                    if (isConn) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("📷", fontSize = 20.sp)
+                                            Text(localized("等待画面...", "Waiting..."), fontSize = 9.sp, color = Color(0xFF64748B))
+                                            Text(localized("点击全屏", "Tap for fullscreen"), fontSize = 7.sp, color = Color(0xFF475569))
+                                        }
+                                    } else {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("📹", fontSize = 20.sp)
+                                            Text(localized("实时画面", "Live Camera"), fontSize = 9.sp, color = Color(0xFF64748B))
+                                            Text(localized("未连接", "Disconnected"), fontSize = 8.sp, color = Color(0xFF475569))
+                                        }
+                                    }
+                                }
+                            }
+                            // 全屏模式指示
+                            if (isCameraFullscreen) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0x80000000)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text(
-                                        localized("摄像头待命", "Camera ready"),
-                                        fontSize = 9.sp, color = Color(0xFF64748B)
-                                    )
-                                    Text(
-                                        localized("连接 ws://.../ws/camera/road", ""),
-                                        fontSize = 7.sp, color = Color(0xFF475569)
+                                        "⏺ ${localized("全屏中·点击退出", "Fullscreen·Tap exit")}",
+                                        fontSize = 8.sp, color = Color.White
                                     )
                                 }
                             } else {
-                                // 未连接：摄像头占位
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("📹", fontSize = 20.sp)
-                                    Text(
-                                        localized("实时画面", "Live Camera"),
-                                        fontSize = 9.sp, color = Color(0xFF64748B)
-                                    )
-                                    Text(
-                                        localized("未连接", "Disconnected"),
-                                        fontSize = 8.sp, color = Color(0xFF475569)
-                                    )
+                                Box(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(2.dp)
+                                        .background(Color(0x80000000), shape = RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text("⛶", fontSize = 8.sp, color = Color.White)
                                 }
                             }
                         }

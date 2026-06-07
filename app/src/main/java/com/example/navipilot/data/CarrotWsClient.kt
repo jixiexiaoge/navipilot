@@ -70,6 +70,10 @@ class CarrotWsClient(
     private val _deviceStatus = MutableStateFlow(DeviceStatus())
     val deviceStatus = _deviceStatus.asStateFlow()
 
+    /** 摄像头帧 */
+    private val _cameraFrame = MutableStateFlow<CameraFrame?>(null)
+    val cameraFrame = _cameraFrame.asStateFlow()
+
     /** 摄像头帧回调 */
     var onCameraFrame: ((CameraFrame) -> Unit)? = null
 
@@ -162,6 +166,7 @@ class CarrotWsClient(
         override fun onMessage(ws: WebSocket, bytes: ByteString) {
             try {
                 val frame = CameraWsFrame.decode(bytes.toByteArray())
+                _cameraFrame.value = frame
                 onCameraFrame?.invoke(frame)
             } catch (e: Exception) {
                 Log.w(TAG, "解析摄像头帧失败: ${e.message}")
