@@ -208,9 +208,6 @@ private const val CAR_ICON = "car-icon"
 private const val DEST_SOURCE = "dest-src"
 private const val DEST_LAYER = "dest-layer"
 private const val DEST_ICON = "dest-icon"
-private const val PARKED_SOURCE = "parked-src"
-private const val PARKED_LAYER = "parked-layer"
-private const val PARKED_ICON = "parked-icon"
 
 // 搜索相关逻辑已拆分到 MapSearchService.kt
 
@@ -228,22 +225,6 @@ private fun createDestPinBitmap(): Bitmap {
     val s = 48; val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888); val c = Canvas(bmp)
     val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.WHITE; style = Paint.Style.FILL }
     c.drawCircle(s/2f, s/2f, s/2f-2f, p); p.color = AndroidColor.rgb(239, 68, 68); c.drawCircle(s/2f, s/2f, s/2f-6f, p)
-    return bmp
-}
-
-// 🆕 停车位置图标（P图标，绿色表示停车）
-private fun createParkedIconBitmap(): Bitmap {
-    val s = 48; val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888); val c = Canvas(bmp)
-    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(34, 197, 94); style = Paint.Style.FILL } // 绿色
-    // 画P字母形状
-    val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = AndroidColor.WHITE
-        textSize = s * 0.6f
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
-    }
-    c.drawCircle(s/2f, s/2f, s/2f - 2f, p)
-    c.drawText("P", s/2f, s/2f + s*0.2f, pText)
     return bmp
 }
 
@@ -412,8 +393,6 @@ fun OsmMapView(
     xiaogeData: com.example.navipilot.XiaogeVehicleData? = null, // 🆕 车辆数据（用于车道分析）
     gpsAccuracy: Float = 0f, // 🆕 GPS精度（米）
     positionMode: String = "GPS", // 🆕 定位模式（GPS/网络定位等）
-    parkedLocation: Pair<Double, Double>? = null, // 🆕 停车位置 (lat, lon)
-    onNavigateToParked: () -> Unit = {}, // 🆕 找车按钮点击事件
     commaConnectionState: Int = 0, // 🆕 连接状态：0=未连接, 1=已连接, 2=异常
     // ===== 面板按钮触发器（父级递增 → OsmMapView 执行内部逻辑）=====
     searchShowTrigger: Int = 0,
@@ -640,20 +619,6 @@ fun OsmMapView(
             else -> src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
     }
-    // 🆕 停车位置标记（未连接comma3时才显示）
-    LaunchedEffect(parkedLocation, isMapReady, commaConnectionState) {
-        val map = mapRef ?: return@LaunchedEffect
-        if (!isMapReady) return@LaunchedEffect
-        val src = map.style?.getSourceAs<GeoJsonSource>(PARKED_SOURCE) ?: return@LaunchedEffect
-        val parked = parkedLocation
-        // 连接comma3时不显示停车标记
-        if (parked != null && commaConnectionState != 1) {
-            src.setGeoJson(Feature.fromGeometry(Point.fromLngLat(parked.second, parked.first)))
-            Log.i(TAG, "🅿️ 显示停车标记: ${parked.first}, ${parked.second}")
-        } else {
-            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-        }
-    }
 
     // 生命周期
     DisposableEffect(lifecycleOwner) {
@@ -699,21 +664,37 @@ fun OsmMapView(
                                             PropertyFactory.iconRotate(bearing.toFloat()), PropertyFactory.iconAllowOverlap(true),
                                             PropertyFactory.iconIgnorePlacement(true), PropertyFactory.iconRotationAlignment("map"))
                                     })
-                                    // 🆕 停车标记
-                                    style.addImage(PARKED_ICON, createParkedIconBitmap())
-                                    val parkedPt = parkedLocation?.let { Point.fromLngLat(it.second, it.first) }
-                                    val parkedSource = if (parkedPt != null) {
-                                        GeoJsonSource(PARKED_SOURCE, FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(parkedPt))))
-                                    } else {
-                                        GeoJsonSource(PARKED_SOURCE)
-                                    }
-                                    style.addSource(parkedSource)
-                                    style.addLayer(SymbolLayer(PARKED_LAYER, PARKED_SOURCE).apply {
-                                        setProperties(PropertyFactory.iconImage(PARKED_ICON), PropertyFactory.iconSize(0.7f),
-                                            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true))
-                                    })
                                     if (latitude != 0.0) {
                                         map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude, longitude)).zoom(DEFAULT_ZOOM).bearing(bearing).build()
+                                        Log.i(TAG, "📍 使用导航坐标定位: lat=$latitude, lon=$longitude")
+                                    } else {
+                                        // 无 GPS 时尝试从系统获取最后已知位置
+                                        try {
+                                            val locMgr = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+                                            locMgr?.let { lm ->
+                                                val providers = listOf(
+                                                    android.location.LocationManager.GPS_PROVIDER,
+                                                    android.location.LocationManager.NETWORK_PROVIDER,
+                                                    android.location.LocationManager.PASSIVE_PROVIDER
+                                                )
+                                                for (provider in providers) {
+                                                    try {
+                                                        val lastLoc = lm.getLastKnownLocation(provider)
+                                                        if (lastLoc != null && (lastLoc.latitude != 0.0 || lastLoc.longitude != 0.0)) {
+                                                            map.cameraPosition = CameraPosition.Builder()
+                                                                .target(LatLng(lastLoc.latitude, lastLoc.longitude))
+                                                                .zoom(DEFAULT_ZOOM).build()
+                                                            Log.i(TAG, "📍 使用系统最后位置 ($provider): lat=${lastLoc.latitude}, lon=${lastLoc.longitude}")
+                                                            break
+                                                        }
+                                                    } catch (_: SecurityException) {
+                                                        break // 无权限则跳过
+                                                    } catch (_: Exception) { continue }
+                                                }
+                                            }
+                                        } catch (_: Exception) {
+                                            Log.w(TAG, "获取系统位置失败，保持默认视图")
+                                        }
                                     }
                                     isMapReady = true; Log.i(TAG, "地图初始化完成")
                                 }

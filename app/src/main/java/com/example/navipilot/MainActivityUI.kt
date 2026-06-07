@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -172,44 +173,6 @@ class MainActivityUI(
                 wasNavigating = isNowNavigating
             }
 
-            // 🚗 停车位置记录功能
-            val prefs = remember { appContext.getSharedPreferences("CarrotAmap", Context.MODE_PRIVATE) }
-            var lastRecordedSpeed by remember { mutableStateOf(-1f) }
-
-            // 🆕 读取保存的停车位置
-            val parkedLocation = remember {
-                com.example.navipilot.utils.CoordinatePreferences.getParkedLocation(prefs)
-            }
-
-            // 🚗 停车记录：连接comma3时使用其车速，否则使用gps_speed
-            LaunchedEffect(core.carrotManFields.value.gps_speed, core.xiaogeData.value) {
-                // 判断是否连接了 comma3
-                val isCommaConnected = core.getNetworkClientSafely()?.let { client ->
-                    !core.xiaogeDataTimeout.value &&
-                    client.isRunning() && client.getCurrentDevice() != null
-                } ?: false
-
-                // 获取当前车速
-                val currentSpeed = if (isCommaConnected) {
-                    // 连接了 comma3，使用其车速 (m/s -> km/h)
-                    (core.xiaogeData.value?.carState?.vEgo ?: 0f) * 3.6f
-                } else {
-                    // 未连接，使用 GPS 车速
-                    core.carrotManFields.value.gps_speed
-                }
-
-                // 当速度从 >0 变为 =0 时，记录停车位置
-                if (lastRecordedSpeed > 0 && currentSpeed == 0.0) {
-                    val lat = core.carrotManFields.value.latitude
-                    val lon = core.carrotManFields.value.longitude
-                    if (lat != 0.0 && lon != 0.0) {
-                        com.example.navipilot.utils.CoordinatePreferences.saveParkedLocation(prefs, lat, lon)
-                        Log.i("MainActivityUI", "🚗 已记录停车位置: $lat, $lon (数据源: ${if (isCommaConnected) "comma3" else "GPS"})")
-                    }
-                }
-                lastRecordedSpeed = currentSpeed.toFloat()
-            }
-
             // 不使用 Scaffold 的 bottomBar，改为手动叠加，让导航栏浮在内容上方
             Box(modifier = Modifier.fillMaxSize()) {
                 // 拦截返回键：正常返回
@@ -305,13 +268,6 @@ class MainActivityUI(
                             },
                             drivingDataCollector = core.getDrivingDataCollectorSafely()
                         )
-                        11 -> { /* SSH 已移除 */ }
-                        13 -> {
-                            // 模型切换器功能已移除 - 显示提示信息
-                            ModelSwitcherRemovedHint(
-                                onBack = { core.currentPage = 0 }
-                            )
-                        }
                     }
 
                     // 腾讯导航已嵌入 HomePage 地图槽；若仍有代码将 currentPage 设为 12，拉回主页避免空白
@@ -400,29 +356,6 @@ class MainActivityUI(
             }
         }
 
-        // ===== 竖屏 / 横屏检测 =====
-        val configuration = LocalConfiguration.current
-        val isPortrait = configuration.screenWidthDp <= configuration.screenHeightDp
-
-        // ===== 读取停车位置（用于找车功能）=====
-        val prefs = remember { mapContext.getSharedPreferences("CarrotAmap", Context.MODE_PRIVATE) }
-        val parkedLoc = remember { CoordinatePreferences.getParkedLocation(prefs) }
-        val parkedLocPair = parkedLoc?.let { Pair(it.latitude, it.longitude) }
-
-        // 步行导航到停车位置
-        fun navigateToParkedCar() {
-            val parked = parkedLoc
-            if (parked != null) {
-                val currentLat = carrotManFields.latitude
-                val currentLon = carrotManFields.longitude
-                if (currentLat != 0.0 && currentLon != 0.0) {
-                    MainActivityUIComponents.startWalkingNavigationToParked(
-                        mapContext, prefs, currentLat, currentLon, parked.latitude, parked.longitude
-                    )
-                }
-            }
-        }
-
         // ===== 地图相关状态 =====
         val mapService = core.userSelectedMode
         val gpsAccuracy = carrotManFields.accuracy
@@ -508,8 +441,6 @@ class MainActivityUI(
                 xiaogeData = data,
                 gpsAccuracy = gpsAccuracy.toFloat(),
                 positionMode = positionMode,
-                parkedLocation = parkedLocPair,
-                onNavigateToParked = { navigateToParkedCar() },
                 commaConnectionState = commaConnectionState,
                 searchShowTrigger = searchShowTrigger,
                 homeNavTrigger = homeNavTrigger,
@@ -581,95 +512,98 @@ class MainActivityUI(
             }
         }
 
-        // ===== 响应式主布局 =====
-        if (isPortrait) {
-            // 竖屏：上方 7/9 地图，下方 2/9 功能面板
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(7f)
-                ) { mapZoneContent() }
-                HomeControlPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(2f),
-                    navMode = navMode,
-                    onModeChange = onModeChange,
-                    carrotManFields = carrotManFields,
-                    isPortrait = true,
-                    userType = userType,
-                    cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
-                    carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
-                    carrotParamClient = core.getCarrotParamClientSafely(),
-                    homeAddressSet = homeAddressSet,
-                    companyAddressSet = companyAddressSet,
-                    commaConnectionState = commaConnectionState,
-                    onShowAdvancedDialog = { showAdvancedDialog = true },
-                    onPageChange = onPageChange,
-                    onSearchClick = { searchShowTrigger++ },
-                    onHomeNavClick = { homeNavTrigger++ },
-                    onHomeNavLongClick = { homeNavLongTrigger++ },
-                    onCompanyNavClick = { companyNavTrigger++ },
-                    onCompanyNavLongClick = { companyNavLongTrigger++ },
-                )
-            }
-        } else {
-            // 横屏：左侧 7/9 地图，右侧 2/9 功能面板
-            Row(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .weight(7f)
-                ) { mapZoneContent() }
-                HomeControlPanel(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .weight(2f),
-                    navMode = navMode,
-                    onModeChange = onModeChange,
-                    carrotManFields = carrotManFields,
-                    isPortrait = false,
-                    userType = userType,
-                    cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 },
-                    carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
-                    carrotParamClient = core.getCarrotParamClientSafely(),
-                    homeAddressSet = homeAddressSet,
-                    companyAddressSet = companyAddressSet,
-                    commaConnectionState = commaConnectionState,
-                    onShowAdvancedDialog = { showAdvancedDialog = true },
-                    onPageChange = onPageChange,
-                    onSearchClick = { searchShowTrigger++ },
-                    onHomeNavClick = { homeNavTrigger++ },
-                    onHomeNavLongClick = { homeNavLongTrigger++ },
-                    onCompanyNavClick = { companyNavTrigger++ },
-                    onCompanyNavLongClick = { companyNavLongTrigger++ },
-                )
-            }
-        }
-
-        // 高阶功能对话框（Dialog 会自动叠加在界面最上层）
-        if (showAdvancedDialog) {
-            MainActivityUIComponents.AdvancedFunctionsDialog(
-                onDismiss = { showAdvancedDialog = false },
-                onSendCommand = onSendCommand,
-                onSendRoadLimitSpeed = onSendRoadLimitSpeed,
-                onLaunchAmap = onLaunchAmap,
-                onSendNavConfirmation = onSendNavConfirmation,
-                onPageChange = onPageChange,
-                isOpenpilotActive = carrotManFields.active,
+        // ===== 横屏布局：左4 : 中12 : 右4 三栏布局 =====
+        val cruiseSetSpeed = try { carrotManFields.vCruiseKph.toInt() } catch (_: Exception) { 0 }
+        Row(modifier = Modifier.fillMaxSize()) {
+            // 左侧（4份）：HomeControlPanel
+            HomeControlPanel(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(4f),
+                navMode = navMode,
+                onModeChange = onModeChange,
                 carrotManFields = carrotManFields,
-                networkManager = core.networkManager,
-                context = mapContext
+                userType = userType,
+                cruiseSetSpeed = cruiseSetSpeed,
+                carCruiseSpeed = try { carrotManFields.carcruiseSpeed.toInt() } catch (_: Exception) { 0 },
+                carrotParamClient = core.getCarrotParamClientSafely(),
+                homeAddressSet = homeAddressSet,
+                companyAddressSet = companyAddressSet,
+                commaConnectionState = commaConnectionState,
+                onShowAdvancedDialog = { showAdvancedDialog = true },
+                onPageChange = onPageChange,
+                onSearchClick = { searchShowTrigger++ },
+                onHomeNavClick = { homeNavTrigger++ },
+                onHomeNavLongClick = { homeNavLongTrigger++ },
+                onCompanyNavClick = { companyNavTrigger++ },
+                onCompanyNavLongClick = { companyNavLongTrigger++ },
             )
-        }
-        if (show7706JsonDebug) {
-            Carrot7706JsonDebugOverlay(
-                fields = carrotFieldsLive,
-                networkClient = core.getNetworkClientSafely(),
-                onDismiss = { show7706JsonDebug = false },
-            )
-        }
+                // 中央（12份）：地图
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(12f)
+                ) { mapZoneContent() }
+                // 右侧（4份）：搜索/家/公司 三个功能按钮
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(4f)
+                        .background(Surface900),
+                    verticalArrangement = Arrangement.SpaceEvenly,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // 搜索/家/公司 三个功能按钮排成一行
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 搜索目的地
+                        HomeControlPanelCircleIcon(
+                            modifier = Modifier,
+                            background = Color(0xFF10B981).copy(alpha = 0.9f),
+                            icon = Icons.Default.Search,
+                            contentDescription = localized("搜索", "Search"),
+                            onClick = { searchShowTrigger++ }
+                        )
+                        // 回家
+                        HomeControlPanelEmojiAddress(
+                            modifier = Modifier,
+                            emoji = "🏠",
+                            accessibilityLabel = localized("家", "Home"),
+                            addressSet = homeAddressSet,
+                            onShortClick = { homeNavTrigger++ },
+                            onLongClick = { homeNavLongTrigger++ }
+                        )
+                        // 去公司
+                        HomeControlPanelEmojiAddress(
+                            modifier = Modifier,
+                            emoji = "🏢",
+                            accessibilityLabel = localized("公司", "Work"),
+                            addressSet = companyAddressSet,
+                            onShortClick = { companyNavTrigger++ },
+                            onLongClick = { companyNavLongTrigger++ }
+                        )
+                    }
+                }
+            }
+
+        // 高阶功能对话框（横屏模式暂时禁用）
+        // if (showAdvancedDialog) {
+        //     MainActivityUIComponents.AdvancedFunctionsDialog(
+        //         onDismiss = { showAdvancedDialog = false },
+        //         onSendCommand = onSendCommand,
+        //         onSendRoadLimitSpeed = onSendRoadLimitSpeed,
+        //         onLaunchAmap = onLaunchAmap,
+        //         onSendNavConfirmation = onSendNavConfirmation,
+        //         onPageChange = onPageChange,
+        //         isOpenpilotActive = carrotManFields.active,
+        //         carrotManFields = carrotManFields,
+        //         networkManager = core.networkManager,
+        //         context = mapContext
+        //     )
+        // }
     }
 
     /** 首页控制台：仅圆形图标（无障碍用语见 contentDescription，无底部文字） */
@@ -967,8 +901,8 @@ class MainActivityUI(
     }
 
     /**
-     * 首页功能控制面板（竖屏下方 2/9，横屏右侧 2/9）
-     * 上方为限速横幅，其下为图标网格：竖屏 4+4（已移除原第5位账户、第8位找车）、横屏 3+3+2
+     * 首页功能控制面板 - 横屏三栏布局
+     * 上：车道和盲区 | 中：速度圆环+地图源 | 下：红绿灯倒计时
      */
     @Composable
     private fun HomeControlPanel(
@@ -976,7 +910,6 @@ class MainActivityUI(
         navMode: NavMode,
         onModeChange: (NavMode) -> Unit,
         carrotManFields: CarrotManFields,
-        isPortrait: Boolean,
         userType: Int,
         cruiseSetSpeed: Int,
         carCruiseSpeed: Int,
@@ -1118,263 +1051,282 @@ class MainActivityUI(
         }
 
         Box(
-            modifier = modifier.background(
-                Brush.verticalGradient(colors = listOf(Surface900, Surface800))
-            )
+            modifier = modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(colors = listOf(Surface900, Surface800)))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(
-                        horizontal = if (isPortrait) 10.dp else 6.dp,
-                        vertical = if (isPortrait) 10.dp else 10.dp
-                    ),
-                horizontalAlignment = if (isPortrait) Alignment.Start else Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(if (isPortrait) 10.dp else 12.dp)
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 🐛 限速调试横幅（实时显示 nRoadLimitSpeed 值，用于验证限速数据是否正确更新）
-                SpeedLimitDebugBanner(
-                    nRoadLimitSpeed = carrotManFields.nRoadLimitSpeed,
-                    source = carrotManFields.source_last,
-                    roadName = carrotManFields.szPosRoadName,
-                    activeNavMode = (this@MainActivityUI.core.carrotManFields.value.active),
-                    roadcate = carrotManFields.roadcate,
-                    modifier = Modifier.fillMaxWidth()
+                // 上：车道和盲区UI
+                LaneBlindSpotPanel(
+                    laneType = 0,  // 预留：当前无laneType字段
+                    blindSpotWarning = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
                 )
 
-                if (isPortrait) {
-                    // 竖屏：第一行 4 格（蓝速/地图/绿速/搜索），第二行 4 格（家/公司/实验）；已移除第5位账户与第8位找车
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HomePanelSpeedRing(
-                            modifier = Modifier.weight(1f),
-                            value = cruiseSetSpeed,
-                            color = Color(0xFF2196F3),
-                            onClick = onCruiseSetClick
-                        )
-                        HomePanelMapSource(
-                            modifier = Modifier.weight(1f),
-                            navMode = navMode,
-                            onClick = { showMapModeDialog = true }
-                        )
-                        HomePanelSpeedRing(
-                            modifier = Modifier.weight(1f),
-                            value = carCruiseSpeed,
-                            color = Color(0xFF22C55E),
-                            onClick = { onPageChange(2) }
-                        )
-                        HomeControlPanelCircleIcon(
-                            modifier = Modifier.weight(1f),
-                            background = searchBg,
-                            icon = Icons.Default.Search,
-                            contentDescription = localized("搜索地点", "Search"),
-                            onClick = onSearchClick
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HomeControlPanelEmojiAddress(
-                            modifier = Modifier.weight(1f),
-                            emoji = "🏠",
-                            accessibilityLabel = localized("家", "Home"),
-                            addressSet = homeAddressSet,
-                            onShortClick = onHomeNavClick,
-                            onLongClick = onHomeNavLongClick
-                        )
-                        HomeControlPanelEmojiAddress(
-                            modifier = Modifier.weight(1f),
-                            emoji = "🏢",
-                            accessibilityLabel = localized("公司", "Work"),
-                            addressSet = companyAddressSet,
-                            onShortClick = onCompanyNavClick,
-                            onLongClick = onCompanyNavLongClick
-                        )
-                        HomeControlPanelCircleIcon(
-                            modifier = Modifier.weight(1f),
-                            background = Color(0xFF10B981).copy(alpha = 0.92f),
-                            icon = Icons.Default.SwapHoriz,
-                            contentDescription = localized("模型切换器", "Model Switcher"),
-                            onClick = { onPageChange(13) }
-                        )
-                    }
-                } else {
-                    // 横屏：3 + 3 + 2 网格（末行已移除账户，仅实验）
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            modifier = Modifier.widthIn(max = 288.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                HomePanelSpeedRing(
-                                    modifier = Modifier.weight(1f),
-                                    value = cruiseSetSpeed,
-                                    color = Color(0xFF2196F3),
-                                    onClick = onCruiseSetClick
-                                )
-                                HomePanelMapSource(
-                                    modifier = Modifier.weight(1f),
-                                    navMode = navMode,
-                                    onClick = { showMapModeDialog = true }
-                                )
-                                HomePanelSpeedRing(
-                                    modifier = Modifier.weight(1f),
-                                    value = carCruiseSpeed,
-                                    color = Color(0xFF22C55E),
-                                    onClick = { onPageChange(2) }
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                HomeControlPanelEmojiAddress(
-                                    modifier = Modifier.weight(1f),
-                                    emoji = "🏠",
-                                    accessibilityLabel = localized("家", "Home"),
-                                    addressSet = homeAddressSet,
-                                    onShortClick = onHomeNavClick,
-                                    onLongClick = onHomeNavLongClick
-                                )
-                                HomeControlPanelCircleIcon(
-                                    modifier = Modifier.weight(1f),
-                                    background = searchBg,
-                                    icon = Icons.Default.Search,
-                                    contentDescription = localized("搜索地点", "Search"),
-                                    onClick = onSearchClick
-                                )
-                                HomeControlPanelEmojiAddress(
-                                    modifier = Modifier.weight(1f),
-                                    emoji = "🏢",
-                                    accessibilityLabel = localized("公司", "Work"),
-                                    addressSet = companyAddressSet,
-                                    onShortClick = onCompanyNavClick,
-                                    onLongClick = onCompanyNavLongClick
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                HomeControlPanelCircleIcon(
-                                    modifier = Modifier.weight(1f),
-                                    background = Color(0xFF10B981).copy(alpha = 0.92f),
-                                    icon = Icons.Default.SwapHoriz,
-                                    contentDescription = localized("模型切换器", "Model Switcher"),
-                                    onClick = { onPageChange(13) }
-                                )
-                            }
-                        }
-                    }
+                // 中：速度圆环 + 地图切换 三个按钮排成一行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 蓝速环（巡航）
+                    HomePanelSpeedRing(
+                        modifier = Modifier,
+                        value = cruiseSetSpeed,
+                        color = Color(0xFF2196F3),
+                        onClick = onCruiseSetClick
+                    )
+                    // 绿速环（当前车速）
+                    HomePanelSpeedRing(
+                        modifier = Modifier,
+                        value = carrotManFields.vEgoKph,
+                        color = Color(0xFF22C55E),
+                        onClick = { onPageChange(2) }
+                    )
+                    // 地图源切换按钮
+                    HomePanelMapSource(
+                        modifier = Modifier,
+                        navMode = navMode,
+                        onClick = { showMapModeDialog = true }
+                    )
                 }
+
+                // 下：红绿灯倒计时
+                TrafficLightCountdownPanel(
+                    trafficState = carrotManFields.trafficState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                )
             }
         }
     }
 
-    // ── 限速调试横幅 ──────────────────────────────────────────────
+    /** 速度显示面板（参考图片左侧速度60样式） */
     @Composable
-    private fun SpeedLimitDebugBanner(
-        nRoadLimitSpeed: Int,
-        source: String,
+    private fun SpeedDisplayPanel(
+        value: Int,
+        label: String,
+        backgroundColor: Color
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .size(width = 72.dp, height = 64.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(backgroundColor.copy(alpha = 0.85f))
+                .padding(4.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = value.toString(),
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 10.sp
+            )
+        }
+    }
+
+    /** 导航状态面板（H 120 ↑ 样式） */
+    @Composable
+    private fun NavStatusPanel(
         roadName: String,
-        activeNavMode: Boolean,
-        roadcate: Int,
+        limitSpeed: Int,
+        nTBTTurnType: Int
+    ) {
+        val turnArrow = when (nTBTTurnType) {
+            1 -> "↑"   // 直行
+            2 -> "→"   // 右转
+            3 -> "←"   // 左转
+            4 -> "↻"   // 环岛
+            else -> "—"
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.9f))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (roadName.isNotEmpty()) {
+                    Text(
+                        text = roadName.take(2),
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (limitSpeed > 0) limitSpeed.toString() else "—",
+                    color = Color(0xFFFBBF24),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = turnArrow,
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+
+    /** 数值显示面板（预留样式） */
+    @Composable
+    private fun NumberDisplayPanel(
+        value: Int,
+        label: String
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .size(width = 64.dp, height = 56.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF475569).copy(alpha = 0.8f))
+                .padding(4.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = value.toString(),
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 9.sp
+            )
+        }
+    }
+
+    /** 车道和盲区UI面板 */
+    @Composable
+    private fun LaneBlindSpotPanel(
+        laneType: Int = 0,
+        blindSpotWarning: Boolean = false,
         modifier: Modifier = Modifier
     ) {
-        val limitText = if (nRoadLimitSpeed > 0) "${nRoadLimitSpeed}" else "-"
-        val limitUnit = if (nRoadLimitSpeed > 0) "km/h" else ""
-        val srcLabel = when {
-            source.contains("tencent", ignoreCase = true) -> "腾讯"
-            source.contains("amap", ignoreCase = true) -> "高德"
-            source.contains("google", ignoreCase = true) -> "Google"
-            source.contains("osm", ignoreCase = true) -> "OSM"
-            source.isBlank() -> "未设置"
-            else -> source
+        // laneType: 0=未知, 1=直行, 2=左转, 3=右转, 4=变道
+        // blindSpotWarning: true=有盲区预警
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.9f))
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 车道指示
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = when (laneType) {
+                        1 -> Icons.Default.ArrowUpward
+                        2 -> Icons.Default.ArrowBack
+                        3 -> Icons.Default.ArrowForward
+                        4 -> Icons.Default.SwapHoriz
+                        else -> Icons.Default.HelpOutline
+                    },
+                    contentDescription = localized("车道", "Lane"),
+                    tint = when (laneType) {
+                        1 -> Color(0xFF22C55E)
+                        2, 3 -> Color(0xFFFBBF24)
+                        4 -> Color(0xFF3B82F6)
+                        else -> Color(0xFF64748B)
+                    },
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = when (laneType) {
+                        1 -> localized("直行", "Straight")
+                        2 -> localized("左转", "Left")
+                        3 -> localized("右转", "Right")
+                        4 -> localized("变道", "Change")
+                        else -> localized("未知", "Unknown")
+                    },
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 9.sp
+                )
+            }
+            Divider(
+                modifier = Modifier
+                    .height(36.dp)
+                    .width(1.dp),
+                color = Color(0xFF475569)
+            )
+            // 盲区预警指示
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = if (blindSpotWarning) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    contentDescription = localized("盲区预警", "Blind Spot"),
+                    tint = if (blindSpotWarning) Color(0xFFEF4444) else Color(0xFF22C55E),
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = localized("盲区", "Blind"),
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 9.sp
+                )
+            }
         }
-        val roadcateLabel = when (roadcate) {
-            10 -> "高速"
-            6 -> "国道"
-            3 -> "城市"
-            0 -> "未知"
-            else -> "类别$roadcate"
+    }
+
+    /** 红绿灯倒计时面板 */
+    @Composable
+    private fun TrafficLightCountdownPanel(
+        trafficState: Int = -1,
+        modifier: Modifier = Modifier
+    ) {
+        // trafficState: -1=无数据, 0=绿灯, 1=红灯, 2=黄灯
+        val (icon, color, text) = when (trafficState) {
+            0 -> Triple(Icons.Default.Circle, Color(0xFF22C55E), localized("绿灯", "Green"))
+            1 -> Triple(Icons.Default.Circle, Color(0xFFEF4444), localized("红灯", "Red"))
+            2 -> Triple(Icons.Default.Circle, Color(0xFFFBBF24), localized("黄灯", "Yellow"))
+            else -> Triple(Icons.Default.Circle, Color(0xFF64748B), localized("无信号", "None"))
         }
         Row(
             modifier = modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1E293B).copy(alpha = 0.85f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.9f))
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 限速值
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "🛣️ 限速调试",
-                    color = Color(0xFFF59E0B),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        text = limitText,
-                        color = if (nRoadLimitSpeed > 0) Color(0xFF4ADE80) else Color(0xFF64748B),
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (limitUnit.isNotEmpty()) {
-                        Text(
-                            text = " $limitUnit",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
-                    }
-                }
-            }
-            // 道路类别 + 导航状态
-            Column(horizontalAlignment = Alignment.End) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (activeNavMode) Color(0xFF4ADE80) else Color(0xFFEF4444))
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = if (activeNavMode) "导航中" else "未导航",
-                        color = if (activeNavMode) Color(0xFF4ADE80) else Color(0xFFEF4444),
-                        fontSize = 10.sp
-                    )
-                }
-                Text(
-                    text = "来源: $srcLabel",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 10.sp
-                )
-                Text(
-                    text = "$roadcateLabel · $roadName",
-                    color = Color(0xFF64748B),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = color,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                color = color,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 
@@ -1523,71 +1475,6 @@ class MainActivityUI(
                     fontSize = 11.sp,
                     color = Color(0xFF64748B)
                 )
-            }
-        }
-    }
-
-    /**
-     * 模型切换器已移除提示页
-     */
-    @Composable
-    private fun ModelSwitcherRemovedHint(onBack: () -> Unit) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0F172A)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.padding(32.dp)
-            ) {
-                Text(
-                    text = localized("模型切换器", "Model Switcher"),
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = localized(
-                                "模型切换器使用反馈欠佳，app 已移除该功能。",
-                                "Model Switcher removed due to poor feedback."
-                            ),
-                            fontSize = 15.sp,
-                            color = Color(0xFFCBD5E1),
-                            lineHeight = 22.sp
-                        )
-                        Text(
-                            text = localized(
-                                "若体验切换模型，可以使用 BYD 的 CP 分支或者换用 c3-ms 分支即可在设备上切换模型。",
-                                "To switch models, use BYD's CP branch or switch to c3-ms branch on your device."
-                            ),
-                            fontSize = 14.sp,
-                            color = Color(0xFF94A3B8),
-                            lineHeight = 21.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Button(
-                            onClick = onBack,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF3B82F6)
-                            ),
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            Text(localized("返回主页", "Back to Home"))
-                        }
-                    }
-                }
             }
         }
     }

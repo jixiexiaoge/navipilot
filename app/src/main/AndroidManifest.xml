@@ -107,7 +107,7 @@
             android:exported="true"
             android:theme="@style/Theme.Navipilot"
             android:launchMode="singleTask"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:excludeFromRecents="false">
             <intent-filter>

@@ -1037,66 +1037,6 @@ object MainActivityUIComponents {
     }
 
     /**
-     * 🆕 发起步行导航到停车位置
-     * 使用腾讯地图URI Scheme发起步行导航
-     */
-    fun startWalkingNavigationToParked(
-        context: android.content.Context,
-        prefs: android.content.SharedPreferences,
-        fromLat: Double,
-        fromLon: Double,
-        toLat: Double,
-        toLon: Double
-    ) {
-        try {
-            android.util.Log.i("MainActivity", "🚶 发起步行导航到停车位置: ($toLat, $toLon)")
-
-            // 优先使用腾讯地图步行导航
-            val tencentUri = android.net.Uri.parse(
-                "qqmap://map/walk?from=$fromLat,$fromLon&to=$toLat,$toLon&coordtype=1&referer=myapp"
-            )
-            val tencentIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, tencentUri)
-            tencentIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-
-            if (tencentIntent.resolveActivity(context.packageManager) != null) {
-                context.startActivity(tencentIntent)
-                android.util.Log.i("MainActivity", "✅ 已打开腾讯地图步行导航")
-                return
-            }
-
-            // 腾讯地图不可用，尝试高德地图步行导航
-            android.util.Log.w("MainActivity", "⚠️ 腾讯地图不可用，尝试高德地图")
-            val gaodeUri = Uri.parse(
-                "androidamap://route?sourceApplication=Navipilot&slat=$fromLat&slon=$fromLon&sname=${java.net.URLEncoder.encode("当前位置", "UTF-8")}" +
-                        "&dlat=$toLat&dlon=$toLon&dname=${java.net.URLEncoder.encode("停车位置", "UTF-8")}&dev=0&m=2&t=2"
-            )
-            val gaodeIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, gaodeUri)
-            gaodeIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-
-            if (gaodeIntent.resolveActivity(context.packageManager) != null) {
-                context.startActivity(gaodeIntent)
-                android.util.Log.i("MainActivity", "✅ 已打开高德地图步行导航")
-                return
-            }
-
-            // 两者都不可用
-            android.util.Log.w("MainActivity", "⚠️ 未找到可用的地图应用")
-            android.widget.Toast.makeText(
-                context,
-                "请安装腾讯地图或高德地图",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "❌ 发起步行导航失败: ${e.message}", e)
-            android.widget.Toast.makeText(
-                context,
-                "无法打开地图应用: ${e.message}",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
-
-    /**
      * 启动模拟导航功能
      */
     fun startSimulatedNavigation(context: android.content.Context, carrotManFields: CarrotManFields) {
