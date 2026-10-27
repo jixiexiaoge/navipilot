@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>正在前往安全收银台</title>
+  <style>body{margin:0;display:grid;min-height:100vh;place-items:center;background:#fff8ee;color:#18324f;font:16px/1.6 "Microsoft YaHei",system-ui,sans-serif}.box{max-width:400px;padding:32px;text-align:center;background:#fff;border-radius:24px;box-shadow:0 14px 40px #7b491c1c}.spinner{width:30px;height:30px;margin:0 auto 16px;border:4px solid #d8e6f5;border-top-color:#1d4f91;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}button{border:0;border-radius:20px;padding:10px 18px;background:#1d4f91;color:#fff;font:inherit}</style>
+</head>
+<body>
+  <main class="box">
+    <div class="spinner"></div>
+    <h1>正在前往安全收银台</h1>
+    <p>页面没有跳转时，请点击下方按钮继续。</p>
+    <form id="payment-form" method="post" action="{{ submit_url }}">
+      {% for key, value in parameters.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+      <button type="submit">继续支付</button>
+    </form>
+  </main>
+  <script>document.getElementById("payment-form").submit();</script>
+</body>
+</html>

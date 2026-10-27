@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carrot搭子 4.0 - 智能驾驶导航搭子</title>
+  <meta name="description" content="Carrot搭子连接 comma3，为行车提供导航信息、道路感知、信号提示与高德车机投屏。">
+  <style>
+    :root{--navy:#132b48;--blue:#1d4f91;--orange:#f47728;--cream:#fff9f1;--ink:#18324f;--muted:#63748a}*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--ink);font:16px/1.6 "Microsoft YaHei",system-ui,sans-serif}.hero{overflow:hidden;padding:72px 24px 88px;background:linear-gradient(145deg,#fff4e4,#ffcc91);text-align:center}.brand{display:inline-flex;align-items:center;gap:9px;color:var(--navy);font-weight:800}.plane{width:44px;height:28px;border-radius:20px;background:var(--orange);color:#fff;display:grid;place-items:center}h1{margin:22px 0 6px;font-size:clamp(40px,9vw,68px);line-height:1.1}.hero p{max-width:600px;margin:16px auto;color:#36516c;font-size:19px}.cta{display:inline-block;margin-top:18px;padding:13px 28px;border-radius:28px;background:var(--blue);color:#fff;text-decoration:none;font-weight:700}main{max-width:940px;margin:-38px auto 0;padding:0 20px 72px;position:relative}.panel{background:#fff;border-radius:28px;padding:32px;box-shadow:0 14px 42px #7b491c21;margin-bottom:24px}h2{margin:0 0 8px;font-size:28px}.lead{margin:0 0 24px;color:var(--muted)}.features,.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.feature,.plan{border:1px solid #e5edf5;border-radius:18px;padding:20px;background:#fff}.feature b{display:block;margin:8px 0;font-size:18px}.feature p,.plan p{color:var(--muted);margin:0;font-size:14px}.icon{font-size:30px}.plan{position:relative}.plan strong{display:block;color:var(--navy);font-size:19px}.price{color:var(--blue);font-weight:800;font-size:25px;margin:8px 0}.note{background:#edf5ff;border-radius:16px;padding:16px 18px;color:#38546f;font-size:14px}.steps{padding-left:22px;margin:10px 0 0}.footer{color:var(--muted);text-align:center;font-size:13px}@media(max-width:680px){.hero{padding-top:48px}.panel{padding:24px 20px}.features,.plans{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="brand"><span class="plane">✈</span> 智能驾驶导航搭子</div>
+    <h1>Carrot搭子 4.0</h1>
+    <p>连接 comma3，看懂道路，把高德车机版投到车机浏览器。让每一段行程，更从容一点。</p>
+    <a class="cta" href="#guide">查看使用指南</a>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>驾驶路上，有我陪你</h2>
+      <p class="lead">基础导航辅助功能可正常使用；高德车机投屏为独立高级功能。</p>
+      <div class="features">
+        <article class="feature"><span class="icon">🖥️</span><b>车机投屏</b><p>将高德地图车机版画面投送到本地浏览器，支持特斯拉专用地址与局域网模式。</p></article>
+        <article class="feature"><span class="icon">🛣️</span><b>道路感知</b><p>识别左右车道线的实线、虚线状态，提供清晰的行车信息提示。</p></article>
+        <article class="feature"><span class="icon">🚦</span><b>信号助手</b><p>结合可用数据展示红绿灯状态、方向、倒计时与停止线距离。</p></article>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>投屏会员</h2>
+      <p class="lead">请在 Carrot搭子 App 的投屏面板中选择套餐并完成支付。付款成功后权益自动同步至当前设备。</p>
+      <div class="plans">
+        {% for plan in plans %}
+        <article class="plan"><strong>{{ plan.name }}</strong><div class="price">¥{{ '%.2f'|format(plan.price_cents / 100) }}</div><p>{% if plan.duration_days %}解锁 {{ plan.duration_days }} 天高德车机投屏{% else %}一次购买，长期使用投屏功能{% endif %}</p></article>
+        {% endfor %}
+      </div>
+    </section>
+    <section id="guide" class="panel">
+      <h2>使用指南</h2>
+      <ol class="steps"><li>安装高德地图车机版，并启动 Shizuku 或 Stellar。</li><li>打开 Carrot搭子首页的投屏面板，按“帮助与检查”完成环境授权。</li><li>选择局域网或特斯拉专用连接模式，开始投屏。</li><li>在车机浏览器按 App 显示的本地地址打开投屏画面。</li></ol>
+      <p class="note">投屏画面与触控只在本地网络传输。使用投屏前请遵守当地道路交通法规，驾驶时始终保持对车辆的控制与注意力。</p>
+    </section>
+    <p class="footer"><a href="/guide">完整使用指南</a> · Carrot搭子 4.0</p>
+  </main>
+</body>
+</html>

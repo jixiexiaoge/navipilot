@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Carrot搭子版本发布</title>
+  <style>:root{--blue:#1d4f91;--ink:#18324f;--muted:#63748a}*{box-sizing:border-box}body{max-width:840px;margin:0 auto;padding:32px 20px 60px;background:#fff8ee;color:var(--ink);font:16px/1.55 "Microsoft YaHei",system-ui,sans-serif}.panel{background:#fff;padding:26px;border-radius:20px;box-shadow:0 12px 36px #7b491c1c;margin-bottom:20px}h1,h2{margin-top:0}label{display:block;font-weight:700;margin:14px 0 6px}input,textarea,button{font:inherit}input,textarea{width:100%;padding:10px;border:1px solid #ccd8e5;border-radius:9px}textarea{min-height:105px;resize:vertical}.check{display:flex;gap:8px;align-items:center;font-weight:400}.check input{width:auto}.publish{padding:12px 22px;border:0;border-radius:10px;background:var(--blue);color:#fff;font-weight:700;margin-top:18px}.success{padding:11px;border-radius:9px;background:#e7f6eb;color:#176b3a}.error{padding:11px;border-radius:9px;background:#fdeceb;color:#b42318}.muted{color:var(--muted)}code{word-break:break-all}.files{padding-left:20px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center}.logout{border:0;background:none;color:var(--blue);padding:0}</style>
+</head>
+<body>
+  <div class="top"><h1>APK 版本发布</h1><form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="logout">退出登录</button></form></div>
+  {% if published %}<p class="success">APK 发布文件已更新，可从文件列表手动分发。</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if release %}<section class="panel"><h2>当前发布文件</h2><p><b>{{ release.version_name }}</b> · versionCode {{ release.version_code }}</p><p class="muted">{{ release.notes|join(" · ") }}</p><p class="muted">SHA-256：<code>{{ release.sha256 }}</code></p></section>{% endif %}
+  <section class="panel"><h2>上传 APK 文件</h2><p class="muted">后台会保存为 <code>CarrotAssistant-v版本号.apk</code>、计算 SHA-256，并原子更新发布清单，供手动分发。</p><form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>APK 文件</label><input type="file" name="apk_file" accept=".apk,application/vnd.android.package-archive" required><label>versionCode</label><input type="number" name="version_code" min="1" required placeholder="例如 26090101"><label>版本名称</label><input type="text" name="version_name" required placeholder="例如 v26090101"><label>更新说明</label><textarea name="notes" required placeholder="每行一条，例如：&#10;会员功能优化&#10;修复投屏稳定性"></textarea><button class="publish" type="submit">上传 APK</button></form></section>
+  <section class="panel"><h2>服务器 APK 文件</h2>{% if files %}<ul class="files">{% for file in files %}<li><a href="/downloads/{{ file }}">{{ file }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">尚未上传 APK。</p>{% endif %}</section>
+</body>
+</html>

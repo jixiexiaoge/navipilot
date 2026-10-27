@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>高德路口放大图 + 车道箭头卡 · 机制研究与原型</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c232c;--line:#2b3441;--tx:#e6edf3;--tx2:#9aa7b4;--tx3:#6b7785;
+--acc:#3fb950;--warn:#d29922;--bad:#f85149;--blue:#58a6ff;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:38px 24px 80px}
+h1{font-size:29px;margin:0 0 6px;letter-spacing:-.4px}
+.sub{color:var(--tx2);font-size:14px;margin-bottom:26px}
+.sub code{background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:12.5px}
+h2{font-size:20px;margin:42px 0 12px;padding-left:11px;border-left:4px solid var(--blue);line-height:1.25}
+h3{font-size:15px;margin:22px 0 8px;color:var(--tx)}
+code{font-family:ui-monospace,Consolas,monospace}
+.verdicts{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin:20px 0 6px}
+@media(max-width:760px){.verdicts{grid-template-columns:1fr}}
+.v{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 18px;position:relative;overflow:hidden}
+.v::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+.v.a::before{background:var(--warn)} .v.b::before{background:var(--blue)}
+.v h4{margin:0 0 6px;font-size:14.5px}
+.v p{margin:0;color:var(--tx2);font-size:13px}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px;margin-right:7px;vertical-align:1px}
+.t-a{background:rgba(210,153,34,.15);color:var(--warn)} .t-b{background:rgba(88,166,255,.15);color:var(--blue)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:10px}
+th,td{text-align:left;padding:7px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--tx2);font-weight:600;font-size:12px;background:var(--panel)}
+td.m{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--blue)}
+.note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:0 10px 10px 0;padding:13px 17px;margin:15px 0;font-size:13.5px;color:var(--tx2)}
+.note b{color:var(--tx)}
+/* ---- 原型区 ---- */
+.stage{display:grid;grid-template-columns:1.05fr 1fr;gap:18px;margin-top:14px}
+@media(max-width:900px){.stage{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.card h5{margin:0 0 10px;font-size:13px;color:var(--tx2);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.card h5 span{font-weight:400;color:var(--tx3);font-size:11.5px}
+canvas{display:block;width:100%;border-radius:10px;background:#101418}
+.btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.btns button{background:var(--panel2);color:var(--tx2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer;transition:.15s}
+.btns button:hover{color:var(--tx);border-color:#3d4b5c}
+.btns button.on{background:rgba(88,166,255,.16);color:#9ecbff;border-color:#2f5d8a}
+.laneCardWrap{display:flex;justify-content:center;padding:10px 0 4px}
+#laneCard{width:100%;max-width:420px;border-radius:12px}
+.readout{display:grid;grid-template-columns:96px 1fr;gap:5px 12px;font-size:12.5px;margin-top:12px;color:var(--tx2)}
+.readout b{color:var(--tx);font-weight:500;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+ol{padding-left:22px} ol li{margin:7px 0;font-size:14px}
+.kv{display:grid;grid-template-columns:190px 1fr;gap:7px 16px;font-size:13.5px;margin:10px 0}
+.kv dt{color:var(--tx2)} .kv dd{margin:0;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.foot{margin-top:46px;padding-top:16px;border-top:1px solid var(--line);color:var(--tx3);font-size:12.5px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>高德路口放大图 + 车道箭头卡 · 机制研究与原型</h1>
+<div class="sub">
+  依据 <code>Auto_9.5.0.600013</code> 的 <code>libGbl.so</code> 符号 / <code>GuideConfig.json</code> /
+  <code>MultipleScreen.json</code> / 本地资源，以及我们 App 已接入的高德车机广播
+</div>
+
+<div class="verdicts">
+  <div class="v a"><h4><span class="tag t-a">左侧</span>路口放大图：引擎矢量绘制，不是图片</h4>
+    <p>云端下发一段矢量描述，<code>bl::VectorCrossLayerItem::ShowVectorCross(const uint8_t*, int)</code> 接进来，
+    引擎按 <code>GuideConfig.json</code> 的路宽 / 贝塞尔 / 箭头参数实时画。部分路口换成实景图（<code>CrossImageInfo</code> + <code>SegmentInfo::HasCrossImage()</code>）。</p></div>
+  <div class="v b"><h4><span class="tag t-b">右侧</span>车道箭头卡：位图按车道拼</h4>
+    <p>数据是高德广播的 <code>drive_way_lane_Back_icon</code>（0–12）+ 推荐标志；
+    图是包里那套 <code>navistate_landback_*</code> / <code>global_image_landback_*</code>（就是上次导出的 78 张里的 land<b>back</b> 系列）。</p></div>
+</div>
+
+<h2>1 · 两类东西的实现路径</h2>
+<table>
+<tr><th>项目</th><th>高德怎么做的</th><th>证据</th></tr>
+<tr>
+  <td><b>矢量路口图</b></td>
+  <td>导航数据在路口段附带一段<b>矢量十字数据</b>；引擎把它解析成「进口车道中心线 → 转向连接曲线 → 出口车道」的折线，再按参数加粗描边、画箭头。</td>
+  <td class="m">libGbl.so:<br>VectorCrossLayerItem::ShowVectorCross(const uint8_t*, int)<br>SegmentInfo::IsReqVectorCross()</td>
+</tr>
+<tr>
+  <td><b>真实路口拍照</b></td>
+  <td>同一路段若服务端有实景图，就下发 <code>CrossImageInfo</code>；HMI 收到 <code>OnShowCrossImageHMI()</code> 直接贴图，甚至可「只显示图」（<code>IsOnlyShowCrossImage=1</code>）不画矢量。</td>
+  <td class="m">libGbl.so: bl::CrossImageInfo<br>libautonavi.so: CNaviComponentBase::OnShowCrossImageHMI()<br>MultipleScreen.json: IsOnlyShowCrossImage</td>
+</tr>
+<tr>
+  <td><b>显示开关/位置</b></td>
+  <td>按屏幕配置开图：<code>CrossViewType 0/7</code> 关/开，并给出宽高与左上角坐标。</td>
+  <td class="m">MultipleScreen.json:<br>CrossViewType=7, CrossViewWidth=368, CrossViewHeight=276</td>
+</tr>
+<tr>
+  <td><b>车道箭头卡</b></td>
+  <td>车道图标按 <code>drive_way_lane_Back_icon</code> 取图，逐格排开；推荐车道换高亮样式。</td>
+  <td class="m">AmapBroadcastHandlers.kt:1976（我们已在解析）<br>drawable/navistate_landback_*</td>
+</tr>
+</table>
+
+<h3>路口图的渲染参数（原封不动从包里抄的）</h3>
+<dl class="kv">
+  <dt>thick_width</dt><dd>21.0 —— 引导线粗</dd>
+  <dt>arrow_thick_width</dt><dd>25.0 —— 箭头杆粗</dd>
+  <dt>corner_bessel</dt><dd>1.0 —— 拐角圆滑系数</dd>
+  <dt>arrow_corner_bessel</dt><dd>16.0</dd>
+  <dt>arrow_tip_shift</dt><dd>8.0 —— 箭头尖相对终点偏移</dd>
+  <dt>road_paint</dt><dd>fill 0x40FFFFFF（25% 白，背景道路）</dd>
+  <dt>arrow_paint</dt><dd>fill 0xFFFFFFFF（纯白箭头）</dd>
+  <dt>变体</dt><dd>roundabout_*（环岛）、uturn_*（掉头）各一套独立宽度系数</dd>
+</dl>
+<div class="note">
+  <b>注意配色差异：</b>参数里写的是「半透明白底 + 白箭头」，而车机 9.5 实际显示是<b>深色路面 + 黄色引导线</b>。
+  说明这套 JSON 是「maneuver_render_style_0」的一种风格，实际主题由 MapTheme 覆盖。移植时按截图配色（深路 + 黄线）更贴近。
+</div>
+
+<h2>2 · 可交互原型</h2>
+<p style="color:var(--tx2);font-size:13.5px;margin:0">
+  左图完全用 Canvas 按上面那套参数画（路宽 21、拐角圆滑、箭头 25），右卡是同一份车道数据的另一种表达。
+  换场景可以看引导线、车道箭头、方向卡怎么联动。
+</p>
+
+<div class="stage">
+  <div class="card">
+    <h5>路口放大图（Canvas 复刻）<span id="sceneName">左转 · 3 进 3 出</span></h5>
+    <canvas id="cross" width="1040" height="680"></canvas>
+    <div class="btns" id="sceneBtns"></div>
+  </div>
+  <div class="card">
+    <h5>车道箭头卡 + TBT 条<span>同一份数据，两种画法</span></h5>
+    <div class="laneCardWrap">
+      <canvas id="laneCard" width="840" height="470"></canvas>
+    </div>
+    <div class="readout">
+      <span>车道数</span><b id="roCount">3</b>
+      <span>推荐车道</span><b id="roRec">第 1 条</b>
+      <span>本车道</span><b id="roEgo">第 1 条</b>
+      <span>车道 icon</span><b id="roIcons">2, 0, 0</b>
+    </div>
+    <p style="color:var(--tx3);font-size:12px;margin:12px 0 0">
+      箭头样式取自包内 <code>navistate_landback_*</code>（白色模板）与 <code>global_image_landback_*</code>；
+      组合方向（直行+左转等）高德是位图直出，素材库只覆盖单方向，所以这里用同样的线宽/圆角规则矢量补画。
+    </p>
+  </div>
+</div>
+
+<h2>3 · 移植方案</h2>
+<ol>
+  <li><b>车道箭头卡（先做，1 天级）。</b>数据现成：<code>AmapBroadcastHandlers</code> 已经产出
+    <code>LaneInfo(id, isRecommended, trafficLaneType)</code>，<code>id</code> 就是 <code>Back_icon</code>。
+    新建一个 Composable：<code>Row</code> 里按 <code>laneInfoList</code> 铺 <code>Image</code>，
+    推荐车道用蓝色 tint / 高亮底。素材直接用上次导出的 zip。</li>
+  <li><b>路口放大图（简化版，2–3 天）。</b>高德的矢量十字数据我们拿不到，但广播里有
+    <code>laneInfoList</code>（几条车道、各转哪）+ TBT icon（主转向）+ 距离，足够画<b>示意路口</b>：
+    按「进口车道数 × 转向」决定画十字/丁字/T 型，按 <code>thick_width=21</code>、<code>corner_bessel</code> 画黄色引导线。
+    用户看到的是「我要从第几条车道往哪拐」，信息量与高德接近。</li>
+  <li><b>真实路口拍照：不做。</b>那是服务端图库，第三方拿不到 URL，协议里也没有对外的取图入口。
+    真想要可以自己拍 + 按坐标入库，但那是另一个项目。</li>
+  <li><b>数据缺口：</b>进/出口车道数只能从 <code>laneInfoList.size</code> 推进口，出口车道数没有来源，
+    简化版固定按「出口 = 进口」画，或统一画 3 出。</li>
+</ol>
+
+<div class="foot">
+  仅自用、不分发 · 素材来自 <code>apk-analysis/lane-card-assets.zip</code> ·
+  本页所有图形都是 Canvas 现画，可直接对照移植
+</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// 参数：全部对应包内 GuideConfig.json
+// ─────────────────────────────────────────────
+const P = {
+  thickWidth: 21,        // thick_width
+  arrowThickWidth: 25,   // arrow_thick_width
+  cornerBessel: 1.0,     // corner_bessel
+  arrowTipShift: 8,      // arrow_tip_shift
+  roadFill: '#3a3f45',
+  laneLine: 'rgba(255,255,255,0.92)',
+  guide: '#FFD400',
+  guideEdge: '#D9A400',
+  green: '#6f9e4a',
+  crossRoadW: 232,       // 被交路宽（px）
+  mainRoadW: 306,        // 主路宽（3 车道 × 102）
+};
+
+const SCENES = {
+  left:  { name: '左转 · 3 进 3 出', lanes: [{icon:2,rec:true},{icon:0},{icon:3}] },
+  right: { name: '右转 · 3 进 3 出', lanes: [{icon:0},{icon:0},{icon:4,rec:true}] },
+  straight: { name: '直行 · 4 进 4 出', lanes: [{icon:0},{icon:0,rec:true},{icon:0},{icon:0}] },
+  uturn: { name: '掉头 · 3 进 3 出', lanes: [{icon:5,rec:true},{icon:0},{icon:3}] },
+};
+let current = 'left';
+
+const cvs = document.getElementById('cross');
+const ctx = cvs.getContext('2d');
+const W = cvs.width, H = cvs.height;
+
+// 车道 icon → 箭头绘制函数（0 直行 / 1 左 / 3 右 / 5 掉头 / 2 直行+左 / 4 直行+右）
+function drawArrow(g, cx, cy, size, kind, color, lw) {
+  g.save();
+  g.translate(cx, cy);
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = color; g.fillStyle = color; g.lineWidth = lw;
+  const h = size, w = size * 0.52;
+  const up = (x, y, len) => {           // 竖直向上箭头
+    g.beginPath();
+    g.moveTo(x, y); g.lineTo(x, y - len + h * 0.42);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(x, y - len);
+    g.lineTo(x - w * 0.5, y - len + h * 0.42);
+    g.lineTo(x + w * 0.5, y - len + h * 0.42);
+    g.closePath(); g.fill();
+  };
+  if (kind === 0) { up(0, h / 2, h); }
+  else if (kind === 1) {                // 左转
+    up(0, h / 2, h * 0.62);
+    g.beginPath();
+    g.moveTo(0, h * 0.5 - h * 0.62);
+    g.quadraticCurveTo(0, -h * 0.5, -h * 0.34, -h * 0.5);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-h * 0.5, -h * 0.5);
+    g.lineTo(-h * 0.3, -h * 0.62); g.lineTo(-h * 0.3, -h * 0.38);
+    g.closePath(); g.fill();
+  } else if (kind === 3) {              // 右转
+    up(0, h / 2, h * 0.62);
+    g.beginPath();
+    g.moveTo(0, h * 0.5 - h * 0.62);
+    g.quadraticCurveTo(0, -h * 0.5, h * 0.34, -h * 0.5);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(h * 0.5, -h * 0.5);
+    g.lineTo(h * 0.3, -h * 0.62); g.lineTo(h * 0.3, -h * 0.38);
+    g.closePath(); g.fill();
+  } else if (kind === 5) {              // 掉头
+    up(0, h * 0.5, h * 0.3);
+    g.beginPath();
+    g.moveTo(0, h * 0.2);
+    g.bezierCurveTo(0, -h * 0.62, -h * 0.46, -h * 0.62, -h * 0.46, -h * 0.1);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-h * 0.46, h * 0.02);
+    g.lineTo(-h * 0.58, -h * 0.2); g.lineTo(-h * 0.34, -h * 0.2);
+    g.closePath(); g.fill();
+  } else if (kind === 2) {              // 直行 + 左
+    up(0, h / 2, h);
+    g.lineWidth = lw * 1.05;
+    g.beginPath();
+    g.moveTo(0, h * 0.1); g.lineTo(0, -h * 0.06);
+    g.quadraticCurveTo(0, -h * 0.34, -h * 0.3, -h * 0.34);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-h * 0.44, -h * 0.34);
+    g.lineTo(-h * 0.26, -h * 0.45); g.lineTo(-h * 0.26, -h * 0.23);
+    g.closePath(); g.fill();
+  } else if (kind === 4) {              // 直行 + 右
+    up(0, h / 2, h);
+    g.lineWidth = lw * 1.05;
+    g.beginPath();
+    g.moveTo(0, h * 0.1); g.lineTo(0, -h * 0.06);
+    g.quadraticCurveTo(0, -h * 0.34, h * 0.3, -h * 0.34);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(h * 0.44, -h * 0.34);
+    g.lineTo(h * 0.26, -h * 0.45); g.lineTo(h * 0.26, -h * 0.23);
+    g.closePath(); g.fill();
+  }
+  g.restore();
+}
+
+// 虚线
+function dashed(g, x1, y1, x2, y2, color, lw, dash) {
+  g.save(); g.setLineDash(dash || [26, 22]); g.strokeStyle = color; g.lineWidth = lw;
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); g.restore();
+}
+
+function drawCross(sceneKey) {
+  const s = SCENES[sceneKey];
+  const midX = W * 0.5, midY = H * 0.47;
+  const cw = P.crossRoadW, mw = P.mainRoadW;
+  const nIn = s.lanes.length;
+  const laneW = mw / nIn;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // 1) 绿地
+  ctx.fillStyle = P.green; ctx.fillRect(0, 0, W, H);
+
+  // 2) 横向被交路（整条）
+  ctx.fillStyle = P.roadFill;
+  ctx.fillRect(0, midY - cw / 2, W, cw);
+
+  // 3) 纵向主路（下方到上方，穿过路口）
+  ctx.fillRect(midX - mw / 2, 0, mw, H);
+
+  // 4) 路口中心不画线
+  // 路缘白线（横向）
+  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3;
+  [midY - cw / 2, midY + cw / 2].forEach(y => {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(midX - mw / 2 - 8, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(midX + mw / 2 + 8, y); ctx.lineTo(W, y); ctx.stroke();
+  });
+  // 路缘白线（纵向）
+  [midX - mw / 2, midX + mw / 2].forEach(x => {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, midY - cw / 2 - 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, midY + cw / 2 + 8); ctx.lineTo(x, H); ctx.stroke();
+  });
+
+  // 5) 进口车道分隔线（路口下方，虚线）
+  for (let i = 1; i < nIn; i++) {
+    const x = midX - mw / 2 + laneW * i;
+    dashed(ctx, x, midY + cw / 2 + 14, x, H, 'rgba(255,255,255,.75)', 3);
+  }
+  // 出口车道分隔线（上方）
+  for (let i = 1; i < nIn; i++) {
+    const x = midX - mw / 2 + laneW * i;
+    dashed(ctx, x, 0, x, midY - cw / 2 - 14, 'rgba(255,255,255,.75)', 3);
+  }
+
+  // 6) 停止线：放在斑马线外侧（远离路口），高德也是这个顺序
+  ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.moveTo(midX - mw / 2 + 4, midY + cw / 2 + 152);
+  ctx.lineTo(midX + mw / 2 - 4, midY + cw / 2 + 152);
+  ctx.stroke();
+
+  // 7) 斑马线：路口四角各一组、每组 4 条（高德就是这个密度，多了会脏）
+  ctx.fillStyle = 'rgba(255,255,255,.82)';
+  const stripeGap = 30, stripeW = 13, stripeLen = cw - 34;
+  // 左 / 右（横向路）
+  for (let i = 0; i < 4; i++) {
+    const xL = midX - mw / 2 - 22 - i * stripeGap;
+    if (xL > 8) ctx.fillRect(xL - stripeW, midY - stripeLen / 2, stripeW, stripeLen);
+    const xR = midX + mw / 2 + 22 + i * stripeGap;
+    if (xR < W - 8) ctx.fillRect(xR, midY - stripeLen / 2, stripeW, stripeLen);
+  }
+  // 下 / 上（纵向路）
+  const stripeLen2 = mw - 40;
+  for (let i = 0; i < 4; i++) {
+    const yD = midY + cw / 2 + 22 + i * stripeGap;
+    if (yD < H - 8) ctx.fillRect(midX - stripeLen2 / 2, yD, stripeLen2, stripeW);
+    const yU = midY - cw / 2 - 22 - i * stripeGap;
+    if (yU > 8) ctx.fillRect(midX - stripeLen2 / 2, yU - stripeW, stripeLen2, stripeW);
+  }
+
+  // 8) 车道箭头（进口，白色）
+  for (let i = 0; i < nIn; i++) {
+    const cx = midX - mw / 2 + laneW * (i + 0.5);
+    const cy = H - 92;
+    const kind = s.lanes[i].icon;
+    drawArrow(ctx, cx, cy, Math.min(laneW * 0.9, 104), kind, 'rgba(255,255,255,.94)', 12);
+  }
+
+  // 9) 引导线（黄色，thick_width 缩放到本画布，画布 1040 宽 ≈ 实际 368dp 的 2.8 倍）
+  const scale = W / 368;
+  const tw = P.thickWidth * scale * 0.62;
+  const egoLane = 0; // 本车道 = 第 1 条（最左）
+  const egoX = midX - mw / 2 + laneW * (egoLane + 0.5);
+
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const targetY = midY - cw * 0.22;   // 左转进入横向路上半幅
+  if (sceneKey === 'left') {
+    ctx.moveTo(egoX, H - 40);
+    ctx.lineTo(egoX, targetY + 120);
+    ctx.quadraticCurveTo(egoX, targetY, egoX - 120, targetY);
+    ctx.lineTo(W * 0.10, targetY);
+  } else if (sceneKey === 'right') {
+    const rx = midX - mw / 2 + laneW * 2.5;
+    const ry = midY + cw * 0.22;
+    ctx.moveTo(rx, H - 40);
+    ctx.lineTo(rx, ry - 110);
+    ctx.quadraticCurveTo(rx, ry, rx + 120, ry);
+    ctx.lineTo(W * 0.94, ry);
+  } else if (sceneKey === 'straight') {
+    ctx.moveTo(midX - laneW * 0.5, H - 40);
+    ctx.lineTo(midX - laneW * 0.5, 28);
+  } else if (sceneKey === 'uturn') {
+    ctx.moveTo(egoX, H - 40);
+    ctx.lineTo(egoX, midY + 60);
+    ctx.quadraticCurveTo(egoX, midY - 26, egoX + mw * 0.55, midY - 26);
+    ctx.lineTo(egoX + mw * 0.55, H - 40);
+  }
+  // 外描边（深黄） + 主线（亮黄），模拟高德的描边效果
+  ctx.strokeStyle = P.guideEdge; ctx.lineWidth = tw + 10; ctx.stroke();
+  ctx.strokeStyle = P.guide; ctx.lineWidth = tw; ctx.stroke();
+  ctx.restore();
+
+  // 10) 引导线上的箭头（沿路径中点附近）
+  if (sceneKey !== 'straight') {
+    const ax = sceneKey === 'right' ? W * 0.66 : W * 0.22;
+    const ay = sceneKey === 'right' ? midY + cw * 0.22 : midY - cw * 0.22;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(sceneKey === 'right' ? 0 : Math.PI);
+    ctx.fillStyle = P.guide;
+    ctx.beginPath();
+    ctx.moveTo(0, -22); ctx.lineTo(20, 16); ctx.lineTo(0, 6); ctx.lineTo(-20, 16);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.fillStyle = P.guide;
+    ctx.beginPath();
+    ctx.moveTo(midX - laneW * 0.5, 44); ctx.lineTo(midX - laneW * 0.5 + 22, 84);
+    ctx.lineTo(midX - laneW * 0.5, 72); ctx.lineTo(midX - laneW * 0.5 - 22, 84);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // 11) 自车（蓝色圆 + 白三角）
+  const carX = sceneKey === 'right' ? midX - mw / 2 + laneW * 2.5 : egoX;
+  const carY = H - 62;
+  ctx.save();
+  ctx.translate(carX, carY);
+  ctx.fillStyle = '#1f6feb';
+  ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(12, 11); ctx.lineTo(-12, 11); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  document.getElementById('sceneName').textContent =
+    s.name + ' · 引导线宽 ' + P.thickWidth + 'px';
+
+  updateLaneCard(s);
+}
+
+// ─────────────────────────────────────────────
+// 车道箭头卡（对应截图右侧上方的蓝底卡）
+// ─────────────────────────────────────────────
+function drawLaneCard(s) {
+  const c = document.getElementById('laneCard');
+  const g = c.getContext('2d');
+  const CW = c.width, CH = c.height;
+  g.clearRect(0, 0, CW, CH);
+
+  // 深蓝底 + 圆角
+  const r = 34;
+  const grad = g.createLinearGradient(0, 0, 0, CH);
+  grad.addColorStop(0, '#1b4f9c');
+  grad.addColorStop(1, '#123a75');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.moveTo(r, 0); g.lineTo(CW - r, 0); g.quadraticCurveTo(CW, 0, CW, r);
+  g.lineTo(CW, CH - r); g.quadraticCurveTo(CW, CH, CW - r, CH);
+  g.lineTo(r, CH); g.quadraticCurveTo(0, CH, 0, CH - r);
+  g.lineTo(0, r); g.quadraticCurveTo(0, 0, r, 0);
+  g.closePath(); g.fill();
+
+  const n = s.lanes.length;
+  const pad = 26;
+  const cellW = (CW - pad * 2) / n;
+  const cellH = CH - pad * 2;
+
+  for (let i = 0; i < n; i++) {
+    const x = pad + cellW * i;
+    const rec = s.lanes[i].rec;
+    // 推荐车道：白底块；普通：半透明白描边
+    if (rec) {
+      g.fillStyle = 'rgba(255,255,255,.95)';
+      roundRect(g, x + 6, pad, cellW - 12, cellH, 18); g.fill();
+    } else {
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 3;
+      roundRect(g, x + 6, pad, cellW - 12, cellH, 18); g.stroke();
+    }
+    // 分隔线
+    if (i > 0) {
+      g.strokeStyle = 'rgba(255,255,255,.28)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x, pad + 14); g.lineTo(x, pad + cellH - 14); g.stroke();
+    }
+    // 箭头
+    const cx = x + cellW / 2, cy = pad + cellH / 2;
+    const color = rec ? '#1565C0' : 'rgba(255,255,255,.92)';
+    drawArrow(g, cx, cy, Math.min(cellH * 0.8, 160), s.lanes[i].icon, color, rec ? 17 : 15);
+  }
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r);
+  g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r);
+  g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);
+  g.closePath();
+}
+
+const recIndex = s => s.lanes.findIndex(l => l.rec);
+function updateLaneCard(s) {
+  drawLaneCard(s);
+  const idx = recIndex(s);
+  document.getElementById('roCount').textContent = s.lanes.length;
+  document.getElementById('roRec').textContent = idx >= 0 ? ('第 ' + (idx + 1) + ' 条') : '无';
+  document.getElementById('roEgo').textContent = '第 1 条';
+  document.getElementById('roIcons').textContent = s.lanes.map(l => l.icon).join(', ');
+}
+
+// 场景按钮
+const btnBox = document.getElementById('sceneBtns');
+Object.keys(SCENES).forEach(k => {
+  const b = document.createElement('button');
+  b.textContent = SCENES[k].name.split(' · ')[0];
+  b.dataset.k = k;
+  if (k === current) b.classList.add('on');
+  b.onclick = () => {
+    current = k;
+    [...btnBox.children].forEach(x => x.classList.toggle('on', x.dataset.k === k));
+    drawCross(k);
+  };
+  btnBox.appendChild(b);
+});
+
+drawCross(current);
+</script>
+</body></html>

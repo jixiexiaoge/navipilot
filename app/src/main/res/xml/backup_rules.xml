@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  备份规则（API 30 及以下走这里，API 31+ 走 data_extraction_rules.xml）。
+
+  默认 allowBackup=true 且规则为空 = 全量上云。本应用的 SharedPreferences 里含有
+  敏感位置与设备标识，必须排除：
+  - CarrotAmap.xml   : 含 vpPosPointLat / vpPosPointLon（GPS 坐标，属行踪轨迹）
+  - device_prefs.xml : 含 ANDROID_ID 派生的设备唯一标识
+  - secure_prefs*.xml: 含会员 device_token 等凭证
+  其余设置类 prefs 允许备份，避免用户换机后配置全丢。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="CarrotAmap.xml" />
+    <exclude domain="sharedpref" path="device_prefs.xml" />
+    <exclude domain="sharedpref" path="secure_prefs.xml" />
+    <exclude domain="sharedpref" path="secure_prefs_plaintext.xml" />
+</full-backup-content>

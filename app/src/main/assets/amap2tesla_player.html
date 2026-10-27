@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>导航地图投屏</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    }
+    #screen {
+      /* 必须 position:fixed 锚定视口（7.9.63 实测定论）：
+         本 app 内嵌 WebView 里 vh 恒等于 0、html/body 的 height:100% 链也解析成 0
+         （DevTools 实测 htmlCssH=0px 而 ICB=230px 正常），普通文档流百分比高度全灭；
+         只有 fixed 相对 ICB 定位能拿到真实视口尺寸（fixed+100% = 337x230 实测通过）。
+         车机/桌面浏览器 fixed 同样标准，行为一致。 */
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      /* contain：铺满视口且不拉伸、不裁切地图画面（全屏/车机浏览器的默认行为） */
+      object-fit: contain;
+      background: #000;
+      touch-action: none;
+    }
+    /* 仅在没有画面时出现的极简提示，出图后自动隐藏 */
+    #status {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+      max-width: calc(100vw - 32px);
+      padding: 14px 20px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, .62);
+      color: rgba(255, 255, 255, .92);
+      font-size: 16px;
+      line-height: 1.5;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <img id="screen" alt="导航地图投屏">
+  <div id="status" aria-live="polite">正在连接手机投屏服务...</div>
+  <script>
+    const screen = document.getElementById('screen');
+    const status = document.getElementById('status');
+    const pointerIds = new Map();
+    const lastMoveAt = new Map();
+    const embeddedPreview = new URLSearchParams(location.search).get('embedded') === '1';
+    const jpegFrames = embeddedPreview &&
+      new URLSearchParams(location.search).get('transport') !== 'mjpeg';
+
+    let control = null;
+    let heartbeatTimer = null;
+    let retryTimer = null;
+    let retryReason = '';
+    let retryRemaining = 0;
+    let retryReloadStream = false;
+    let reconnecting = false;
+    let viewportTimer = null;
+    let outputWidth = 1280;
+    let outputHeight = 720;
+    let hasVideoFrame = false;
+    let frameTimer = null;
+    let frameRequest = null;
+    let frameLoading = false;
+    let frameStopped = false;
+    let frameSequence = null;
+    let frameIntervalMs = 1000 / 30;
+    let fullscreenPending = false;
+    let fullscreenSettled = false;
+
+    function visibleViewport() {
+      const viewport = window.visualViewport;
+      return {
+        left: viewport ? viewport.offsetLeft : 0,
+        top: viewport ? viewport.offsetTop : 0,
+        width: viewport ? viewport.width : window.innerWidth,
+        height: viewport ? viewport.height : window.innerHeight
+      };
+    }
+
+    function fitViewport() {
+      const viewport = visibleViewport();
+      screen.style.left = viewport.left + 'px';
+      screen.style.top = viewport.top + 'px';
+      screen.style.width = viewport.width + 'px';
+      screen.style.height = viewport.height + 'px';
+      clearTimeout(viewportTimer);
+      viewportTimer = setTimeout(reportViewport, 300);
+    }
+
+    async function requestFullscreen(fromGesture = false) {
+      if (embeddedPreview || fullscreenPending || fullscreenSettled ||
+          document.fullscreenElement || document.webkitFullscreenElement) return;
+      const root = document.documentElement;
+      const request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request || document.fullscreenEnabled === false) return;
+      fullscreenPending = true;
+      try {
+        await request.call(root);
+        fullscreenSettled = true;
+      } catch (error) {
+        // Most browsers require a user gesture; keep the full-viewport map usable.
+        fullscreenSettled = fromGesture;
+        console.info('Fullscreen unavailable:', error.message);
+      } finally {
+        fullscreenPending = false;
+        fitViewport();
+      }
+    }
+
+    function showStatus(reason) {
+      status.textContent = reason;
+      status.style.display = 'block';
+    }
+
+    function hideStatus() {
+      if (embeddedPreview && !hasVideoFrame) return;
+      status.style.display = 'none';
+    }
+
+    screen.addEventListener('load', () => {
+      const ready = screen.naturalWidth > 0 && screen.naturalHeight > 0;
+      if (ready) hasVideoFrame = true;
+      if (ready && control && control.readyState === WebSocket.OPEN) {
+        reconnecting = false;
+        hideStatus();
+      }
+    });
+
+    screen.addEventListener('error', () => {
+      if (embeddedPreview) hasVideoFrame = false;
+      scheduleRetry('视频流连接异常', true);
+    });
+
+    // ── 车机浏览器不支持 MJPEG 时的逐帧 JPEG 拉取（?embedded=1） ──
+    function scheduleEmbeddedFrame(delay = frameIntervalMs) {
+      if (frameTimer !== null || frameLoading || frameStopped || document.hidden || retryTimer) return;
+      frameTimer = setTimeout(() => {
+        frameTimer = null;
+        loadEmbeddedFrame();
+      }, delay);
+    }
+
+    async function loadEmbeddedFrame() {
+      if (frameLoading || frameStopped || document.hidden) return;
+      frameLoading = true;
+      const startedAt = performance.now();
+      const request = { controller: new AbortController(), cancelled: false, reader: null };
+      frameRequest = request;
+      const timeout = setTimeout(() => {
+        request.controller.abort();
+        if (request.reader && request.reader.readyState === FileReader.LOADING) request.reader.abort();
+      }, 3000);
+      try {
+        const response = await fetch('/frame?t=' + Date.now(), {
+          cache: 'no-store', signal: request.controller.signal
+        });
+        if (response.status === 204) {
+          hasVideoFrame = false;
+          showStatus('等待投屏画面...');
+          return;
+        }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const blob = await response.blob();
+        const sequence = response.headers.get('X-Frame-Sequence');
+        if (request.cancelled || (sequence !== null && sequence === frameSequence)) return;
+        const imageUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          request.reader = reader;
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error('JPEG读取失败'));
+          reader.onabort = () => reject(new Error('JPEG读取已取消'));
+          reader.readAsDataURL(blob);
+        });
+        request.reader = null;
+        if (request.cancelled || frameStopped) return;
+        const image = new Image();
+        await new Promise((resolve, reject) => {
+          const decodeTimeout = setTimeout(() => reject(new Error('JPEG解码超时')), 3000);
+          image.onload = () => { clearTimeout(decodeTimeout); resolve(); };
+          image.onerror = () => { clearTimeout(decodeTimeout); reject(new Error('JPEG解码失败')); };
+          image.src = imageUrl;
+        });
+        if (request.cancelled || frameStopped) return;
+        frameSequence = sequence;
+        screen.src = imageUrl;
+      } catch (error) {
+        if (!request.cancelled && !frameStopped) {
+          hasVideoFrame = false;
+          const reason = error.name === 'AbortError' || request.controller.signal.aborted
+            ? '画面请求超时' : '画面加载失败：' + error.message;
+          scheduleRetry(reason, true);
+        }
+      } finally {
+        clearTimeout(timeout);
+        frameRequest = null;
+        frameLoading = false;
+        scheduleEmbeddedFrame(Math.max(0, frameIntervalMs - (performance.now() - startedAt)));
+      }
+    }
+
+    function pauseEmbeddedFrames() {
+      clearTimeout(frameTimer);
+      frameTimer = null;
+      if (frameRequest) {
+        frameRequest.cancelled = true;
+        frameRequest.controller.abort();
+        if (frameRequest.reader && frameRequest.reader.readyState === FileReader.LOADING) {
+          frameRequest.reader.abort();
+        }
+      }
+    }
+
+    window.addEventListener('pagehide', () => {
+      if (!jpegFrames) return;
+      frameStopped = true;
+      pauseEmbeddedFrames();
+      screen.removeAttribute('src');
+    });
+
+    // ── 触摸反控：把浏览器点击/拖动归一化后回传手机 ──
+    function connectControl() {
+      if (control &&
+          (control.readyState === WebSocket.OPEN ||
+           control.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      control = new WebSocket(scheme + '//' + location.host + '/control' +
+        (embeddedPreview ? '?embedded=1' : ''));
+      control.addEventListener('open', () => {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          if (control && control.readyState === WebSocket.OPEN) {
+            control.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 2000);
+        reconnecting = false;
+        hideStatus();
+        reportViewport();
+      });
+      control.addEventListener('close', () => {
+        clearInterval(heartbeatTimer);
+        pointerIds.clear();
+        lastMoveAt.clear();
+        scheduleRetry('控制连接已断开', false);
+      });
+      control.addEventListener('error', () => {
+        scheduleRetry('控制连接异常', false);
+      });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (jpegFrames) {
+        if (document.hidden) pauseEmbeddedFrames();
+        else scheduleEmbeddedFrame(0);
+      }
+      if (!document.hidden && !retryTimer &&
+          (!control || control.readyState === WebSocket.CLOSED)) {
+        connectControl();
+      }
+    });
+
+    function reportViewport() {
+      if (embeddedPreview || !control || control.readyState !== WebSocket.OPEN) return;
+      const viewport = visibleViewport();
+      if (!(viewport.width > 0 && viewport.height > 0)) return;
+      control.send(JSON.stringify({
+        type: 'viewport',
+        width: Math.round(viewport.width),
+        height: Math.round(viewport.height)
+      }));
+    }
+
+    window.addEventListener('resize', fitViewport);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', fitViewport);
+      window.visualViewport.addEventListener('scroll', fitViewport);
+    }
+    document.addEventListener('fullscreenchange', fitViewport);
+    document.addEventListener('webkitfullscreenchange', fitViewport);
+
+    function scheduleRetry(reason, reloadStream) {
+      retryReason = reason;
+      retryReloadStream = retryReloadStream || reloadStream;
+      if (retryTimer) {
+        renderRetry();
+        return;
+      }
+      retryRemaining = 5;
+      renderRetry();
+      retryTimer = setInterval(() => {
+        retryRemaining -= 1;
+        if (retryRemaining > 0) {
+          renderRetry();
+          return;
+        }
+        clearInterval(retryTimer);
+        retryTimer = null;
+        reconnecting = true;
+        showStatus('正在重新连接手机投屏服务...');
+        if (retryReloadStream) {
+          if (jpegFrames) {
+            frameSequence = null;
+            scheduleEmbeddedFrame(0);
+          } else screen.src = '/stream?t=' + Date.now();
+        }
+        retryReloadStream = false;
+        connectControl();
+        setTimeout(refreshHealth, 500);
+      }, 1000);
+    }
+
+    function renderRetry() {
+      showStatus(retryReason + '，' + retryRemaining + ' 秒后自动重试');
+    }
+
+    function allocatePointerId(browserId) {
+      if (pointerIds.has(browserId)) return pointerIds.get(browserId);
+      const used = new Set(pointerIds.values());
+      const id = used.has(0) ? (used.has(1) ? null : 1) : 0;
+      if (id !== null) pointerIds.set(browserId, id);
+      return id;
+    }
+
+    function normalizedPoint(event) {
+      const rect = screen.getBoundingClientRect();
+      const sourceWidth = screen.naturalWidth || outputWidth;
+      const sourceHeight = screen.naturalHeight || outputHeight;
+      const scale = Math.min(rect.width / sourceWidth, rect.height / sourceHeight);
+      const width = sourceWidth * scale;
+      const height = sourceHeight * scale;
+      if (!(width > 0 && height > 0)) return null;
+      const left = rect.left + (rect.width - width) / 2;
+      const top = rect.top + (rect.height - height) / 2;
+      return {
+        x: Math.max(0, Math.min(1, (event.clientX - left) / width)),
+        y: Math.max(0, Math.min(1, (event.clientY - top) / height))
+      };
+    }
+
+    function sendPointer(event, action) {
+      if (!control || control.readyState !== WebSocket.OPEN) return;
+      const point = normalizedPoint(event);
+      if (!point) return;
+      const pointerId = action === 0
+        ? allocatePointerId(event.pointerId)
+        : pointerIds.get(event.pointerId);
+      if (pointerId === undefined || pointerId === null) return;
+      control.send(JSON.stringify({
+        type: 'pointer', action, pointerId, x: point.x, y: point.y
+      }));
+      if (action === 1 || action === 3) {
+        pointerIds.delete(event.pointerId);
+        lastMoveAt.delete(event.pointerId);
+      }
+    }
+
+    screen.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      requestFullscreen(true);
+      screen.setPointerCapture(event.pointerId);
+      sendPointer(event, 0);
+    });
+    screen.addEventListener('pointermove', event => {
+      if (!pointerIds.has(event.pointerId)) return;
+      event.preventDefault();
+      const now = performance.now();
+      if (now - (lastMoveAt.get(event.pointerId) || 0) < 16) return;
+      lastMoveAt.set(event.pointerId, now);
+      sendPointer(event, 2);
+    });
+    screen.addEventListener('pointerup', event => {
+      event.preventDefault();
+      sendPointer(event, 1);
+    });
+    screen.addEventListener('pointercancel', event => sendPointer(event, 3));
+
+    // ── 只做健康检查：服务是否在跑、画面分辨率、断线重连。不显示任何统计 UI ──
+    async function refreshHealth() {
+      try {
+        const response = await fetch('/health?t=' + Date.now(), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const health = await response.json();
+        const targetFps = Number(health.targetFps);
+        if (Number.isFinite(targetFps) && targetFps > 0) {
+          frameIntervalMs = 1000 / Math.min(30, targetFps);
+        }
+        if (health.width > 0 && health.height > 0) {
+          outputWidth = health.width;
+          outputHeight = health.height;
+        }
+        if (!health.running) {
+          scheduleRetry('手机投屏异常：' + (health.status || '服务未运行'), true);
+        } else if (!retryTimer && !reconnecting &&
+                   control && control.readyState === WebSocket.OPEN) {
+          hideStatus();
+        }
+      } catch (error) {
+        scheduleRetry('无法连接手机投屏服务', true);
+      }
+    }
+
+    fitViewport();
+    requestFullscreen();
+    connectControl();
+    if (jpegFrames) scheduleEmbeddedFrame(0);
+    else screen.src = '/stream';
+    refreshHealth();
+    setInterval(refreshHealth, 1000);
+    setInterval(reportViewport, 5000);
+  </script>
+</body>
+</html>

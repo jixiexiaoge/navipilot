@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        使用 Android 内置 Material 主题（API 21+，minSdk=34 完全兼容）。
+        原 MaterialComponents 主题已移除（腾讯SDK已删除）。
+        应用 UI 100% 使用 Jetpack Compose Material3，主题仅用于 Activity 窗口背景。
+    -->
+    <style name="Theme.DrivingAssist" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- 保持状态栏/导航栏透明 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

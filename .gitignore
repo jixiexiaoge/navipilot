@@ -1,0 +1,49 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+"*.hprof"
+
+# API Keys — 本地配置，不提交到仓库
+secrets.properties
+
+# Signing material — keep release keys outside the repository
+*.keystore
+*.jks
+*.p12
+
+# AtomCode local-scope configs (machine-specific)
+.atomcode/local/
+
+
+# Local outputs and credentials excluded from the source snapshot
+/.idea/
+/.kotlin/
+/.playwright-mcp/
+/apk-analysis/
+/artifacts/
+__pycache__/
+*.pyc
+*.apk
+*.aab
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key

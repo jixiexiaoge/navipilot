@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  数据提取规则（API 31+）。
+
+  与 backup_rules.xml 同口径：排除含敏感位置 / 设备标识 / 凭证的 SharedPreferences，
+  其余设置类数据保留云备份与换机迁移能力。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="CarrotAmap.xml" />
+        <exclude domain="sharedpref" path="device_prefs.xml" />
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+        <exclude domain="sharedpref" path="secure_prefs_plaintext.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="CarrotAmap.xml" />
+        <exclude domain="sharedpref" path="device_prefs.xml" />
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+        <exclude domain="sharedpref" path="secure_prefs_plaintext.xml" />
+    </device-transfer>
+</data-extraction-rules>

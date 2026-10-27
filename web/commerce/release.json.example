@@ -1,0 +1,10 @@
+{
+  "version_code": 26082901,
+  "version_name": "v26082901",
+  "apk_file": "CarrotAssistant-v26082901.apk",
+  "sha256": "replace-with-the-64-character-sha256-of-the-apk",
+  "notes": [
+    "高德车机投屏体验优化",
+    "道路感知与信号助手改进"
+  ]
+}

@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CP搭子 7714 JSON 字段复核报告 · 2026-10-21</title>
+<style>
+  :root{
+    --bg:#0b1017; --bg2:#0f1620; --card:#141c27; --card2:#18222f;
+    --line:#243141; --line2:#2d3d50;
+    --text:#e6edf5; --text2:#9fb0c3; --text3:#6d8098;
+    --ok:#34d399; --warn:#fbbf24; --bad:#fb7185; --info:#60a5fa; --accent:#22d3ee;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 12% -10%, #10263a 0%, transparent 60%),
+      radial-gradient(900px 500px at 95% 0%, #1b1630 0%, transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent);text-decoration:none}
+  code,.mono{font-family:var(--mono);font-size:.92em}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+
+  /* ── hero ── */
+  header{padding:56px 0 8px}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);border:1px solid #1d4e5c;background:#0d2b33;
+    padding:5px 12px;border-radius:999px}
+  h1{font-size:34px;line-height:1.25;margin:18px 0 10px;letter-spacing:-.02em}
+  h1 small{display:block;font-size:15px;font-weight:400;color:var(--text2);margin-top:10px;letter-spacing:0}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:26px 0 8px}
+  .kpi{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+    border-radius:14px;padding:14px 16px}
+  .kpi b{display:block;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums}
+  .kpi span{font-size:11.5px;color:var(--text3);letter-spacing:.04em}
+  .kpi.ok b{color:var(--ok)} .kpi.warn b{color:var(--warn)} .kpi.bad b{color:var(--bad)}
+  .kpi.info b{color:var(--info)} .kpi.accent b{color:var(--accent)}
+
+  /* ── layout ── */
+  .layout{display:grid;grid-template-columns:212px minmax(0,1fr);gap:34px;margin-top:34px;align-items:start}
+  nav.toc{position:sticky;top:22px;font-size:13px}
+  nav.toc .t{font-size:11px;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:10px}
+  nav.toc a{display:block;padding:6px 10px;border-left:2px solid transparent;color:var(--text2);border-radius:0 6px 6px 0}
+  nav.toc a:hover{background:#131c27;color:var(--text);border-left-color:var(--accent)}
+  nav.toc a.sub{padding-left:22px;font-size:12.5px;color:var(--text3)}
+
+  section{margin-bottom:46px;scroll-margin-top:20px}
+  h2{font-size:21px;margin:0 0 6px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2 .n{font:600 12px/1 var(--mono);color:var(--accent);background:#0d2b33;border:1px solid #1d4e5c;
+    padding:5px 8px;border-radius:7px}
+  h3{font-size:16px;margin:26px 0 10px;color:var(--text)}
+  .lede{color:var(--text2);margin:0 0 18px;max-width:78ch}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin:14px 0}
+  .card.tight{padding:14px 16px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+
+  /* ── badges ── */
+  .b{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 9px;border-radius:999px;
+    border:1px solid;line-height:1.7;white-space:nowrap}
+  .b-ok{color:var(--ok);border-color:#166b52;background:#0c2a22}
+  .b-warn{color:var(--warn);border-color:#6b5314;background:#2a2210}
+  .b-bad{color:var(--bad);border-color:#6d2733;background:#2b1319}
+  .b-info{color:var(--info);border-color:#22436e;background:#101f31}
+  .b-mute{color:var(--text3);border-color:var(--line2);background:#131b25}
+
+  /* ── tables ── */
+  .tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+  .tbl th{position:sticky;top:0;background:#101823;color:var(--text3);font-weight:600;font-size:11.5px;
+    letter-spacing:.06em;text-transform:uppercase;text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2)}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1b2632;vertical-align:top}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tbody tr:hover{background:#121a24}
+  .tbl td.f{font-family:var(--mono);font-size:12.5px;color:#cfe4f5;white-space:nowrap}
+  .tbl .dim{color:var(--text3)}
+  .scroll{max-height:none;overflow:visible}
+
+  /* ── stream grid ── */
+  .streams{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .st{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .st .nm{font-family:var(--mono);font-size:12.5px;color:#dbe9f6}
+  .st .rs{font-size:11px;color:var(--text3);margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+  .st.on{border-color:#1c5a47;box-shadow:inset 3px 0 0 var(--ok)}
+  .st.off{border-color:#3a2630;box-shadow:inset 3px 0 0 var(--bad)}
+
+  /* ── issue list ── */
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}
+  .filters button{background:#131c27;color:var(--text2);border:1px solid var(--line2);border-radius:999px;
+    padding:6px 13px;font-size:12.5px;cursor:pointer;transition:.15s}
+  .filters button:hover{color:var(--text);border-color:#3b5470}
+  .filters button.active{background:#0d2b33;color:var(--accent);border-color:#1d4e5c}
+  .issue{border:1px solid var(--line);border-radius:14px;background:var(--card);margin:10px 0;overflow:hidden}
+  .issue > summary{cursor:pointer;padding:13px 16px;display:flex;gap:12px;align-items:flex-start;list-style:none}
+  .issue > summary::-webkit-details-marker{display:none}
+  .issue > summary:hover{background:#131b25}
+  .issue > summary::after{content:"⌄";color:var(--text3);font-size:15px;line-height:1.4;transition:.18s}
+  .issue[open] > summary::after{transform:rotate(180deg)}
+  .issue .id{font:600 11.5px/1.9 var(--mono);color:var(--text3);min-width:30px}
+  .issue .ttl{flex:1;font-size:14px}
+  .issue .body{padding:2px 16px 16px 58px;color:var(--text2);font-size:13.5px}
+  .issue .body dl{margin:0;display:grid;grid-template-columns:86px 1fr;gap:6px 12px}
+  .issue .body dt{color:var(--text3);font-size:12px}
+  .issue .body dd{margin:0}
+  .kbd{font-family:var(--mono);font-size:12px;background:#0e1620;border:1px solid var(--line2);
+    border-radius:5px;padding:1px 5px;color:#bcd3e6}
+
+  .note{border-left:3px solid var(--warn);background:#1d1a10;border-radius:0 10px 10px 0;
+    padding:12px 16px;color:#e7d9b4;font-size:13.5px;margin:14px 0}
+  .note.info{border-color:var(--info);background:#0f1a28;color:#c3d8f2}
+  .note.bad{border-color:var(--bad);background:#1e1116;color:#f3c7cf}
+  ul.tight{margin:8px 0 0;padding-left:20px}
+  ul.tight li{margin:5px 0;color:var(--text2)}
+  ul.tight li b{color:var(--text)}
+  footer{border-top:1px solid var(--line);margin-top:40px;padding-top:18px;color:var(--text3);font-size:12.5px}
+  .src{font-family:var(--mono);font-size:11.5px;color:var(--text3)}
+  @media (max-width:980px){
+    .layout{grid-template-columns:1fr}
+    nav.toc{position:static;display:flex;flex-wrap:wrap;gap:6px}
+    nav.toc a{border:1px solid var(--line);border-radius:8px}
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .streams{grid-template-columns:repeat(2,1fr)}
+    .grid2,.grid3{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">7714 · WebSocket v2 · JSON 契约复核</span>
+  <h1>CP搭子 7714 字段核对报告
+    <small>接收端到底读哪些字段 → App 实际发哪些字段 → 正确 / 错误的 / 缺失的 / 可完善的。核对时间 2026-10-21，对应 App 7.9.45（versionCode 26102045）。</small>
+  </h1>
+  <div class="kpis">
+    <div class="kpi accent"><b>13</b><span>JSON 流（9 present / 4 撤销）</span></div>
+    <div class="kpi ok"><b>27</b><span>逐字段判定为正确</span></div>
+    <div class="kpi warn"><b>11</b><span>语义可疑 / 偏差</span></div>
+    <div class="kpi bad"><b>13</b><span>缺失（有键无值 / 无源）</span></div>
+    <div class="kpi info"><b>10</b><span>可完善（有源未接）</span></div>
+  </div>
+  <div class="note info">
+    <b>先看结论</b>：信封与 9 条 present 流的主体字段已与接收端 <span class="kbd">carrot_navi_cereal.py</span> /
+    <span class="kbd">carrot_navi_control.py</span> 的实际读取一致，<b>没有发现会让接收端直接拒包的字段错误</b>。
+    真正要处理的是三类：<b>① 转向码个别条目语义偏差</b>（4/5/6/11/12/24/37）；
+    <b>② 车端只有灯色没有秒数时 CP 会把 TrafficLight 清空</b>；
+    <b>③ lane.available / route.polyline / navigation_status.off_route 等有键无值的空缺</b>。
+    本报告全部结论来自两侧源码只读核对，<b>未做实车/实机对照</b>，不能替代实车取证。
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="t">目录</div>
+    <a href="#s0">0 · 复核边界与方法</a>
+    <a href="#s1">1 · 接收端要求什么</a>
+    <a href="#s2">2 · App 实际发出什么</a>
+    <a href="#s3">3 · 逐流字段核对</a>
+    <a href="#s4">4 · 问题清单（可筛选）</a>
+    <a href="#s5">5 · 优先级建议</a>
+    <a href="#s6">6 · 验证现状</a>
+  </nav>
+
+  <main>
+  <!-- ══════════ 0 ══════════ -->
+  <section id="s0">
+    <h2><span class="n">00</span>复核边界与方法</h2>
+    <p class="lede">
+      这次不看旧文档的结论，直接从<b>两侧源码</b>重新读一遍：车端「读哪些键 + 缺了补什么默认值」，
+      App「写哪些键 + 什么条件下写」。凡是没有源码证据的，一律标为「待取证」，不写成已修复。
+    </p>
+    <div class="grid2">
+      <div class="card tight">
+        <h3 style="margin-top:0">App 侧（发送）</h3>
+        <ul class="tight">
+          <li><span class="src">navigation/NaviDataModels.kt</span> — 各流 <code>toJson()</code>、信封、<code>putLight()</code></li>
+          <li><span class="src">navigation/NaviStreamManager.kt</span> — 9 条流的取值条件、节流、<code>fieldsWithdrawn()</code></li>
+          <li><span class="src">navigation/NaviWebSocketV2Client.kt</span> — 信封字段、sequence、manifest 协商</li>
+          <li><span class="src">navigation/TrafficSignalComposer.kt</span> / <span class="src">AmapNaviSourceData.kt</span> — 灯态与类别映射</li>
+          <li><span class="src">AmapManeuver.kt</span> / <span class="src">navigation/LaneTurnCode.kt</span> — 转向码表</li>
+        </ul>
+      </div>
+      <div class="card tight">
+        <h3 style="margin-top:0">车端侧（接收）</h3>
+        <ul class="tight">
+          <li><span class="src">carrot_navi.py</span> — 信封校验（sequence 递增、absent 必须 <code>value=null</code>+非空 reason≤64）</li>
+          <li><span class="src">carrot_navi_cereal.py</span> — <b>真正把 JSON 摊成 cereal 的地方</b>，逐键读取 + 默认值</li>
+          <li><span class="src">carrot_navi_control.py</span> — 控制层二次筛选（roadLimitValid、section_active、灯只看 on+valid）</li>
+          <li><span class="src">carrot_serv.py</span> — <code>_update_tbt()</code> 转向码解释表、<code>_apply_carrot_navi_traffic()</code>、<code>_update_sdi()</code></li>
+          <li><span class="src">carrot_navi_api.md</span> — 上游 TMAP 原始协议（28 项目录 / 字段文档）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note"><b>判定口径</b>：
+      <span class="b b-ok">正确</span> 字段名、类型、值域、语义与接收端读取一致；
+      <span class="b b-warn">可疑</span> 能收下但语义偏差/近似，或与 CP 码表解释不同；
+      <span class="b b-bad">缺失</span> 接收端会读、App 从不写（含整条流撤销且无源）；
+      <span class="b b-info">可完善</span> 有真实来源但未接线，或契约细节可收紧（不含伪造数值）。
+    </div>
+  </section>
+
+  <!-- ══════════ 1 ══════════ -->
+  <section id="s1">
+    <h2><span class="n">01</span>接收端到底要求什么</h2>
+    <p class="lede">
+      7714 的「要求」分三层：<b>信封校验（硬性，错一条整个 socket 报错）</b>、
+      <b>value 形状（硬性）</b>、<b>业务字段（软性，读不到就补默认值）</b>。
+      最后一层才是「缺字段」最容易出问题的地方——因为不报错，只是悄悄变成 0 / false。
+    </p>
+
+    <h3>1.1 硬性校验：信封 14 个键</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:190px">键</th><th style="width:110px">App 是否发</th><th>接收端怎么校验</th></tr></thead>
+        <tbody>
+          <tr><td class="f">type / protocol_version</td><td><span class="b b-ok">发</span></td><td>必须为 <code>item_update</code> / <code>2</code>，且与 socket 路径 kind、name 一致</td></tr>
+          <tr><td class="f">session_id</td><td><span class="b b-ok">发</span></td><td>必须等于本次 manifest 里的 session；不一致 → envelope/path mismatch</td></tr>
+          <tr><td class="f">kind / name</td><td><span class="b b-ok">发</span></td><td>必须与 URL 的 <code>/json/{session}/{name}</code> 一致</td></tr>
+          <tr><td class="f">manifest_revision</td><td><span class="b b-ok">发</span></td><td>记录用；以接收端自己的 revision 为准</td></tr>
+          <tr><td class="f">stream_handle</td><td><span class="b b-ok">发</span></td><td>与 manifest 分配一致</td></tr>
+          <tr><td class="f">schema_version</td><td><span class="b b-ok">发</span></td><td>当前固定 <code>1</code></td></tr>
+          <tr><td class="f">sequence</td><td><span class="b b-ok">发</span></td><td><b>同一流必须严格递增</b>（≤ 上一帧就抛 stale v2 sequence，socket 出错）</td></tr>
+          <tr><td class="f">source_timestamp_ms</td><td><span class="b b-ok">发</span></td><td>非负整数（不校验单调）</td></tr>
+          <tr><td class="f">sent_at_ms</td><td><span class="b b-ok">发</span></td><td>非负整数</td></tr>
+          <tr><td class="f">present</td><td><span class="b b-ok">发</span></td><td>必须是 boolean</td></tr>
+          <tr><td class="f">value</td><td><span class="b b-ok">发</span></td><td>键<b>必须存在</b>；present=true 时须为对象（<code>lane_ahead</code> 为对象数组），present=false 时<b>必须为 null</b></td></tr>
+          <tr><td class="f">reason</td><td><span class="b b-ok">发</span></td><td>仅 absent 时必填：非空字符串、长度 ≤ 64</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      关键点：<b>接收端把「不认识的字段」直接忽略，但把「缺键 / 类型错 / 序列倒退」当协议错误</b>。
+      所以「多发的键」无害（App 里的 <code>lane_count</code>、<code>recommended_lane</code>、<code>lanes[]</code>、<code>lane_source</code>、灯里的 <code>valid</code> 都属此类），
+      「少的键」则会被静默补默认值。
+    </div>
+
+    <h3>1.2 软性：cereal 真正读取的键 vs 文档里写了但没人读的键</h3>
+    <p class="lede" style="margin-bottom:10px">
+      这一步很关键——<span class="src">carrot_navi_api.md</span> 是上游 TMAP App 的完整字段表，
+      但车端 <span class="src">carrot_navi_cereal.py</span> 只搬运其中一部分。下表的「接收端读取」列就是实际搬运点。
+    </p>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">流</th><th>接收端实际读取的键</th><th style="width:280px">文档里有、但 cereal 不读</th></tr></thead>
+        <tbody>
+          <tr><td class="f">vehicle</td><td><code>lat</code> <code>lon</code> <code>heading_deg</code> <code>speed_kph</code> <code>road_name</code> <code>virtual_gps</code></td><td class="dim">—</td></tr>
+          <tr><td class="f">guidance_current<br>guidance_next</td><td><code>distance_m</code> <code>time_sec</code> <code>turn_type</code> <code>road_name</code> <code>main_text</code> <code>near_direction</code> <code>mid_direction</code> <code>far_direction</code> <code>point.{lat,lon}</code></td><td class="dim">—</td></tr>
+          <tr><td class="f">lane_current<br>lane_ahead[]</td><td><code>count</code> <code>distance_m</code> <code>visible</code> <code>lane_play</code> <code>current_lane</code> <code>turn_code</code> <code>turn_info[]</code> <code>etc_info[]</code> <code>available[]</code> <code>guide_line_color</code> <code>road_category</code> <code>voice_code</code></td><td class="dim">—</td></tr>
+          <tr><td class="f">speed</td><td><code>current_kph</code> <code>road_limit_kph</code>；<code>sdi{type,distance_m,speed_limit_kph,section_type,block_type,block_speed_kph,block_distance_m}</code>；<code>sdi_secondary</code> 同上；<code>section{active,speed_limit_kph,average_kph,overall_average_kph,remaining_distance_m,remaining_time_sec,progress,suspended,off_route}</code></td><td class="dim"><code>sdi.block_average_kph</code><br><code>sdi.block_time_sec</code><br><code>sdi.point</code></td></tr>
+          <tr><td class="f">traffic_signal</td><td><code>visible</code> <code>distance_m</code> <code>source</code> <code>lights.{red,left,green,right,uturn}.{on,remain_sec}</code> <code>ui_counter.remain_sec</code></td><td class="dim"><code>point</code><br><code>movements</code><br><code>last_update_age_ms</code></td></tr>
+          <tr><td class="f">route</td><td><code>remain_distance_m</code> <code>remain_time_sec</code> <code>moved_distance_m</code> <code>moved_time_sec</code> <code>total_distance_m</code> <code>polyline[].{lat,lon}</code>（≤256 点）</td><td class="dim">—</td></tr>
+          <tr><td class="f">navigation_status</td><td><code>mode</code> <code>guidance_active</code> <code>off_route</code> <code>route_present</code></td><td class="dim">—</td></tr>
+          <tr><td class="f">app_status</td><td><code>foreground</code>（仅用于 <code>_app_foreground_locked()</code>）</td><td class="dim"><code>window_focused</code><br><code>main_map_visible</code><br><code>ui_capture_available</code></td></tr>
+          <tr><td class="f">crossroad</td><td><code>visible</code> <code>distance_m</code> <code>image_code</code> <code>image_url</code></td><td class="dim">—</td></tr>
+          <tr><td class="f">camera_state<br>composition_state</td><td class="dim">cereal 不读（只用于图片流的可见性判断，App 不发图片流）</td><td class="dim">全部字段</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>1.3 默认值陷阱（缺字段 ≠ 未知）</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th>缺失的键</th><th>接收端补什么</th><th>后果</th></tr></thead>
+        <tbody>
+          <tr><td class="f">vehicle.heading_deg / speed_kph</td><td><code>_finite(...,0.0)</code></td><td>未知 → 0°/0km/h，交给 <code>external_navi</code> 定位源，未知语义丢失</td></tr>
+          <tr><td class="f">lane.road_category</td><td><code>_integer(...,0)</code>，<code>roadCategoryValid=false</code></td><td>control 里仍会读 0 → 被当作高速公路（roadcate 0/1 = highway）</td></tr>
+          <tr><td class="f">speed.section.remaining_distance_m</td><td><code>0.0</code></td><td>active=true 时变成「区间剩余 0 米」，比不发更糟</td></tr>
+          <tr><td class="f">traffic_signal.lights.xxx.remain_sec</td><td><code>0</code></td><td>CP <code>_apply_carrot_navi_traffic</code> 要求 <code>remain&gt;0</code>，否则<b>清空 TrafficLight</b></td></tr>
+          <tr><td class="f">guidance.point</td><td><code>pointValid=false</code></td><td>只影响动作点坐标，不影响引导文字/距离</td></tr>
+          <tr><td class="f">lights.xxx</td><td>整对象省略 → <code>redValid=false</code></td><td>正确表达「没有这个相位」，这是安全写法</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════ 2 ══════════ -->
+  <section id="s2">
+    <h2><span class="n">02</span>App 现在实际发什么</h2>
+    <p class="lede">
+      9 条流有 present 路径（其中 <code>navigation_status</code>、<code>app_status</code> 恒发），
+      4 条恒撤销。<code>image</code>(14) 与 <code>render</code>(1) 在客户端被强制禁用（<code>enabled = requested &amp;&amp; kind=="json"</code>），
+      所以车端只会收到 JSON。
+    </p>
+    <div class="streams">
+      <div class="st on"><div class="nm">vehicle</div><div class="rs"><span>条件 present</span><span>定位新鲜</span></div></div>
+      <div class="st on"><div class="nm">guidance_current</div><div class="rs"><span>条件 present</span><span>导航中</span></div></div>
+      <div class="st on"><div class="nm">guidance_next</div><div class="rs"><span>条件 present</span><span>导航中</span></div></div>
+      <div class="st on"><div class="nm">lane_current</div><div class="rs"><span>条件 present</span><span>需 road_category</span></div></div>
+      <div class="st off"><div class="nm">lane_ahead</div><div class="rs"><span>恒撤销</span><span>next_junction_lane_map_absent</span></div></div>
+      <div class="st on"><div class="nm">speed</div><div class="rs"><span>条件 present</span><span>有限速/SDI/区间</span></div></div>
+      <div class="st on"><div class="nm">traffic_signal</div><div class="rs"><span>条件 present</span><span>有验证过的相位</span></div></div>
+      <div class="st off"><div class="nm">crossroad</div><div class="rs"><span>恒撤销</span><span>source_unavailable</span></div></div>
+      <div class="st on"><div class="nm">route</div><div class="rs"><span>条件 present</span><span>导航中</span></div></div>
+      <div class="st on"><div class="nm">navigation_status</div><div class="rs"><span>恒 present</span><span>idle / guiding</span></div></div>
+      <div class="st on"><div class="nm">app_status</div><div class="rs"><span>恒 present</span><span>foreground</span></div></div>
+      <div class="st off"><div class="nm">camera_state</div><div class="rs"><span>恒撤销</span><span>source_unavailable</span></div></div>
+      <div class="st off"><div class="nm">composition_state</div><div class="rs"><span>恒撤销</span><span>capture_unavailable</span></div></div>
+    </div>
+
+    <h3>2.1 一个真实的 speed 包（按当前代码路径构造）</h3>
+<pre class="card mono" style="font-size:12.5px;overflow:auto;color:#c9dcee">{
+  "type": "item_update", "protocol_version": 2,
+  "session_id": "…", "kind": "json", "name": "speed",
+  "manifest_revision": 1, "stream_handle": 6, "schema_version": 1,
+  "sequence": 91,
+  "source_timestamp_ms": 1761000000000,   <span style="color:#6d8098">// 取「参与合成的字段里最旧的一份源收据」</span>
+  "sent_at_ms": 1761000000001,
+  "present": true,
+  "value": {
+    "current_kph": 48.0,
+    "road_limit_kph": 80,                <span style="color:#6d8098">// 只发 10..200 且 10 的整数倍，否则整键省略</span>
+    "sdi": { "type": 1, "distance_m": 300, "speed_limit_kph": 80,
+             "block_type": -1, "block_speed_kph": 0, "block_distance_m": 0 },
+    "section": { "active": true, "speed_limit_kph": 80,
+                 "remaining_distance_m": 1200.0, "progress": 0.35 }
+  }
+}</pre>
+    <div class="note">
+      <b>注意</b>：<code>sdi.block_type=-1</code>、<code>block_speed_kph=0</code>、<code>block_distance_m=0</code> 是「显式发 0/-1」，
+      而 <code>section_type</code> 是「整键省略」——同一对象里两套写法并存。CP 两者都能接受（默认值碰巧同值），
+      但语义上不统一，见 F/G 条。
+    </div>
+  </section>
+
+  <!-- ══════════ 3 ══════════ -->
+  <section id="s3">
+    <h2><span class="n">03</span>逐流字段核对</h2>
+    <p class="lede">每张表按「App 发送 → 接收端读取 → 判定」排列，判定列可直接对照第 4 节的问题编号。
+      本节共 <b>27 处判定为正确</b>、<b>15 处可疑</b>、<b>11 处缺失</b>（含同一行两处判定的情况）。</p>
+
+    <h3>3.1 vehicle</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">lat / lon</td><td>高德坐标已做 GCJ-02→WGS-84</td><td><span class="b b-ok">正确</span> CP 按 WGS-84 消费，<code>_vehicle()</code> 还会做 ±90/±180 范围校验</td></tr>
+          <tr><td class="f">heading_deg</td><td>有 bearing 才写；高德用 <code>CAR_DIRECTION</code>（0..&lt;360）</td><td><span class="b b-ok">正确</span> CP <code>%360</code> 归一</td></tr>
+          <tr><td class="f">speed_kph</td><td>高德 km/h；手机 <code>Location.speed×3.6</code></td><td><span class="b b-ok">正确</span> CP <code>/3.6</code> 喂 gps 源，单位一致</td></tr>
+          <tr><td class="f">road_name</td><td>仅当样本来自地图吸附时写，手机回退时写空串</td><td><span class="b b-ok">正确</span> 空串 = 无道路名，未伪造</td></tr>
+          <tr><td class="f">virtual_gps</td><td>恒 <code>false</code></td><td><span class="b b-info">可完善</span> 可用 <code>Location.isMockProvider</code> 给出真实判断（M 条）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.2 guidance_current / guidance_next</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">distance_m</td><td>当前段 <code>nTBTDist</code>；下一段 <code>nTBTDistNext</code>（段距离，非累计）</td><td><span class="b b-ok">正确</span> CP 侧自己加：<code>xDistToTurnNext = next + current</code>，口径吻合</td></tr>
+          <tr><td class="f">turn_type</td><td>CP 码域；<b>未识别不再透传</b>，直接 -1 并撤流</td><td><span class="b b-ok">正确</span>（修复了旧版原码透传的码域碰撞）</td></tr>
+          <tr><td class="f">main_text</td><td>10001 本地生成 / 10006 原文</td><td><span class="b b-ok">正确</span> ≤160 字符，CP 截断</td></tr>
+          <tr><td class="f">near_direction / far_direction</td><td>当前段用 <code>NEXT_ROAD_NAME</code> / <code>NEXT_NEXT_ROAD_NAME</code>；下一段两者皆空串</td><td><span class="b b-warn">可疑</span> 值是道路名不是左右方向词（CP 也只当文本用）；但 <b>next 段的 near/far 恒空</b>，CP 的 <code>szNearDirName/szFarDirName</code> 只被当前段刷新</td></tr>
+          <tr><td class="f">road_name</td><td>当前段 = 与 near 同值；下一段 = far 值</td><td><span class="b b-warn">可疑</span> 当前段 road_name 与 near_direction 重复；CP 两处都读，显示上可能重复同一道路名</td></tr>
+          <tr><td class="f">time_sec</td><td>仅在「同路线 + 同一 guide 收据」时写</td><td><span class="b b-ok">正确</span></td></tr>
+          <tr><td class="f">mid_direction</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> CP 读 <code>midDirection</code>（内容为空），无独立来源，属可接受空缺</td></tr>
+          <tr><td class="f">point.lat/lon</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> CP <code>pointValid=false</code>；不能用车辆当前位置顶替</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.3 lane_current / lane_ahead</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">count</td><td>地图车道图条数优先；无图时用本机 AR 模型 <code>lanesTotal</code>（1..8，1.2s 内）</td><td><span class="b b-warn">可疑</span> 模型数与地图条目数不是同一口径（见 J 条）</td></tr>
+          <tr><td class="f">current_lane</td><td>模型 <code>lanesLeft</code>（1-based），越界发 -1</td><td><span class="b b-warn">可疑</span> 没有已验证的地图 ego lane，这是估计值；越界时不发是正确做法</td></tr>
+          <tr><td class="f">visible / lane_play</td><td><code>visible = 地图有效 || 模型有数</code>；<code>lane_play</code> 只跟地图</td><td><span class="b b-warn">可疑</span> 只有模型时 <code>visible=true</code> 但 <code>lanes=[]</code>，CP 会按 count 画格子</td></tr>
+          <tr><td class="f">road_category</td><td>0/6→1，1..5/7..9→6；未知<b>整条流撤销</b></td><td><span class="b b-ok">正确</span> 与 CP「0/1=highway」注释一致；未知不伪造是本期最关键的修复</td></tr>
+          <tr><td class="f">turn_info[]</td><td><code>Back_icon</code> → CP 码（掉头 14 &gt; 左 12 &gt; 右 13 &gt; 直 51），任一不可译整键省略</td><td><span class="b b-ok">正确</span> 长度与 count 不符时不发，避免逐车道错位</td></tr>
+          <tr><td class="f">distance_m</td><td>借用 <code>nTBTDist</code>（导航动作距离）</td><td><span class="b b-warn">可疑</span> 不是 13012 路口距离，只在地图车道图有效时发</td></tr>
+          <tr><td class="f">turn_code</td><td>借用导航 <code>turn_type</code></td><td><span class="b b-warn">可疑</span> 是全路口动作，不是逐车道方向；逐车道靠 <code>turn_info</code></td></tr>
+          <tr><td class="f">available[]</td><td><b>从不发</b>（<code>LaneItem.isAvailable</code> 在发送侧从未被赋值）</td><td><span class="b b-bad">缺失</span> CP 读 <code>available</code> 用于车道条着色；当前恒空 ≠ 不可通行，但仪表无着色依据（D 条）</td></tr>
+          <tr><td class="f">etc_info[] / guide_line_color / voice_code</td><td>etc_info、guide_line_color 不发；<code>voice_code</code> 恒 0</td><td><span class="b b-bad">缺失</span>（前两个无源）；<span class="b b-warn">可疑</span>（voice_code 0 是「假值」，不是真实语音码）</td></tr>
+          <tr><td class="f">lane_ahead</td><td>恒撤销，reason <code>next_junction_lane_map_absent</code></td><td><span class="b b-ok">正确</span> 高德 13012 只给当前路口，CP 也暂不消费；<b>不复制当前路口图充数</b>是对的</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.4 speed</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">road_limit_kph</td><td>优先「源绑定的策略值」，其次原始限速；仅 10..200 且 10 档</td><td><span class="b b-ok">正确</span> 与 CP <code>_valid_road_limit_kph</code> 双重校验一致；55 之类不会四舍五入</td></tr>
+          <tr><td class="f">current_kph</td><td>与 vehicle 同源速度</td><td><span class="b b-ok">正确</span>（且 speed 不会仅因有速度而 present）</td></tr>
+          <tr><td class="f">sdi.type</td><td><code>nSdiType ≥ 0</code> 才写整个 sdi 对象</td><td><span class="b b-ok">正确</span> type=0 是合法值（信号测速），未把它当缺失</td></tr>
+          <tr><td class="f">sdi.distance_m</td><td>未知时写 <b>0</b></td><td><span class="b b-warn">可疑</span> CP <code>xSpdDist = nSdiDist</code>，0 米会被当成「已在摄像头位置」（仅当限速 &gt; 0 时生效）</td></tr>
+          <tr><td class="f">sdi.speed_limit_kph</td><td>未知写 0</td><td><span class="b b-warn">可疑</span> CP <code>_update_sdi</code> 要求 &gt;0 才应用，0 等于放弃；语义 OK 但仍是「0 表示未知」</td></tr>
+          <tr><td class="f">sdi.section_type</td><td><b>整键省略</b>（<code>-1</code> 不写）</td><td><span class="b b-bad">缺失</span> CP 读不到就 -1；有 <code>nSdiSection</code>（米）但无枚举源，宁缺不发是对的（F 条）</td></tr>
+          <tr><td class="f">sdi.block_*</td><td>显式写 -1 / 0</td><td><span class="b b-warn">可疑</span> 与 section_type「省略」写法不一致；CP 默认值同值，暂不出错</td></tr>
+          <tr><td class="f">sdi_secondary</td><td>type/dist/limit/block_* 齐全，<b>没有 section_type</b></td><td><span class="b b-bad">缺失</span> CP 读 <code>secondarySdiSectionType</code>（-1）</td></tr>
+          <tr><td class="f">section.active</td><td>要求「<code>block_type==2</code> 且真实剩余距离 &gt; 0」</td><td><span class="b b-ok">正确</span> 这是本期最关键的语义修复：不再出现 active=true / remaining=0</td></tr>
+          <tr><td class="f">section.speed_limit_kph</td><td>取 <code>nSdiBlockSpeed</code>，可能是 0</td><td><span class="b b-warn">可疑</span> CP 侧要求 &gt;0 才算 active，App 认为 active 但 CP 丢掉的窗口存在（N 条）</td></tr>
+          <tr><td class="f">section.average_kph / progress</td><td>有界计算值</td><td><span class="b b-ok">正确</span> progress 已 clamp 0..1</td></tr>
+          <tr><td class="f">section.overall_average_kph / remaining_time_sec</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> CP 读 <code>overallAverage</code> / <code>remainingTime</code>；没有独立来源，不用均速硬推是对的</td></tr>
+          <tr><td class="f">section.suspended / off_route</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> CP 默认 false；没有地图状态源</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.5 traffic_signal</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">visible</td><td>合成出可用相位才 true</td><td><span class="b b-ok">正确</span></td></tr>
+          <tr><td class="f">distance_m</td><td>车端 <code>stopLineDist</code>（0&lt;d≤125，四舍五入）；高德源时<b>不发</b></td><td><span class="b b-warn">可疑</span> 到停止线 ≠ 到灯杆，通常短几米（有偏近似）</td></tr>
+          <tr><td class="f">source</td><td>恒 <code>"navigation"</code></td><td><span class="b b-warn">可疑</span> 相位实际可能来自 7711 CAN；为兼容接收端分支刻意不改值，但字段语义已不准确（K 条）</td></tr>
+          <tr><td class="f">lights.red / green / left</td><td>车端红 → red；车端绿 + 高德左转绿 → left（承载倒计时）；否则 green</td><td><span class="b b-ok">正确</span> 只在相位一致时借倒计时，避免「灯色取 A、秒数取 B」</td></tr>
+          <tr><td class="f">lights.*.remain_sec</td><td>有 1..999 秒才写；车端无秒数时只写 <code>{valid,on}</code></td><td><span class="b b-warn">可疑</span> CP <code>_apply_carrot_navi_traffic()</code> 要求 <code>remain&gt;0</code>，否则清空 TrafficLight → <b>纯灯色相位到不了车辆参数</b>（L 条，本期最高优先级）</td></tr>
+          <tr><td class="f">lights.right / uturn</td><td>不发（无源）</td><td><span class="b b-ok">正确</span> 整对象省略 = 没有该相位，比发 invalid 对象安全</td></tr>
+          <tr><td class="f">ui_counter.remain_sec</td><td>由「on 且带秒数」的第一个灯派生</td><td><span class="b b-ok">正确</span> 不是独立倒计时源，CP 只当兜底</td></tr>
+          <tr><td class="f">lights.*.valid</td><td>每个灯对象里额外写 <code>valid:true</code></td><td><span class="b b-ok">无害</span> CP 只按对象存在与否判 <code>*Valid</code>，这个键不被读取</td></tr>
+          <tr><td class="f">point / movements / last_update_age_ms</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> 但 CP cereal 也不读，属文档级空缺，不影响当前链路</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>3.6 route / navigation_status / app_status</h3>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:150px">流 · 字段</th><th style="width:230px">App 发送</th><th>核对结论</th></tr></thead>
+        <tbody>
+          <tr><td class="f">route.remain_*</td><td><code>nGoPosDist</code> / <code>nGoPosTime</code></td><td><span class="b b-ok">正确</span> CP 直接写 <code>nGoPosDist/Time</code></td></tr>
+          <tr><td class="f">route.total_distance_m</td><td>仅在 ≥ 剩余距离时写</td><td><span class="b b-ok">正确</span></td></tr>
+          <tr><td class="f">route.moved_distance_m</td><td>总 − 剩余</td><td><span class="b b-ok">正确</span> 明确是派生值</td></tr>
+          <tr><td class="f">route.moved_time_sec</td><td>全程预计 − 剩余，且全程 ≥ 剩余</td><td><span class="b b-ok">正确</span> 高德重估会跳变，已限定口径</td></tr>
+          <tr><td class="f">route.polyline[]</td><td>恒 <code>[]</code></td><td><span class="b b-bad">缺失</span> CP 支持 256 点并用于 navi_points；当前无选中路线点列（E 条）</td></tr>
+          <tr><td class="f">navigation_status.mode / guidance_active / route_present</td><td>guiding / idle</td><td><span class="b b-ok">正确</span></td></tr>
+          <tr><td class="f">navigation_status.off_route</td><td><b>不发</b></td><td><span class="b b-bad">缺失</span> CP <code>offRoute</code> 恒 false → 偏航时不会抑制引导/SDI（G 条）</td></tr>
+          <tr><td class="f">app_status.foreground</td><td>发</td><td><span class="b b-ok">正确</span> CP 读它判前台</td></tr>
+          <tr><td class="f">app_status 其余三项</td><td><b>不发</b></td><td><span class="b b-info">可完善</span> 无消费方，低成本补齐可增强契约完整性</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════ 4 ══════════ -->
+  <section id="s4">
+    <h2><span class="n">04</span>问题清单</h2>
+    <p class="lede">点标题展开证据与建议。可按判定筛选。</p>
+    <div class="filters">
+      <button class="active" data-f="all">全部 34</button>
+      <button data-f="warn">语义可疑 11</button>
+      <button data-f="bad">缺失 13</button>
+      <button data-f="info">可完善 10</button>
+    </div>
+
+    <div id="issues">
+    <!-- ── 可疑 A ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">A</span><span class="ttl">高德 4/5（左前/右前方）被映射成 CP 的「匝道」动作 102/101</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>AmapManeuver.kt</code>：<code>4 → 102</code>、<code>5 → 101</code>、<code>65 → 102</code>、<code>66 → 101</code>。</dd>
+        <dt>冲突</dt><dd>CP <code>_update_tbt()</code>：<code>102/105/112/115 = ("off ramp","slight left")</code>。普通「靠左行驶」并不等于下匝道，CP 会在仪表上显示 off-ramp。</dd>
+        <dt>建议</dt><dd>普通分岔用 fork 家族（7/44/17/75/76/118 = fork-left，6/43/73/74/123/124/117 = fork-right）；只有确实 <code>SEG_ASSISTANT_ACTION</code> 表明匝道时才用 101/102。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 B ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">B</span><span class="ttl">高德 6（左后方）→ 17（fork-left），而 7（右后方）→ 19（sharp right），左右不对称</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>同一步语义，右侧用了 <code>sharp right</code>（19），左侧却落到 fork 家族（17）。</dd>
+        <dt>冲突</dt><dd>CP 有 <code>16 = ("turn","sharp left")</code>，正好对应「左后方」。源码注释也承认这是「方向同侧但不够精确」的待核准项。</dd>
+        <dt>建议</dt><dd>拿到一条真实 10001/10006 左后方广播样本后改成 16；在此之前不建议盲改（现有 17 至少方向正确）。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 C ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">C</span><span class="ttl">环岛「进入 / 驶出」都落到 rotary slight right（131 / 132），无法区分</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>AMap 11 → 131、12 → 132；CP 两者都是 <code>("rotary","slight right",5)</code>。</dd>
+        <dt>影响</dt><dd>只影响仪表文字/图标提示，不影响 xTurnInfo=5；但「进入」与「驶出」在 CP 侧无法区分。</dd>
+        <dt>建议</dt><dd>低优先。若需要区分，应先确认 CP 是否有可用码（132/140/141 同为 slight 家族），否则保持现状。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 D ── -->
+    <details class="issue" data-k="bad"><summary><span class="id">D</span><span class="ttl">lane.available[] 从未发送（isAvailable 在发送侧从未被赋值）</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>NaviDataModels.kt:368</code> 要求「所有车道 <code>isAvailable != null</code> 才写 <code>available</code>」，
+        但 <code>NaviStreamManager</code> 构造 <code>LaneItem</code> 时只填了 index/direction/isRecommended/driveWayNumber/…，
+        <code>isAvailable</code> 恒为 null → <b>该键永不出现</b>。</dd>
+        <dt>影响</dt><dd>CP <code>cluster_renderer</code> 用 <code>available</code> 给车道条着色；恒空时全部按默认色画，推荐车道高亮没有依据。</dd>
+        <dt>建议</dt><dd>高德 13012 若确有逐车道可用/推荐标志，先补一条 <code>laneInfo.available</code> 桥接再发；<b>不要</b>把 isRecommended 直接当 available（推荐 ≠ 可通行）。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 E ── -->
+    <details class="issue" data-k="bad"><summary><span class="id">E</span><span class="ttl">route.polyline 恒为空数组</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>RouteData.polyline</code> 默认 <code>emptyList()</code>，发送侧从未注入点列。</dd>
+        <dt>影响</dt><dd>CP <code>_route()</code> 拿到 0 点 → navi_points 无几何；任何依赖路线形状的消费都没有数据。</dd>
+        <dt>边界</dt><dd>不能用模型曲线、REST 另算路线、或「转向距离拼线」冒充当前车机路线；必须是当前选中路线的真实点列（最高 256 点）。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 F ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">F</span><span class="ttl">speed.sdi 的「未知」被写成 0，两种写法混用</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>distance_m=0</code>、<code>speed_limit_kph=0</code>、<code>block_*=0</code> 显式发送，而 <code>section_type</code> 是整键省略。</dd>
+        <dt>影响</dt><dd>CP <code>_update_sdi</code>：<code>xSpdDist = nSdiDist</code>，距离 0 意味着「已在摄像头处」（仅当 <code>nSdiSpeedLimit &gt; 0</code> 时生效）。若 type 有效但距离未知，属于把未知变成最坏值。</dd>
+        <dt>建议</dt><dd>sdi 加一条门槛：<code>distance &gt; 0 || speed_limit &gt; 0</code> 才发；两者都未知就整对象省略（CP <code>sdiPresent=false</code> 更安全）。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 G ── -->
+    <details class="issue" data-k="bad"><summary><span class="id">G</span><span class="ttl">navigation_status.off_route 从不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>NavigationStatusData.offRoute = null</code> → <code>toJson()</code> 整键省略；CP 默认 false。</dd>
+        <dt>影响</dt><dd>control 用 <code>offRoute</code> 抑制 guidance / SDI / section。真偏航时 CP 仍按旧路线给引导与限速。</dd>
+        <dt>边界</dt><dd>需要真实的地图偏航/恢复事件源；不能用「距离突变」猜。当前没有源 → 保持不发是对的，但要登记为待取证。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 H ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">H</span><span class="ttl">sdi.section_type / sdi_secondary.section_type 永远 -1</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>发送侧固定 <code>sdiSectionType = -1</code>，注释说明高德 <code>nSdiSection</code> 是「米」而不是枚举。</dd>
+        <dt>影响</dt><dd>CP 收到 -1（未知）。当前行为正确（不发脏值），但整条字段事实上不可用。</dd>
+        <dt>建议</dt><dd>保留现状，登记为「无枚举源」。若日后拿到 10007/12110 的区间枚举，再补翻译。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 I ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">I</span><span class="ttl">lane.distance_m / turn_code 借用导航动作值</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>distanceM = nTBTDist</code>（仅地图车道图有效时）、<code>turnCode = nTBTTurnType</code>。</dd>
+        <dt>影响</dt><dd>数值不是「路口车道图距离 / 逐车道方向」，而是当前导航动作的同类量。对 CP 的车道条影响有限（当前只把 turn_info 当长度下限）。</dd>
+        <dt>建议</dt><dd>保持，但在诊断里标注来源；若 CP 开始按 <code>turn_code</code> 画箭头，需改为真正的逐车道信息。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 J ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">J</span><span class="ttl">仅模型车道数时 visible=true、lanes=[]，CP 会按 count 画格子</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>无地图车道图但有新鲜模型结果 → <code>count=模型数</code>、<code>visible=true</code>、<code>lanes=[]</code>、无 available/turn_info。</dd>
+        <dt>影响</dt><dd>CP 显示 N 个灰格 + 当前车道标记。这是「模型估计」而非地图事实，现场无法从仪表上区分。</dd>
+        <dt>建议</dt><dd>诊断键 <code>lane_source/model_count/model_current_lane</code> 已经能区分（CP 不读）；若要更保守，可在地图与模型条数冲突时全部撤流。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 K ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">K</span><span class="ttl">traffic_signal.source 恒为 "navigation"，相位其实可能来自 CAN</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>put("source","navigation")</code> 是硬编码；车端 7711 参与合成后仍未改值（怕接收端按字符串分支）。</dd>
+        <dt>影响</dt><dd><code>TrafficLight</code> 参数里的 <code>source</code> 字段与真实来源不符，事后排查会误判。</dd>
+        <dt>建议</dt><dd>跨端确认 CP 是否会按键值分支；确认不会后，改为 <code>"car_can"</code> / <code>"amap_navi"</code>。App 侧诊断 <code>signalMerge.chosen</code> 已能区分。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 L ── -->
+    <details class="issue" data-k="warn" open><summary><span class="id">L</span><span class="ttl">★ 车端只有灯色、没有秒数时，CP 会把 TrafficLight 参数清空</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>App 侧车端红灯发 <code>{valid:true,on:true}</code>（无 <code>remain_sec</code>），这是为了让「CAN 只给灯色」也能表达相位。</dd>
+        <dt>冲突</dt><dd>CP <code>carrot_serv._apply_carrot_navi_traffic()</code>：
+          <code>if not traffic.present or not traffic.visible or not traffic.lamp or traffic.remain_sec &lt;= 0: self._clear_carrot_navi_traffic(); return</code>。
+          → <b>remain=0 时直接清空参数</b>，App 的努力在车机侧被丢弃。</dd>
+        <dt>影响</dt><dd>纯 CAN 相位（无高德倒计时）永远到不了车辆参数；只有「CAN 相位 + 高德同相位倒计时」这一小段有效。</dd>
+        <dt>建议</dt><dd>两条路，二选一：<b>① 跨端改 CP</b>：允许 <code>lamp</code> 已定但 <code>remain=0</code> 时写 <code>{distance,lamp,remain:0}</code>；<b>② App 侧不伪造秒数</b>，但提前确认 CP 消费方是否依赖 <code>remain</code> 判灯。优先做 ①，因为 ② 无法解决「没有秒数」的根本问题。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 M ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">M</span><span class="ttl">guidance_current 的 road_name 与 near_direction 同值；next 段 near/far 恒空</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd><code>roadName = szNearDirName</code> 且 <code>nearDirection = szNearDirName</code>；<code>guidance_next</code> 只填 roadName，near/far 用默认空串。</dd>
+        <dt>影响</dt><dd>CP 同时读两者 → 同一道路名可能出现两次；下一段的 near/far 不会刷新，CP 的 <code>szFarDirName</code> 一直停留在上一段。</dd>
+        <dt>建议</dt><dd>把 <code>road_name</code> 定义成「动作所在道路」，<code>near/far</code> 保持方向文本语义；next 段至少填 near（= <code>NEXT_NEXT_ROAD_NAME</code>），避免文本串段。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 可疑 N ── -->
+    <details class="issue" data-k="warn"><summary><span class="id">N</span><span class="ttl">section 判定口径两侧不一致（App 认为 active，CP 会丢掉）</span><span class="b b-warn">可疑</span></summary>
+      <div class="body"><dl>
+        <dt>现状</dt><dd>App：<code>block_type==2 且 remaining&gt;0</code> 就发 <code>section</code>。<br>
+          CP control：<code>section_active = … and not suspended and not off_route and not offRoute</code>，<b>并且</b> <code>section_limit &gt; 0</code>。</dd>
+        <dt>影响</dt><dd>当 <code>nSdiBlockSpeed</code> 为 0（区间限速未知）时，App 发了 section 但 CP 判定 inactive，两侧对「在不在区间内」结论不同。</dd>
+        <dt>建议</dt><dd>App 侧补同一条门槛：<code>section_speed_limit &gt; 0</code> 才发 section；否则只发 sdi 的 block_* 字段。</dd>
+      </dl></div>
+    </details>
+    <!-- ── 缺失 1 / 2 ── -->
+    <details class="issue" data-k="bad"><summary><span class="id">1</span><span class="ttl">guidance.point.{lat,lon} 从不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP <code>pointValid=false</code>、经纬度 0。任何按动作点算距离/画点的消费都不可用。</dd>
+        <dt>建议</dt><dd>需要真实动作点坐标（高德 10001 是否有该字段待取证）；不能用本车位置顶替。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">2</span><span class="ttl">guidance.mid_direction 从不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP <code>midDirection=""</code>；当前 CP 只用于文本显示。</dd>
+        <dt>建议</dt><dd>低优先，无源时可保持省略。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">3</span><span class="ttl">lane.etc_info[] / guide_line_color 从不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP 读这两个键（ETC 车道标记 / 引导线颜色），恒空。</dd>
+        <dt>建议</dt><dd>先确认真实业务是否需要（收费站 ETC 车道），需要再找 13012 对应字段。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">4</span><span class="ttl">speed.section.remaining_time_sec / overall_average_kph 不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP 读 <code>sectionRemainingTimeSec</code> / <code>sectionOverallAverageKph</code>，默认 0。</dd>
+        <dt>建议</dt><dd>不能用「当前均速推算」冒充；若 12110 广播含该字段则直接接。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">5</span><span class="ttl">speed.section.suspended / off_route 不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP 默认 false，而 control 用它们抑制区间判定。</dd>
+        <dt>建议</dt><dd>无地图状态源，保持不发；登记待取证。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">6</span><span class="ttl">lane_ahead / crossroad / camera_state / composition_state 整条撤销</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd>四条流恒 <code>present=false</code>，reason 分别为 next_junction_lane_map_absent / source_unavailable / source_unavailable / capture_unavailable。</dd>
+        <dt>判定</dt><dd><b>这是正确做法</b>，不是缺陷：没有源就不发，比复制当前路口图或用视频帧充数安全。登记为「能力空缺」而非 bug。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">7</span><span class="ttl">14 个 image 流 + 1 个 render 流客户端强制禁用</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>NaviWebSocketV2Client</code>：<code>enabled = requestedEnabled &amp;&amp; kind == "json"</code>。</dd>
+        <dt>影响</dt><dd>CP 若想在仪表显示 TBT 图 / 车道图 / 地图渲染，没有任何来源；manifest 里这些项是 enabled 但没有 socket 数据。</dd>
+        <dt>建议</dt><dd>不是错误（App 不渲染 TMAP UI）。若未来要喂图，需实现 PNG 截取 + CNV2 40 字节头，工作量单独评估。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">8</span><span class="ttl">traffic_signal.point / movements / last_update_age_ms 不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP cereal 不读，无实际影响；仅与上游文档不一致。</dd>
+        <dt>建议</dt><dd>低优先，可不动。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">9</span><span class="ttl">sdi_secondary.section_type 不发送</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP <code>secondarySdiSectionType=-1</code>。</dd>
+        <dt>建议</dt><dd>与 H 条同源（无枚举源），保持。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="bad"><summary><span class="id">10</span><span class="ttl">app_status 只发 foreground</span><span class="b b-bad">缺失</span></summary>
+      <div class="body"><dl><dt>影响</dt><dd>CP 只读 <code>foreground</code>，其余三项无消费方。</dd>
+        <dt>建议</dt><dd>可低成本补齐（见下方「可完善」），但不紧急。</dd></dl></div>
+    </details>
+
+    <!-- ── 可完善 ── -->
+    <details class="issue" data-k="info"><summary><span class="id">①</span><span class="ttl">合并两个同名 CHECK_INTERVAL_MS（200 / 1000）</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>NaviV2Constants.CHECK_INTERVAL_MS=1000</code>（无人引用）与 <code>NaviStreamManager.Companion.CHECK_INTERVAL_MS=200</code>（真实生效）。</dd>
+        <dt>风险</dt><dd>改错常量不生效，节拍与预期不符；排查时极易误判。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info" open><summary><span class="id">②</span><span class="ttl">JsonEnvelope 的 reason 空串没有兜底</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>put("reason", (reason ?: "source_absent").take(64))</code>——若调用方传 <code>""</code>，会发出空串。</dd>
+        <dt>后果</dt><dd>CP 校验 <code>not reason</code> → 抛错 → <b>整个 socket 出错</b>（不是丢一帧）。</dd>
+        <dt>建议</dt><dd>改成 <code>reason?.takeIf { it.isNotBlank() } ?: "source_absent"</code>。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">③</span><span class="ttl">virtual_gps 可用 isMockProvider 给出真实值</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd>恒 false。</dd><dt>建议</dt><dd>手机定位回退分支取 <code>Location.isFromMockProvider</code>；高德源无法判断时仍写 false 并在诊断标注。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">④</span><span class="ttl">手机回退无 bearing 时没有把磁罗盘送进 7714</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>LocationSensorManager</code> 把融合角写进共享 <code>carrotManFields.heading</code>，但 <code>NaviPositionSample.headingDeg</code> 只在 <code>hasBearing()</code> 时非空。</dd>
+        <dt>影响</dt><dd>手机定位回退时 heading 常缺 → CP 收到 0°。</dd>
+        <dt>建议</dt><dd>在回退样本里显式用融合角兜底，并标注来源为传感器（不是地图）。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑤</span><span class="ttl">traffic_signal.distance 的有偏近似需要显式标注</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd>用 7711 <code>stopLineDist</code> 当 <code>distance_m</code>，比「到灯杆」短几米。</dd>
+        <dt>建议</dt><dd>不改数值（不伪造），但在诊断面板与文档里标注口径，避免实车对照时误判。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑥</span><span class="ttl">mobileSdk 图标表含非 CP 码（1000 / 1001），当前未接线</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>AmapIconSource.MOBILE_SDK</code> 分支存在但全项目无调用点；表里 <code>16 → 1000</code>、<code>21 → 1001</code> 不是 CP 码（CP 会判 invalid）。</dd>
+        <dt>建议</dt><dd>要么删掉这段死代码，要么在接线前先把 1000/1001 改成 fork-left / fork-right。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑦</span><span class="ttl">转向码表加「对 CP 码表」的回归 fixture</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd>已有单测覆盖「未识别不透传」「环岛左右已对调」，但没有把 <code>carrot_serv._update_tbt()</code> 的 60+ 条码表固化成 fixture。</dd>
+        <dt>建议</dt><dd>把 CP 码表导出为 JSON fixture，双向跑一遍：App 发什么 → CP 解释成什么，防止再次「只错一位变成另一个合法动作」。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑧</span><span class="ttl">lane 的「地图优先 / 模型回退」建议加冲突策略</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd><code>lane_source="map+model"</code> 时 count 用地图、current_lane 用模型。</dd>
+        <dt>建议</dt><dd>当模型 count 与地图 count 差值 ≥2 时，current_lane 也不再采信模型（避免把 3 车道的位置套到 5 车道上）。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑨</span><span class="ttl">app_status 补齐其余三项（契约完整性）</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>建议</dt><dd><code>window_focused</code> 用 <code>hasWindowFocus()</code>、<code>main_map_visible</code> / <code>ui_capture_available</code> 在投屏页可见时为 true。CP 暂不读，属契约对齐。</dd></dl></div>
+    </details>
+    <details class="issue" data-k="info"><summary><span class="id">⑩</span><span class="ttl">speed 里「省略 / 显式 0」两种风格统一</span><span class="b b-info">可完善</span></summary>
+      <div class="body"><dl><dt>现状</dt><dd>同对象内 <code>section_type</code> 省略、<code>block_*</code> 显式 0/-1。</dd>
+        <dt>建议</dt><dd>统一成「未知即省略」，让 CP 的默认值语义与 App 意图一致，便于后续 README/对照表维护。</dd></dl></div>
+    </details>
+    </div>
+  </section>
+
+  <!-- ══════════ 5 ══════════ -->
+  <section id="s5">
+    <h2><span class="n">05</span>优先级建议</h2>
+    <div class="card tight" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr><th style="width:70px">优先级</th><th style="width:250px">事项</th><th>为什么值得先做</th><th style="width:130px">改动面</th></tr></thead>
+        <tbody>
+          <tr><td><span class="b b-bad">P0</span></td><td>L：车端灯色无秒数时 CP 清空 TrafficLight</td><td>当前 CAN 相位主要价值被丢弃；需先确认跨端契约，是「功能是否生效」级别</td><td>CP 侧 1 处判断 / 或 App 补秒数策略</td></tr>
+          <tr><td><span class="b b-bad">P0</span></td><td>② reason 空串兜底</td><td>一个空串就能让整条 socket 报错，代价极低</td><td>App 1 行</td></tr>
+          <tr><td><span class="b b-warn">P1</span></td><td>F：sdi 未知距离写 0</td><td>可能被 CP 当成「已在摄像头处」，影响减速提示</td><td>App 1 个门槛</td></tr>
+          <tr><td><span class="b b-warn">P1</span></td><td>N：section 限速 0 时两侧结论不一致</td><td>避免「App 认为在区间内、CP 认为不在」</td><td>App 1 个条件</td></tr>
+          <tr><td><span class="b b-warn">P1</span></td><td>A / B：转向码 4/5/6 语义偏差</td><td>仪表动作提示错误，且属于「合法码错语义」最难现场发现</td><td>码表 + fixture</td></tr>
+          <tr><td><span class="b b-warn">P2</span></td><td>D：lane.available 从未发送</td><td>推荐/可用车道在仪表上没有着色依据</td><td>需先确认 13012 字段</td></tr>
+          <tr><td><span class="b b-warn">P2</span></td><td>K：traffic_signal.source 语义</td><td>排查灯态来源时会误判</td><td>跨端确认后 1 行</td></tr>
+          <tr><td><span class="b b-info">P2</span></td><td>E / G：polyline、off_route</td><td>缺源，先取证再谈接线，禁止伪造</td><td>取证为主</td></tr>
+          <tr><td><span class="b b-info">P3</span></td><td>①③④⑨⑩：常量合并、virtual_gps、磁罗盘、app_status、风格统一</td><td>契约卫生，不影响当前功能</td><td>小改</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad">
+      <b>红线</b>：C/D/E 三条（逐车道可用性、路线几何、偏航状态）都没有已验证来源。
+      历史上最容易犯的错就是「为了凑字段而伪造」——例如把推荐车道写成 available、把模型曲线当 polyline。
+      本报告建议<b>继续保持撤销</b>，直到有真实广播样本。
+    </div>
+  </section>
+
+  <!-- ══════════ 6 ══════════ -->
+  <section id="s6">
+    <h2><span class="n">06</span>验证现状</h2>
+    <div class="grid3">
+      <div class="card tight"><h3 style="margin-top:0">已有单测</h3>
+        <p style="margin:0;color:var(--text2);font-size:13.5px">导航链路 4 个文件共 <b>66 项</b>：<br>
+        <span class="src">NaviStreamManagerTest</span> 33 · <span class="src">NaviV2DataModelsTest</span> 11 ·
+        <span class="src">NaviWebSocketV2ClientTest</span> 13 · <span class="src">TrafficSignalComposerTest</span> 9</p></div>
+      <div class="card tight"><h3 style="margin-top:0">覆盖到的关键语义</h3>
+        <p style="margin:0;color:var(--text2);font-size:13.5px">信封/序列、on_change 与 heartbeat 节流、字段收缩即时撤销、
+        区间必须带剩余距离、road_category 未知撤流、模型车道数/当前车道、turn_info 翻译、7711 优先与 125m 门槛。</p></div>
+      <div class="card tight"><h3 style="margin-top:0">没覆盖到</h3>
+        <p style="margin:0;color:var(--text2);font-size:13.5px">与 CP 码表的逐条对照、真实高德广播样本、
+        车机侧 cereal/param 的实际落值（本次全部为源码只读核对）。</p></div>
+    </div>
+    <div class="note info" style="margin-top:16px">
+      <b>结论口径</b>：本报告不声称「已修复 / 已验收」。所有判定都指向具体源码位置，
+      可在下一次实车/实机对照时逐条复核；凡标「待取证」的，都没有把推测写成事实。
+    </div>
+  </section>
+
+  <footer>
+    生成于 2026-10-21 · 对应 App 7.9.45（26102045）· 车端 carrot 源码取自 WSL
+    <span class="src">\\wsl.localhost\Ubuntu24\home\jeff\op\openpilot\openpilot\selfdrive\carrot</span><br>
+    本报告为只读研究记录，未修改 App、车端或车辆参数；含「缺失」的项目不等于必须补，无源时保持撤销是既定原则。
+  </footer>
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+  var btns = document.querySelectorAll('.filters button');
+  var items = document.querySelectorAll('#issues .issue');
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      btns.forEach(function(x){x.classList.remove('active')});
+      b.classList.add('active');
+      var f = b.dataset.f;
+      items.forEach(function(it){
+        var show = (f === 'all') || (it.dataset.k === f);
+        it.style.display = show ? '' : 'none';
+        if (show && f !== 'all') it.open = true;
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <queries>
+        <!-- Allow checking available map apps on Android 11+. -->
+        <package android:name="com.autonavi.amapauto" />
+        <package android:name="com.autonavi.minimap" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 保持屏幕常亮和防止休眠权限 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- 前台服务权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+ notification runtime permission for foreground service notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 忽略电池优化权限 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- 位置权限 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- MockLocation权限已移至 src/debug/AndroidManifest.xml（Release lint要求） -->
+
+    <!-- 网络权限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!--
+        ProjectionService 用 foregroundServiceType="connectedDevice"（投屏给车机浏览器）。
+        Android 14+ 除了 FOREGROUND_SERVICE_CONNECTED_DEVICE，还要求**至少一个**「连接类」
+        权限作为前置条件，否则 startForeground 直接抛 SecurityException 把进程带走
+        （7.9.37 点「投屏」闪退就是这个原因）。
+        CHANGE_NETWORK_STATE / CHANGE_WIFI_STATE 是 normal 级，安装即授予，不会弹窗。
+    -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
+    <!-- 图片选择和相机权限 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- 附近 WiFi 设备权限 -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+
+    <!-- 传感器和硬件功能 -->
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="true" />
+    <uses-feature android:name="android.hardware.sensor.compass" android:required="true" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:name="com.jixiexiaoge.drivingassist.CarrotApplication"
+        android:allowBackup="true"
+        android:largeHeap="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DrivingAssist"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true"
+        tools:targetApi="31">
+        <!-- 禁用OAID获取，避免非OPPO设备上 com.heytap.openid 包找不到的异常 -->
+        <meta-data
+            android:name="com.heytap.openid.disable"
+            android:value="true" />
+        <activity
+            android:name="com.jixiexiaoge.drivingassist.MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.DrivingAssist"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|keyboardHidden"
+            android:excludeFromRecents="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- LicenseVerificationActivity 已移除 -->
+
+        <!-- 前台服务 - 用于保持应用在后台稳定运行 -->
+        <service
+            android:name="com.jixiexiaoge.drivingassist.CarrotAmapForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false">
+        </service>
+
+        <service
+            android:name="com.navipilot.amap2tesla.projection.ProjectionService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name="com.navipilot.amap2tesla.network.TeslaVirtualIpService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintains the local fixed address used by the Navipilot Amap projection connection" />
+        </service>
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+        <meta-data
+            android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true" />
+
+        <!--
+          高德车机版广播接收器。
+          注意：高德不提供签名级自定义权限，本接收器**必须** exported 才能收到外部广播，
+          因此无法在清单层校验发送方身份。原先声明的 android:permission="INTERNET" 是
+          normal 级权限（声明即得），不构成任何访问控制，已移除以免造成"已保护"的错觉。
+
+          残留风险：同设备上的任意 App 都可以伪造这些 action + extras，污染 7714 上行数据。
+          缓解措施（见 AmapAutoStaticReceiver.onReceive）：拉起界面的频率节流、
+          不再逐键 dump extras、关键字段在解析层做数值范围校验。
+        -->
+        <receiver
+            android:name="com.jixiexiaoge.drivingassist.AmapAutoStaticReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter android:priority="1000">
+                <action android:name="AUTONAVI_STANDARD_BROADCAST_SEND" />
+                <action android:name="AMAP_BROADCAST_SEND" />
+                <action android:name="AUTONAVI_BROADCAST_SEND" />
+                <action android:name="AMAP_NAVI_ACTION_UPDATE" />
+                <action android:name="AMAP_NAVI_ACTION_TURN" />
+                <action android:name="AMAP_NAVI_ACTION_ROUTE" />
+                <action android:name="AMAP_NAVI_ACTION_LOCATION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- FileProvider - 用于分享图片等文件 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+        
+    </application>
+
+</manifest>
